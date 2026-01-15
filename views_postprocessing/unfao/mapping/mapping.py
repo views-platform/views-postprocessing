@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 
 NATURAL_EARTH_COUNTRY_PATH = Path(__file__).parent.parent.parent / "shapefiles" / "ne_110m_admin_0_countries" / "ne_110m_admin_0_countries.shp"
+
 PRIOGRID_SHAPEFILE_PATH = Path(__file__).parent.parent.parent / "shapefiles" / "priogrid_cellshp" / "priogrid_cell.shp"
 ADM_1_SHAPEFILE_PATH = Path(__file__).parent.parent.parent / "shapefiles" / "GAUL_2024_L1" / "GAUL_2024_L1.shp"
 ADM_2_SHAPEFILE_PATH = Path(__file__).parent.parent.parent / "shapefiles" / "GAUL_2024_L2" / "GAUL_2024_L2.shp"
@@ -129,7 +130,13 @@ class PriogridCountryMapper:
             cache_dir (str or Path): Custom cache directory path
             cache_ttl (int): Time-to-live for cache entries in seconds (None for no expiration)
         """
+        # Initialize attributes used in __del__ immediately to prevent AttributeError
+        # if an exception occurs during initialization (e.g., missing shapefiles).
+        self._process_pool = None
+        self._max_workers = cpu_count()
+
         # Load Natural Earth country data
+        # NOTE: This is the line that was crashing in your traceback (line 134)
         country_path = str(NATURAL_EARTH_COUNTRY_PATH)
         self.countries_gdf = self._load_and_preprocess_naturalearth(country_path)
         
@@ -198,9 +205,6 @@ class PriogridCountryMapper:
             )
         else:
             self.admin2_sindex = None
-
-        self._process_pool = None
-        self._max_workers = cpu_count()
 
     def _get_gid_cache_key(self, gid):
         """Generate a consistent cache key for GID-based lookups"""
@@ -604,32 +608,14 @@ class PriogridCountryMapper:
                 # Sort by overlap ratio (descending)
                 overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
 
-                # Assignment rules
+                # Assignment rule: always use largest overlap
                 result = None
-                method_used = "unknown"
-                
-                if overlaps and overlaps[0]["overlap_ratio"] > 0.5:
+                if overlaps:
                     country = overlaps[0]["country_data"]
-                    method_used = "area (majority)"
-                elif overlaps:
-                    centroid_country = None
-                    for overlap in overlaps:
-                        if overlap["country_data"]["geometry"].contains(grid_centroid):
-                            centroid_country = overlap["country_data"]
-                            method_used = "centroid (fallback)"
-                            break
-                    
-                    if centroid_country is not None:
-                        country = centroid_country
-                    elif len(overlaps) == 1:
-                        country = overlaps[0]["country_data"]
-                        method_used = "single country (water handling)"
-                    else:
-                        country = overlaps[0]["country_data"]
-                        method_used = "largest overlap (tiebreaker)"
+                    method_used = "largest overlap"
 
                 # Prepare result
-                if 'country' in locals():
+                if overlaps:
                     result = {
                         "gid": int(gid),
                         "iso_a3": country["ISO_A3"],
@@ -697,32 +683,14 @@ class PriogridCountryMapper:
             # Sort by overlap ratio (descending)
             overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
 
-            # Assignment rules
+            # Assignment rule: always use largest overlap
             result = None
-            method_used = "unknown"
-            
-            if overlaps and overlaps[0]["overlap_ratio"] > 0.5:
+            if overlaps:
                 country = overlaps[0]["country_data"]
-                method_used = "area (majority)"
-            elif overlaps:
-                centroid_country = None
-                for overlap in overlaps:
-                    if overlap["country_data"]["geometry"].contains(grid_centroid):
-                        centroid_country = overlap["country_data"]
-                        method_used = "centroid (fallback)"
-                        break
-                
-                if centroid_country is not None:
-                    country = centroid_country
-                elif len(overlaps) == 1:
-                    country = overlaps[0]["country_data"]
-                    method_used = "single country (water handling)"
-                else:
-                    country = overlaps[0]["country_data"]
-                    method_used = "largest overlap (tiebreaker)"
+                method_used = "largest overlap"
 
             # Prepare result
-            if 'country' in locals():
+            if overlaps:
                 result = {
                     "gid": int(gid),
                     "iso_a3": country["ISO_A3"],
@@ -1100,7 +1068,6 @@ class PriogridCountryMapper:
                     return None
 
                 grid_geometry = grid_cell["geometry"].iloc[0]
-                grid_centroid = grid_cell["centroid"].iloc[0]
 
                 # Filter admin1 regions to only those in the same country
                 country_admin1 = self.admin1_gdf[self.admin1_gdf["iso3_code"] == iso_a3]
@@ -1121,50 +1088,32 @@ class PriogridCountryMapper:
                 if len(candidate_admin1) == 0:
                     return None
 
-                # Assignment rules - prioritize centroid containment
-                result = None
-                method_used = "unknown"
-                
-                # First check if any admin1 region contains the centroid
-                centroid_admin1 = None
+                # Calculate overlaps and use largest overlap
+                overlaps = []
                 for _, admin1 in candidate_admin1.iterrows():
-                    if admin1["geometry"].contains(grid_centroid):
-                        centroid_admin1 = admin1
-                        method_used = "centroid"
-                        break
+                    try:
+                        intersection = admin1["geometry"].intersection(grid_geometry)
+                        overlap_area = intersection.area
+                        total_area = grid_geometry.area
+                        overlap_ratio = overlap_area / total_area
+
+                        overlaps.append({
+                            "admin1_data": admin1,
+                            "overlap_area": overlap_area,
+                            "overlap_ratio": overlap_ratio,
+                        })
+                    except Exception as e:
+                        logger.debug(f"Overlap calculation error for GID {gid}: {e}")
+                        continue
+
+                # Sort by overlap ratio (descending)
+                overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
                 
-                if centroid_admin1 is not None:
-                    admin1 = centroid_admin1
-                elif len(candidate_admin1) == 1:
-                    admin1 = candidate_admin1.iloc[0]
-                    method_used = "single admin1"
-                else:
-                    # If multiple admin1 regions intersect, use the one with largest overlap
-                    overlaps = []
-                    for _, admin1 in candidate_admin1.iterrows():
-                        try:
-                            intersection = admin1["geometry"].intersection(grid_geometry)
-                            overlap_area = intersection.area
-                            total_area = grid_geometry.area
-                            overlap_ratio = overlap_area / total_area
-
-                            overlaps.append({
-                                "admin1_data": admin1,
-                                "overlap_area": overlap_area,
-                                "overlap_ratio": overlap_ratio,
-                            })
-                        except Exception as e:
-                            logger.debug(f"Overlap calculation error for GID {gid}: {e}")
-                            continue
-
-                    # Sort by overlap ratio (descending)
-                    overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
+                if not overlaps:
+                    return None
                     
-                    if overlaps:
-                        admin1 = overlaps[0]["admin1_data"]
-                        method_used = "largest overlap (tiebreaker)"
-                    else:
-                        return None
+                admin1 = overlaps[0]["admin1_data"]
+                method_used = "largest overlap"
 
                 # Prepare result
                 result = {
@@ -1217,7 +1166,6 @@ class PriogridCountryMapper:
                 return None
 
             grid_geometry = grid_cell["geometry"].iloc[0]
-            grid_centroid = grid_cell["centroid"].iloc[0]
 
             # Filter admin1 regions to only those in the same country
             country_admin1 = self.admin1_gdf[self.admin1_gdf["iso3_code"] == iso_a3]
@@ -1240,51 +1188,33 @@ class PriogridCountryMapper:
                 self._admin1_cache[cache_key] = None
                 return None
 
-            # Assignment rules - prioritize centroid containment
-            result = None
-            method_used = "unknown"
-            
-            # First check if any admin1 region contains the centroid
-            centroid_admin1 = None
+            # Calculate overlaps and use largest overlap
+            overlaps = []
             for _, admin1 in candidate_admin1.iterrows():
-                if admin1["geometry"].contains(grid_centroid):
-                    centroid_admin1 = admin1
-                    method_used = "centroid"
-                    break
+                try:
+                    intersection = admin1["geometry"].intersection(grid_geometry)
+                    overlap_area = intersection.area
+                    total_area = grid_geometry.area
+                    overlap_ratio = overlap_area / total_area
+
+                    overlaps.append({
+                        "admin1_data": admin1,
+                        "overlap_area": overlap_area,
+                        "overlap_ratio": overlap_ratio,
+                    })
+                except Exception as e:
+                    logger.debug(f"Overlap calculation error for GID {gid}: {e}")
+                    continue
+
+            # Sort by overlap ratio (descending)
+            overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
             
-            if centroid_admin1 is not None:
-                admin1 = centroid_admin1
-            elif len(candidate_admin1) == 1:
-                admin1 = candidate_admin1.iloc[0]
-                method_used = "single admin1"
-            else:
-                # If multiple admin1 regions intersect, use the one with largest overlap
-                overlaps = []
-                for _, admin1 in candidate_admin1.iterrows():
-                    try:
-                        intersection = admin1["geometry"].intersection(grid_geometry)
-                        overlap_area = intersection.area
-                        total_area = grid_geometry.area
-                        overlap_ratio = overlap_area / total_area
-
-                        overlaps.append({
-                            "admin1_data": admin1,
-                            "overlap_area": overlap_area,
-                            "overlap_ratio": overlap_ratio,
-                        })
-                    except Exception as e:
-                        logger.debug(f"Overlap calculation error for GID {gid}: {e}")
-                        continue
-
-                # Sort by overlap ratio (descending)
-                overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
+            if not overlaps:
+                self._admin1_cache[cache_key] = None
+                return None
                 
-                if overlaps:
-                    admin1 = overlaps[0]["admin1_data"]
-                    method_used = "largest overlap (tiebreaker)"
-                else:
-                    self._admin1_cache[cache_key] = None
-                    return None
+            admin1 = overlaps[0]["admin1_data"]
+            method_used = "largest overlap"
 
             # Prepare result
             result = {
@@ -1336,7 +1266,6 @@ class PriogridCountryMapper:
                     return None
 
                 grid_geometry = grid_cell["geometry"].iloc[0]
-                grid_centroid = grid_cell["centroid"].iloc[0]
 
                 # Filter admin2 regions to only those in the same country
                 country_admin2 = self.admin2_gdf[self.admin2_gdf["iso3_code"] == iso_a3]
@@ -1357,50 +1286,32 @@ class PriogridCountryMapper:
                 if len(candidate_admin2) == 0:
                     return None
 
-                # Assignment rules - prioritize centroid containment
-                result = None
-                method_used = "unknown"
-                
-                # First check if any admin2 region contains the centroid
-                centroid_admin2 = None
+                # Calculate overlaps and use largest overlap
+                overlaps = []
                 for _, admin2 in candidate_admin2.iterrows():
-                    if admin2["geometry"].contains(grid_centroid):
-                        centroid_admin2 = admin2
-                        method_used = "centroid"
-                        break
+                    try:
+                        intersection = admin2["geometry"].intersection(grid_geometry)
+                        overlap_area = intersection.area
+                        total_area = grid_geometry.area
+                        overlap_ratio = overlap_area / total_area
+
+                        overlaps.append({
+                            "admin2_data": admin2,
+                            "overlap_area": overlap_area,
+                            "overlap_ratio": overlap_ratio,
+                        })
+                    except Exception as e:
+                        logger.debug(f"Overlap calculation error for GID {gid}: {e}")
+                        continue
+
+                # Sort by overlap ratio (descending)
+                overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
                 
-                if centroid_admin2 is not None:
-                    admin2 = centroid_admin2
-                elif len(candidate_admin2) == 1:
-                    admin2 = candidate_admin2.iloc[0]
-                    method_used = "single admin2"
-                else:
-                    # If multiple admin2 regions intersect, use the one with largest overlap
-                    overlaps = []
-                    for _, admin2 in candidate_admin2.iterrows():
-                        try:
-                            intersection = admin2["geometry"].intersection(grid_geometry)
-                            overlap_area = intersection.area
-                            total_area = grid_geometry.area
-                            overlap_ratio = overlap_area / total_area
-
-                            overlaps.append({
-                                "admin2_data": admin2,
-                                "overlap_area": overlap_area,
-                                "overlap_ratio": overlap_ratio,
-                            })
-                        except Exception as e:
-                            logger.debug(f"Overlap calculation error for GID {gid}: {e}")
-                            continue
-
-                    # Sort by overlap ratio (descending)
-                    overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
+                if not overlaps:
+                    return None
                     
-                    if overlaps:
-                        admin2 = overlaps[0]["admin2_data"]
-                        method_used = "largest overlap (tiebreaker)"
-                    else:
-                        return None
+                admin2 = overlaps[0]["admin2_data"]
+                method_used = "largest overlap"
 
                 # Prepare result
                 result = {
@@ -1457,7 +1368,6 @@ class PriogridCountryMapper:
                 return None
 
             grid_geometry = grid_cell["geometry"].iloc[0]
-            grid_centroid = grid_cell["centroid"].iloc[0]
 
             # Filter admin2 regions to only those in the same country
             country_admin2 = self.admin2_gdf[self.admin2_gdf["iso3_code"] == iso_a3]
@@ -1480,51 +1390,33 @@ class PriogridCountryMapper:
                 self._admin2_cache[cache_key] = None
                 return None
 
-            # Assignment rules - prioritize centroid containment
-            result = None
-            method_used = "unknown"
-            
-            # First check if any admin2 region contains the centroid
-            centroid_admin2 = None
+            # Calculate overlaps and use largest overlap
+            overlaps = []
             for _, admin2 in candidate_admin2.iterrows():
-                if admin2["geometry"].contains(grid_centroid):
-                    centroid_admin2 = admin2
-                    method_used = "centroid"
-                    break
+                try:
+                    intersection = admin2["geometry"].intersection(grid_geometry)
+                    overlap_area = intersection.area
+                    total_area = grid_geometry.area
+                    overlap_ratio = overlap_area / total_area
+
+                    overlaps.append({
+                        "admin2_data": admin2,
+                        "overlap_area": overlap_area,
+                        "overlap_ratio": overlap_ratio,
+                    })
+                except Exception as e:
+                    logger.debug(f"Overlap calculation error for GID {gid}: {e}")
+                    continue
+
+            # Sort by overlap ratio (descending)
+            overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
             
-            if centroid_admin2 is not None:
-                admin2 = centroid_admin2
-            elif len(candidate_admin2) == 1:
-                admin2 = candidate_admin2.iloc[0]
-                method_used = "single admin2"
-            else:
-                # If multiple admin2 regions intersect, use the one with largest overlap
-                overlaps = []
-                for _, admin2 in candidate_admin2.iterrows():
-                    try:
-                        intersection = admin2["geometry"].intersection(grid_geometry)
-                        overlap_area = intersection.area
-                        total_area = grid_geometry.area
-                        overlap_ratio = overlap_area / total_area
-
-                        overlaps.append({
-                            "admin2_data": admin2,
-                            "overlap_area": overlap_area,
-                            "overlap_ratio": overlap_ratio,
-                        })
-                    except Exception as e:
-                        logger.debug(f"Overlap calculation error for GID {gid}: {e}")
-                        continue
-
-                # Sort by overlap ratio (descending)
-                overlaps.sort(key=lambda x: x["overlap_ratio"], reverse=True)
+            if not overlaps:
+                self._admin2_cache[cache_key] = None
+                return None
                 
-                if overlaps:
-                    admin2 = overlaps[0]["admin2_data"]
-                    method_used = "largest overlap (tiebreaker)"
-                else:
-                    self._admin2_cache[cache_key] = None
-                    return None
+            admin2 = overlaps[0]["admin2_data"]
+            method_used = "largest overlap"
 
             # Prepare result
             result = {

@@ -258,7 +258,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self._historical_dataframe.to_parquet(
             historical_file_path
         )
-        dsm.upload_predictions(file=historical_file_path, 
+        dsm.upload_data(file=historical_file_path, 
                        filename=Path(historical_file_path).name, 
                        name=self._model_path.model_name,
                        loa="pgm",
@@ -268,7 +268,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self._forecast_dataframe.to_parquet(
             forecast_file_path
         )
-        dsm.upload_predictions(file=forecast_file_path, 
+        dsm.upload_data(file=forecast_file_path, 
                        filename=Path(forecast_file_path).name,
                        name=self.ensemble_path_manager.model_name,
                        loa="pgm",
