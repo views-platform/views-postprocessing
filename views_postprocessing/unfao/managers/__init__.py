@@ -1,1 +1,1 @@
-from .unfao import UNFAOPostProcessorManager
+from .unfao import UNFAOPostProcessorManager as UNFAOPostProcessorManager

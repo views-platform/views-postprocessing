@@ -212,3 +212,7 @@ cython_debug/
 
 # txt logs
 *.txt
+
+# generated artifacts
+graphify-out/
+.claude/

@@ -3,7 +3,6 @@ from views_pipeline_core.managers.postprocessor.postprocessor import (
     PostprocessorPathManager,
 )
 from views_pipeline_core.files.utils import read_dataframe
-from views_pipeline_core.configs.pipeline import PipelineConfig
 import logging
 from views_pipeline_core.data.handlers import PGMDataset
 
@@ -11,11 +10,9 @@ from views_pipeline_core.modules.appwrite.file import AppwriteConfig
 from views_pipeline_core.modules.datastore import DatastoreModule
 from views_pipeline_core.managers.model import ForecastingModelManager
 
-from views_pipeline_core.managers.ensemble import EnsembleManager, EnsemblePathManager
-import polars as pl
+from views_pipeline_core.managers.ensemble import EnsemblePathManager
 import pandas as pd
 import io
-from argparse import Namespace
 from datetime import datetime
 import os
 from dotenv import load_dotenv
@@ -45,25 +42,18 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self.ensemble_path_manager = None
 
     def _read_historical_data(self):
-        # Historical Data
-        path_raw = self._model_path.data_raw  # Path to raw data
-        path_artifacts = self._model_path.artifacts  # Path to save model artifacts
-        run_type = "forecasting"  # e.g., "calibration", "validation", "forecasting"
-        
+        self._initialize_data_loader()
+        run_type = "forecasting"
+
         self._data_loader.get_data(
                 use_saved=False,
                 validate=False,
                 self_test=False,
                 partition=run_type
             )
-        current_month = datetime.now().strftime("%Y-%m")
-        artifact_name = f"{run_type}_viewser_df_{current_month}"
         self._historical_dataframe = read_dataframe(
-            path_raw / f"{run_type}_viewser_df{PipelineConfig.dataframe_format}"
-        )  # Dataframe obtained from viewser
-        partitioner_dict = (
-            self._data_loader.partition_dict
-        )  # Partition dict from ViewsDataLoader
+            self._data_loader.cached_data_path
+        )
         self._historical_dataset = PGMDataset(
             source=self._historical_dataframe, targets=self.configs.get("targets")
         )
@@ -205,23 +195,29 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             "admin1_gaul0_name",
             "admin2_gaul2_code",
             "admin2_gaul2_name"]
-        
+
         for col in _necessary_metadata_cols:
-            if col in self._historical_dataframe.columns:
-            #     if self._historical_dataframe[col].isnull().any():
-            #         raise ValueError(f"Historical dataframe is missing values in required metadata column: {col}. Found {self._historical_dataframe[col].isnull().sum()} null values.")
-                continue
-            else:
-                raise ValueError(f"Historical dataframe is missing required metadata column: {col}. Found columns: {self._historical_dataframe.columns.tolist()}")
+            if col not in self._historical_dataframe.columns:
+                err_msg = f"Historical dataframe is missing required metadata column: {col}. Found columns: {self._historical_dataframe.columns.tolist()}"
+                logger.error(err_msg)
+                raise ValueError(err_msg)
+            null_count = self._historical_dataframe[col].isnull().sum()
+            if null_count > 0:
+                err_msg = f"Historical dataframe has {null_count} null values in required metadata column: {col} ({null_count}/{len(self._historical_dataframe)} rows)."
+                logger.error(err_msg)
+                raise ValueError(err_msg)
         logger.info("Historical dataframe metadata validation passed.")
-        
+
         for col in _necessary_metadata_cols:
-            if col in self._forecast_dataframe.columns:
-            #     if self._forecast_dataframe[col].isnull().any():
-            #         raise ValueError(f"Forecast dataframe is missing values in required metadata column: {col}. Found {self._forecast_dataframe[col].isnull().sum()} null values.")
-                continue
-            else:
-                raise ValueError(f"Forecast dataframe is missing required metadata column: {col}. Found columns: {self._forecast_dataframe.columns.tolist()}")
+            if col not in self._forecast_dataframe.columns:
+                err_msg = f"Forecast dataframe is missing required metadata column: {col}. Found columns: {self._forecast_dataframe.columns.tolist()}"
+                logger.error(err_msg)
+                raise ValueError(err_msg)
+            null_count = self._forecast_dataframe[col].isnull().sum()
+            if null_count > 0:
+                err_msg = f"Forecast dataframe has {null_count} null values in required metadata column: {col} ({null_count}/{len(self._forecast_dataframe)} rows)."
+                logger.error(err_msg)
+                raise ValueError(err_msg)
         logger.info("Forecast dataframe metadata validation passed.")
 
     def _save(self) -> list:
@@ -252,25 +248,26 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         dsm = DatastoreModule(appwrite_file_manager_config=unfao_appwrite_config)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        enrichment_description = f"Enriched with geographic metadata on {timestamp} using PriogridCountryMapper."
         historical_file_path = self._model_path.data_generated / f"historical_dataset_{timestamp}.parquet"
         forecast_file_path = self._model_path.data_generated / f"forecast_dataset_{timestamp}.parquet"
 
         self._historical_dataframe.to_parquet(
             historical_file_path
         )
-        dsm.upload_data(file=historical_file_path, 
-                       filename=Path(historical_file_path).name, 
+        dsm.upload_data(file=historical_file_path,
+                       filename=Path(historical_file_path).name,
                        name=self._model_path.model_name,
                        loa="pgm",
                        type="model", targets=self.configs.get("targets", []),
-                       description="This is a test DataFrame.", category="historical")
+                       description=enrichment_description, category="historical")
 
         self._forecast_dataframe.to_parquet(
             forecast_file_path
         )
-        dsm.upload_data(file=forecast_file_path, 
+        dsm.upload_data(file=forecast_file_path,
                        filename=Path(forecast_file_path).name,
                        name=self.ensemble_path_manager.model_name,
                        loa="pgm",
-                       type="model", targets=["pred_ln_sb_best", "pred_ln_ns_best", "pred_ln_os_best", "pred_ln_sb_prob", "pred_ln_ns_prob", "pred_ln_os_prob"], 
-                       description="This is a test DataFrame.", category="forecast")
+                       type="model", targets=["pred_ln_sb_best", "pred_ln_ns_best", "pred_ln_os_best", "pred_ln_sb_prob", "pred_ln_ns_prob", "pred_ln_os_prob"],
+                       description=enrichment_description, category="forecast")

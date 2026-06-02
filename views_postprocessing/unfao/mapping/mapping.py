@@ -1,14 +1,10 @@
 import pandas as pd
 import geopandas as gpd
-from datetime import datetime
-from shapely.geometry import shape
 from shapely.geometry import Point as ShapelyPoint
 from shapely import wkt
-import warnings
-from abc import ABC, abstractmethod
-from typing import Optional, Union, List, Dict, Any
+from typing import Optional
 
-from functools import lru_cache, partial
+from functools import partial
 from collections import OrderedDict
 import math
 import numpy as np
@@ -16,14 +12,12 @@ import logging
 from pathlib import Path
 import os
 
-from multiprocessing import Pool, Manager, cpu_count
+from multiprocessing import Pool, cpu_count
 from joblib import Memory
 from cachetools import LRUCache, TTLCache
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-warnings.filterwarnings("ignore")
 
 NATURAL_EARTH_COUNTRY_PATH = (
     Path(__file__).parent.parent.parent
@@ -452,6 +446,9 @@ class PriogridCountryMapper:
         if countries_gdf.crs is None:
             countries_gdf.set_crs(epsg=4326, inplace=True)
 
+        # Fix invalid geometries before validation and use
+        countries_gdf["geometry"] = countries_gdf["geometry"].make_valid()
+
         # Validate data
         self._validate_naturalearth_data(countries_gdf)
 
@@ -465,9 +462,9 @@ class PriogridCountryMapper:
             col for col in required_columns if col not in countries_gdf.columns
         ]
         if missing_columns:
-            raise ValueError(
-                f"Missing required columns in Natural Earth data: {missing_columns}"
-            )
+            err_msg = f"Missing required columns in Natural Earth data: {missing_columns}"
+            logger.error(err_msg)
+            raise ValueError(err_msg)
 
         # Check geometry validity
         invalid_geometries = countries_gdf[~countries_gdf["geometry"].is_valid]
@@ -497,8 +494,13 @@ class PriogridCountryMapper:
         if priogrid_gdf.crs is None:
             priogrid_gdf.set_crs(epsg=4326, inplace=True)
 
-        # Calculate centroid of each grid cell for point-in-polygon testing
-        priogrid_gdf["centroid"] = priogrid_gdf["geometry"].centroid
+        # Fix invalid geometries before use
+        priogrid_gdf["geometry"] = priogrid_gdf["geometry"].make_valid()
+
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*Geometry is in a geographic CRS.*")
+            priogrid_gdf["centroid"] = priogrid_gdf["geometry"].centroid
 
         # Validate data
         self._validate_priogrid_data(priogrid_gdf)
@@ -513,9 +515,9 @@ class PriogridCountryMapper:
             col for col in required_columns if col not in priogrid_gdf.columns
         ]
         if missing_columns:
-            raise ValueError(
-                f"Missing required columns in PRIO-GRID data: {missing_columns}"
-            )
+            err_msg = f"Missing required columns in PRIO-GRID data: {missing_columns}"
+            logger.error(err_msg)
+            raise ValueError(err_msg)
 
         # Check geometry validity
         invalid_geometries = priogrid_gdf[~priogrid_gdf["geometry"].is_valid]
@@ -621,7 +623,10 @@ class PriogridCountryMapper:
                     return None
 
                 grid_geometry = grid_cell["geometry"].iloc[0]
-                grid_centroid = grid_cell["centroid"].iloc[0]
+
+                if grid_geometry.area == 0.0:
+                    logger.warning(f"Zero-area grid geometry for GID {gid}, skipping country overlap")
+                    return None
 
                 # Use spatial index to find potentially intersecting countries
                 if hasattr(self.countries_gdf, "sindex"):
@@ -708,7 +713,11 @@ class PriogridCountryMapper:
                 return None
 
             grid_geometry = grid_cell["geometry"].iloc[0]
-            grid_centroid = grid_cell["centroid"].iloc[0]
+
+            if grid_geometry.area == 0.0:
+                logger.warning(f"Zero-area grid geometry for GID {gid}, skipping country overlap")
+                self._country_cache[cache_key] = None
+                return None
 
             # Use spatial index to find potentially intersecting countries
             if hasattr(self.countries_gdf, "sindex"):
@@ -913,6 +922,10 @@ class PriogridCountryMapper:
                 continue
 
             # Calculate overlap with the target country
+            if grid_geometry.area == 0.0:
+                logger.warning(f"Zero-area grid geometry for GID {grid_gid}, skipping country reverse lookup")
+                continue
+
             try:
                 intersection = country_geometry.intersection(grid_geometry)
                 overlap_ratio = intersection.area / grid_geometry.area
@@ -921,7 +934,6 @@ class PriogridCountryMapper:
                 if overlap_ratio > 0.5:
                     matching_gids.append(int(grid_gid))
             except Exception as e:
-                # Handle potential geometry errors gracefully
                 logger.debug(f"Geometry error for GID {grid_gid}: {e}")
                 continue
 
@@ -1051,7 +1063,7 @@ class PriogridCountryMapper:
                 return grid_cell["gid"]
         return None
 
-    def get_point_from_gid(self, gid: int) -> Optional["Point"]:
+    def get_point_from_gid(self, gid: int) -> Optional["Point"]:  # noqa: F821
         """
         Get the centroid point of a PRIO-GRID cell.
 
@@ -1066,7 +1078,7 @@ class PriogridCountryMapper:
         if len(grid_cell) == 0:
             return None
         centroid = grid_cell["centroid"].iloc[0]
-        return Point(lat=centroid.y, lon=centroid.x)
+        return Point(lat=centroid.y, lon=centroid.x)  # noqa: F821
 
     def _load_admin_data(self, admin_path, admin_level):
         """
@@ -1099,6 +1111,9 @@ class PriogridCountryMapper:
         if admin_gdf.crs is None:
             admin_gdf.set_crs(epsg=4326, inplace=True)
 
+        # Fix invalid geometries before use
+        admin_gdf["geometry"] = admin_gdf["geometry"].make_valid()
+
         # Validate data
         self._validate_admin_data(admin_gdf, admin_level)
 
@@ -1116,9 +1131,9 @@ class PriogridCountryMapper:
             col for col in required_columns if col not in admin_gdf.columns
         ]
         if missing_columns:
-            raise ValueError(
-                f"Missing required columns in {admin_level} data: {missing_columns}"
-            )
+            err_msg = f"Missing required columns in {admin_level} data: {missing_columns}"
+            logger.error(err_msg)
+            raise ValueError(err_msg)
 
         # Check geometry validity
         invalid_geometries = admin_gdf[~admin_gdf["geometry"].is_valid]
@@ -1154,6 +1169,10 @@ class PriogridCountryMapper:
                     return None
 
                 grid_geometry = grid_cell["geometry"].iloc[0]
+
+                if grid_geometry.area == 0.0:
+                    logger.warning(f"Zero-area grid geometry for GID {gid}, skipping admin1 overlap")
+                    return None
 
                 # Filter admin1 regions to only those in the same country
                 country_admin1 = self.admin1_gdf[self.admin1_gdf["iso3_code"] == iso_a3]
@@ -1270,6 +1289,11 @@ class PriogridCountryMapper:
                 return None
 
             grid_geometry = grid_cell["geometry"].iloc[0]
+
+            if grid_geometry.area == 0.0:
+                logger.warning(f"Zero-area grid geometry for GID {gid}, skipping admin1 overlap")
+                self._admin1_cache[cache_key] = None
+                return None
 
             # Filter admin1 regions to only those in the same country
             country_admin1 = self.admin1_gdf[self.admin1_gdf["iso3_code"] == iso_a3]
@@ -1388,6 +1412,10 @@ class PriogridCountryMapper:
                     return None
 
                 grid_geometry = grid_cell["geometry"].iloc[0]
+
+                if grid_geometry.area == 0.0:
+                    logger.warning(f"Zero-area grid geometry for GID {gid}, skipping admin2 overlap")
+                    return None
 
                 # Filter admin2 regions to only those in the same country
                 country_admin2 = self.admin2_gdf[self.admin2_gdf["iso3_code"] == iso_a3]
@@ -1512,6 +1540,11 @@ class PriogridCountryMapper:
                 return None
 
             grid_geometry = grid_cell["geometry"].iloc[0]
+
+            if grid_geometry.area == 0.0:
+                logger.warning(f"Zero-area grid geometry for GID {gid}, skipping admin2 overlap")
+                self._admin2_cache[cache_key] = None
+                return None
 
             # Filter admin2 regions to only those in the same country
             country_admin2 = self.admin2_gdf[self.admin2_gdf["iso3_code"] == iso_a3]
@@ -1990,8 +2023,8 @@ class PriogridCountryMapper:
         try:
             import matplotlib.pyplot as plt
             import matplotlib.patches as mpatches
-            from matplotlib.colors import LinearSegmentedColormap
-            import matplotlib.cm as cm
+            from matplotlib.colors import LinearSegmentedColormap  # noqa: F401
+            import matplotlib.cm as cm  # noqa: F401
         except ImportError:
             logger.error("Matplotlib is required for visualization")
             return
@@ -2527,6 +2560,8 @@ class PriogridCountryMapper:
         # Process in batches
         all_pg_data = {}
         processed_count = 0
+        failed_batches = 0
+        failed_gids = []  # observability-only; not in return value (C-21)
 
         # Initialize progress bar if requested
         pbar = None
@@ -2595,8 +2630,9 @@ class PriogridCountryMapper:
                             )
 
                     except Exception as e:
-                        logger.error(f"Error processing batch {batch_idx}: {str(e)}")
-                        # Continue with other batches even if one fails
+                        failed_batches += 1
+                        failed_gids.extend(list(batches[batch_idx]))
+                        logger.error(f"Batch {batch_idx} failed ({len(batches[batch_idx])} GIDs affected): {str(e)}")
                         continue
         else:
             # Process sequentially for smaller datasets
@@ -2634,8 +2670,13 @@ class PriogridCountryMapper:
                     )
 
                 except Exception as e:
-                    logger.error(f"Error processing batch {batch_num}: {str(e)}")
+                    failed_batches += 1
+                    failed_gids.extend(list(batch_ids))
+                    logger.error(f"Batch {batch_num} failed ({len(batch_ids)} GIDs affected): {str(e)}")
                     continue
+
+        if failed_batches > 0:
+            logger.error(f"Enrichment had {failed_batches} failed batch(es) affecting {len(failed_gids)} GIDs. Output will have NaN metadata for these GIDs.")
 
         # Close progress bar
         if pbar:
@@ -2810,6 +2851,8 @@ class PriogridCountryMapper:
         # Process in batches
         all_country_data = {}
         processed_count = 0
+        failed_batches = 0
+        failed_codes = []  # observability-only; not in return value (C-21)
 
         # Initialize progress bar if requested
         pbar = None
@@ -2869,8 +2912,9 @@ class PriogridCountryMapper:
                             )
 
                     except Exception as e:
-                        logger.error(f"Error processing batch {batch_idx}: {str(e)}")
-                        # Continue with other batches even if one fails
+                        failed_batches += 1
+                        failed_codes.extend(list(batches[batch_idx]))
+                        logger.error(f"Batch {batch_idx} failed ({len(batches[batch_idx])} codes affected): {str(e)}")
                         continue
         else:
             # Process sequentially for smaller datasets
@@ -2900,8 +2944,13 @@ class PriogridCountryMapper:
                     )
 
                 except Exception as e:
-                    logger.error(f"Error processing batch {batch_num}: {str(e)}")
+                    failed_batches += 1
+                    failed_codes.extend(list(batch_codes))
+                    logger.error(f"Batch {batch_num} failed ({len(batch_codes)} codes affected): {str(e)}")
                     continue
+
+        if failed_batches > 0:
+            logger.error(f"Enrichment had {failed_batches} failed batch(es) affecting {len(failed_codes)} ISO A3 codes. Output will have NaN metadata for these codes.")
 
         # Close progress bar
         if pbar:
@@ -3080,7 +3129,7 @@ class PriogridCountryMapper:
                 iso_to_additional[col]
             )
 
-        logger.info(f"Added country information to DataFrame")
+        logger.info("Added country information to DataFrame")
         return result_df
 
 
