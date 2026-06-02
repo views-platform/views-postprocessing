@@ -30,11 +30,12 @@
 **Highest tier:** 1 (C-16)
 **Fix strategy:** Extract `CacheStrategy` interface with disk/memory implementations. Thread-lock in memory impl. Shapefile hash in disk cache keys.
 **Resolution scope:** Full
+**⚠ CONTINGENT ON ADR-011:** If precomputed lookup table replaces mapping.py, this entire cluster is eliminated. Defer until ADR-011 is executed.
 
 ### Cluster B: Silent error hiding architecture
 **Root cause:** The codebase suppresses problem signals at three levels — global warning filter, DEBUG-level exception logging with `continue`, and raises without preceding logs. The impact propagates through a delivery chain with no correction mechanism.
-**Entries:** C-12, C-18, C-19, C-20, C-21, C-22, D-03, D-04
-**Highest tier:** 1 (C-12, C-20)
+**Entries:** C-12, C-19, C-20, C-21, C-22, D-03 (resolved), D-04 (resolved), C-18 (resolved)
+**Highest tier:** 2 (C-12, C-21)
 **Fix strategy (5/9 done):** ✅ Replace global warning suppression with targeted filter. ◻ Promote geometry errors from DEBUG to WARNING. ✅ Add `make_valid()` preprocessing. ◻ Narrow exception scope. ✅ Zero-area guard clause (all 7 sites). ◻ `logger.error` before all raises (3 of ~23 done). ✅ Surface batch failures to caller (both methods). ◻ Enrichment provenance in upload (timestamp added, no shapefile version). ◻ Post-delivery correction procedure (C-22).
 **Resolution scope:** Full (code mechanisms) + Partial (operational impact — C-22 requires process documentation). **Note:** If D-05 resolves toward mapper elimination, remaining code fixes become moot.
 
@@ -44,12 +45,21 @@
 **Highest tier:** 2 (C-02)
 **Fix strategy:** Lazy initialization or removal of module-level call. Add `mapper` constructor parameter to manager.
 **Resolution scope:** Full
+**⚠ CONTINGENT ON ADR-011:** If precomputed lookup table replaces mapping.py, this entire cluster is eliminated. Defer until ADR-011 is executed.
 
 ### Cluster D: Mapper-manager boundary contract
 **Root cause:** No explicit contract declares what columns the mapper produces and the manager consumes.
 **Entries:** C-04, C-17
 **Highest tier:** 2 (C-04)
 **Fix strategy:** Define `ENRICHMENT_SCHEMA` constant. Harmonize forward/reverse thresholds. Add end-to-end integration test.
+**Resolution scope:** Full
+**⚠ CONTINGENT ON ADR-011:** If precomputed lookup table replaces mapping.py, the boundary simplifies to a Parquet schema. C-17 is eliminated; C-04 is eliminated (no runtime forward/reverse divergence).
+
+### Cluster F: CIC-code drift (documentation describes aspirational, not actual behavior)
+**Root cause:** CICs were written as design contracts and never validated against the code. Multiple guarantees are false.
+**Entries:** Campaign findings 1.1, 1.2 — affecting CIC PriogridCountryMapper §3/§5/§6 and CIC UNFAOPostProcessorManager §3/§6
+**Highest tier:** Not a code risk — documentation accuracy risk
+**Fix strategy:** Update CICs to describe actual code behavior. Specifically: (1) cache guarantee needs C-05 caveat, (2) return types need full key listing, (3) §6 log level should say DEBUG not WARNING, (4) ADR-008 compliance claim needs qualifying, (5) env var boundary validation claim needs qualifying. Pure documentation, no code changes.
 **Resolution scope:** Full
 
 ### Cluster E: Replace runtime mapper with precomputed lookup table
@@ -222,7 +232,7 @@ See also C-06 (code duplication within the same class amplifies the SRP violatio
 | Field | Value |
 |-------|-------|
 | ID | C-12 |
-| Tier | 1 |
+| Tier | 2 |
 | Source | `expert-review` (2026-06-02) |
 | Trigger | When Natural Earth or GAUL shapefiles contain an invalid polygon for a country that is the correct assignment for a PRIO-GRID cell, verify that the geometry error is surfaced — currently the cell is silently assigned to the next-best country |
 | Location | `views_postprocessing/unfao/mapping/mapping.py:658-660` (also duplicated at ~line 1192, 1428 in admin1/admin2 branches) |
@@ -235,7 +245,9 @@ The mapper's own `_validate_naturalearth_data` (line 473-477) detects invalid ge
 
 Critically, the manager's `_validate()` method — the only safety gate before upload — is structurally incapable of catching Cluster B's primary failure mode. `_validate()` checks column presence and null counts. A misassigned cell has a valid ISO code (just the wrong one), non-null values, and all required columns present. Validation passes. The safety net has a hole shaped exactly like the failure mode it should catch: wrong-but-valid geographic assignments are invisible to every automated check in the pipeline.
 
-See also C-08 (a different mechanism for wrong-country at high latitudes), D-05 (if mapper eliminated, this concern is moot).
+Tier recalibrated from 1 to 2 during post-campaign review-rr (2026-06-02): `make_valid()` now applied at load time mitigates the root cause. With valid geometries, intersection failures are limited to precision edge cases. The 7 DEBUG handlers remain but are defense-in-depth, not the primary failure path. Campaign Claim 2.1-2.4 confirmed correct algorithm behavior.
+
+See also C-08 (a different mechanism for wrong-country at high latitudes), D-05 (if mapper eliminated, this concern is moot). Contingent on ADR-011.
 
 ---
 
@@ -432,7 +444,7 @@ See also C-17 (implicit column naming between mapper and manager — a different
 | ID | D-01 |
 | Source | `expert-review` (2026-06-02) |
 | Perspectives | Martin/GoF (extract Strategy pattern now), Feathers/Beck (characterize disk-cache branch with tests first) |
-| Resolution | Unresolved — resolve before starting Cluster A cache strategy extraction. **Contingent on D-05:** if mapper eliminated, this disagreement is moot. |
+| Resolution | **⚠ CONTINGENT ON ADR-011.** If precomputed lookup table replaces mapping.py, no cache to refactor — this disagreement is moot. Only resolve if mapper is kept. |
 
 ---
 
@@ -443,7 +455,7 @@ See also C-17 (implicit column naming between mapper and manager — a different
 | ID | D-02 |
 | Source | `expert-review` (2026-06-02) |
 | Perspectives | Nygard (threading.Lock), Beck (remove ThreadPoolExecutor), Hickey (sequential is simpler), Ousterhout (keep threading for speed) |
-| Resolution | Unresolved — resolve before addressing C-16. **Contingent on D-05:** if mapper eliminated, this disagreement is moot. |
+| Resolution | **⚠ CONTINGENT ON ADR-011.** If precomputed lookup table replaces mapping.py, no threading — this disagreement is moot. Only resolve if mapper is kept. |
 
 ---
 
