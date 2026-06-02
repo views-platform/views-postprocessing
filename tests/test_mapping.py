@@ -105,8 +105,12 @@ class TestEnrichDataframe:
             df, pg_id_col="priogrid_id", time_id_col="month_id",
             batch_size=10, use_multiprocessing=False, show_progress=False
         )
-        expected_cols = ["country_iso_a3", "admin1_gaul1_code", "admin1_gaul1_name",
-                         "admin2_gaul2_code", "admin2_gaul2_name"]
+        expected_cols = [
+            "pg_xcoord", "pg_ycoord", "country_iso_a3",
+            "admin1_gaul1_code", "admin1_gaul1_name",
+            "admin1_gaul0_code", "admin1_gaul0_name",
+            "admin2_gaul2_code", "admin2_gaul2_name",
+        ]
         for col in expected_cols:
             assert col in enriched.columns, f"Missing column: {col}"
 
