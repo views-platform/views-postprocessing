@@ -255,7 +255,7 @@ Before touching the enrichment logic:
 2. Run the current mapper against real PRIO-GRID cells, save the output as a reference
 3. Run the full pipeline (`_read` → `_transform` → `_validate` → `_save`) against real data
 4. Capture the output parquet and compare against what's currently in the Appwrite unfao_bucket
-5. Read the views-faoapi code to understand the Appwrite→API column transformation (resolves D-06)
+5. ~~Read the views-faoapi code to understand the Appwrite→API column transformation~~ ✅ **DONE (2026-06-03):** No renaming exists. Postprocessor columns pass through to FAO unmodified. See Section 7.
 6. Now we have a known-good baseline to diff against
 
 ### Option 2: Build the replacement alongside, not instead of
@@ -281,7 +281,7 @@ Park ADR-011 implementation. The decision (precomputed table is the right approa
 - Git LFS is available in the development environment
 - views-pipeline-core can be installed in the test environment
 - Someone can run the full pipeline and capture reference output
-- views-faoapi has been reviewed (resolving D-06)
+- ~~views-faoapi has been reviewed (resolving D-06)~~ ✅ **DONE (2026-06-03)**
 - The orange_ensemble reference is resolved (views-models #77)
 - Then implement with a safety net
 
@@ -370,43 +370,80 @@ Park ADR-011 implementation. The decision (precomputed table is the right approa
 
 ---
 
-## 7. The D-06 / C-24 Schema Question
+## 7. The D-06 / C-24 Schema Question — RESOLVED
 
-### 7.1 What we now know
+### 7.1 D-06 Answer: views-faoapi does NOT rename columns
 
-The investigation report identified `views-faoapi` as the bridge between Appwrite and the FAO HTTP consumer. The data path is:
+**We have now read the views-faoapi code.** The answer to D-06 is definitive:
 
-```
-Postprocessor → Appwrite (unfao_bucket) → FAOApiManager (views-faoapi) → HTTP → FAO
-```
+**views-faoapi passes the postprocessor's column names through to the FAO consumer WITHOUT any renaming, mapping, or transformation.**
 
-The `FAOApiManager` "downloads, parses, caches, and serves via HTTP." This is almost certainly where the column renaming happens:
-- `country_iso_a3` (postprocessor) → UN M49 code (FAO contract)
-- `admin1_gaul1_code` (postprocessor) → `ADM1_CODE` (FAO contract)
-- `pg_xcoord` / `pg_ycoord` (postprocessor) → `lon` / `lat` (FAO contract)
+Evidence from `/home/simon/Documents/scripts/views_platform/views-faoapi/`:
 
-### 7.2 What we still need to verify
+1. **`handlers.py:1146-1156`** — The `FAO_PGMDataset` class defines `_METADATA_COLS` with the EXACT column names from the postprocessor: `pg_xcoord`, `pg_ycoord`, `country_iso_a3`, `admin1_gaul1_code`, etc. These are validated on load — if the postprocessor's column names change, views-faoapi throws a ValueError.
 
-We haven't read the views-faoapi code. We need to:
-1. Find the repo (likely at `/home/simon/Documents/scripts/views_platform/views-faoapi/`)
-2. Read the FAOApiManager code
-3. Confirm whether it renames columns
-4. Confirm what schema the HTTP response actually has
-5. Confirm whether it does any additional transformation (aggregation, filtering, format conversion)
+2. **`api.py:182-191`** — The `dataframe_to_dict()` function converts the DataFrame to JSON records via `df.to_dict(orient="records")`. No renaming occurs. The column names in the HTTP response are whatever the DataFrame has.
 
-### 7.3 Impact on ADR-011
+3. **`api.py:700-702`** — The `/data/historical/latest` endpoint returns:
+   ```python
+   {
+       "success": True,
+       "data": {
+           "dataframe": dataframe_to_dict(df),  # raw records, no renaming
+           "columns": df.columns.tolist(),       # raw column names
+           "category": "historical"
+       }
+   }
+   ```
+   The same pattern at lines 731-733 (forecast) and 786-788 (subset). Every endpoint passes columns through unmodified.
 
-If views-faoapi handles the column renaming, then:
-- The postprocessor should keep its current column names (`country_iso_a3`, `admin1_gaul1_code`, `pg_xcoord`)
-- The precomputed lookup table should use the same names
-- C-24 (schema divergence) is a non-issue for this repo — the divergence is resolved by views-faoapi
-- D-06 can be closed with "views-faoapi handles the mapping"
+4. **No `.rename()` on data columns exists anywhere in the codebase.** We searched for rename, mapping, M49, ADM1_CODE, lat/lon — nothing.
 
-If views-faoapi does NOT rename columns, then:
-- The postprocessor's column names reach FAO as-is
-- The FAO contract names don't match what they receive
-- Either this repo or views-faoapi needs to add the renaming
-- The precomputed lookup table's schema becomes a critical decision point
+### 7.2 The gap between the feedback document and the implementation
+
+The repo contains a feedback document from October 2025 (`notebooks/27102025_01_review.md`) that was sent to FAO requesting feedback on the API schema. This document shows an EXAMPLE payload with `lat`, `lon`, `isoab`, `name` — but these column names were **aspirational proposals, not the implemented schema.**
+
+The October 2025 feedback document asked FAO to confirm column names. The responses were formalized in Release Note 01 (Topic C), which locked: UN M49, `ADM1_CODE`/`ADM2_CODE`, `lat`/`lon`. But the code was implemented using the postprocessor's internal column names (`country_iso_a3`, `admin1_gaul1_code`, `pg_xcoord`) and the renaming to FAO contract names **was never implemented.**
+
+Timeline:
+1. **October 2025:** Feedback document sent to FAO with proposed schema (`lat`, `lon`, `isoab`)
+2. **Release Note 01 (confirmed):** FAO signs off on UN M49, `ADM1_CODE`, `lat`/`lon`
+3. **Release Note 02 (confirmed):** FAO confirms area-majority allocation rule
+4. **Implementation:** views-faoapi built using postprocessor's column names, not the confirmed FAO contract names
+5. **Current state:** FAO receives `country_iso_a3`, `pg_xcoord`, `admin1_gaul1_code` — NOT what the contract specifies
+
+### 7.3 What this means
+
+**The FAO is currently receiving data with column names that do not match the locked contract from Release Note 01.** Specifically:
+
+| What FAO contract says | What FAO actually receives | Gap |
+|---|---|---|
+| UN M49 country code | `country_iso_a3` (ISO Alpha-3, e.g., "KEN") | Different coding system entirely |
+| `ADM1_CODE` | `admin1_gaul1_code` | Different column name |
+| `ADM1_NAME` | `admin1_gaul1_name` | Different column name |
+| `ADM2_CODE` | `admin2_gaul2_code` | Different column name |
+| `ADM2_NAME` | `admin2_gaul2_name` | Different column name |
+| `lat` | `pg_ycoord` | Different column name |
+| `lon` | `pg_xcoord` | Different column name |
+
+This is either:
+- **Accepted by FAO** — they adapted their systems to the actual column names regardless of what the contract says (possible, since the API has been running)
+- **Not noticed by FAO** — they haven't done detailed schema validation against the contract (possible for early/prototype stages)
+- **Tracked separately** — there may be a backlog item to add the renaming layer that simply hasn't been prioritized
+
+### 7.4 Impact on this repo and ADR-011
+
+**The postprocessor's column names ARE what reaches FAO.** There is no intermediate transformation. This means:
+
+1. **C-24 (schema divergence) is a REAL gap, not an artifact of missing knowledge.** The postprocessor's column names don't match the FAO contract, and nothing downstream fixes it.
+
+2. **D-06 is resolved: Possibility B was correct.** "No renaming layer exists — the postprocessor's Parquet files are served directly to FAO." The postprocessor's output schema IS the FAO-facing schema.
+
+3. **For ADR-011:** The precomputed lookup table's column names matter directly. Whatever names the table uses will reach FAO. The current names (`country_iso_a3`, `admin1_gaul1_code`, etc.) are what FAO has been receiving and presumably adapted to.
+
+4. **The safest choice for ADR-011 is to preserve the current column names.** Changing them now would break whatever FAO has built against the current schema. If column renaming is desired (to match the Release Note 01 contract), it should be done in views-faoapi as a separate, coordinated change — NOT in the postprocessor during an enrichment refactor.
+
+5. **The column renaming is NOT this repo's responsibility.** It belongs in views-faoapi (the API layer) or as a coordinated cross-repo change. This repo should produce the same columns it always has.
 
 ---
 
@@ -439,9 +476,9 @@ These are not duplicated in our register (they're about views-pipeline-core, not
 
 ## 9. Recommendation
 
-**Option 2 (build alongside, not instead of)** is the safest path that makes progress, combined with **investigating views-faoapi** to resolve D-06:
+**Option 2 (build alongside, not instead of)** is the safest path that makes progress:
 
-1. **Read views-faoapi** — understand the Appwrite→API column transformation. This resolves D-06 and C-24 without touching any code.
+1. **D-06 is now resolved** — views-faoapi does NOT rename columns. The postprocessor's column names reach FAO directly. Keep the current names in any replacement.
 2. **Build the enricher module and precomputation script** — pure additive work, changes nothing in the running pipeline.
 3. **Someone with LFS runs the precomputation** to generate the lookup table from real shapefiles.
 4. **Someone with the full infrastructure runs a comparison** — current mapper vs lookup enricher on real data, for BOTH historical and forecast streams.
@@ -450,6 +487,12 @@ These are not duplicated in our register (they're about views-pipeline-core, not
 
 The alternative is **Option 4 (do nothing)** — which is also legitimate. The code works, the risks are documented, and ADR-011 is there for when the infrastructure supports safe implementation.
 
-**What NOT to do:** Don't change the enrichment logic without being able to verify the output. Don't assume the column names don't matter (they might, depending on what views-faoapi does). Don't eliminate the mapper for historical data without solving the forecast data stream too.
+**What NOT to do:**
+- Don't change the enrichment logic without being able to verify the output against real data
+- Don't change column names in the postprocessor — FAO has presumably adapted to the current names, and renaming belongs in views-faoapi if it happens at all
+- Don't eliminate the mapper for historical data without solving the forecast data stream too (forecasts come from Appwrite, not the datafactory, and always need enrichment)
 
-**The single most valuable next action** that isn't blocked by infrastructure: read the views-faoapi code. It resolves D-06, clarifies C-24, and tells us whether the postprocessor's column names matter downstream.
+**Remaining unblocked actions:**
+1. The column naming question is settled — keep current names
+2. The architecture decision (precomputed table) is confirmed — area-majority, sequential allocation, Parquet lookup
+3. What blocks progress is infrastructure: LFS for precomputation, views-pipeline-core for E2E testing, Appwrite for verification
