@@ -429,9 +429,11 @@ Part of Cluster E. See also D-05 (the gating decision), C-11 (god class — moot
 
 The FAO API contract (Release Note 01, Topic C, confirmed and locked) specifies: UN M49 country codes, `ADM1_CODE`/`ADM1_NAME`/`ADM2_CODE`/`ADM2_NAME` for admin fields, and `lat`/`lon` for coordinates. The postprocessor's `filter_cols` uses: `country_iso_a3` (ISO Alpha-3), `admin1_gaul1_code`/`admin1_gaul1_name`/`admin2_gaul2_code`/`admin2_gaul2_name`, and `pg_xcoord`/`pg_ycoord`. Three of four data categories (country ID, admin fields, coordinates) use different naming conventions from the locked contract.
 
-If a renaming/conversion layer exists between the Appwrite upload and the API endpoint, this is an undocumented architectural boundary. If no such layer exists, the FAO receives data with field names and coding systems that don't match their confirmed contract. Either way, the relationship between the postprocessor's output schema and the FAO API contract is not documented in any ADR, CIC, or standard in this repo.
+**D-06 resolved (2026-06-03):** Investigation of views-faoapi confirms NO renaming layer exists. The `FAOApiManager` passes postprocessor column names through to the HTTP response unmodified. FAO receives `country_iso_a3`, `admin1_gaul1_code`, `pg_xcoord` — not the contract-specified names. The column renaming from Release Note 01 Topic C was never implemented in any repo.
 
-See also C-17 (implicit column naming between mapper and manager — a different boundary in the same naming-contract problem family), D-06 (investigation required before acting).
+**This is NOT this repo's responsibility to fix.** The schema mismatch is between the API layer (views-faoapi) and the FAO contract. The postprocessor should keep its current column names — changing them now would break views-faoapi's `FAO_PGMDataset._METADATA_COLS` validation. The renaming belongs in views-faoapi as a response-formatting step, coordinated with FAO.
+
+See also C-17 (implicit column naming between mapper and manager), D-06 (resolved: no renaming layer exists).
 
 ---
 
@@ -469,15 +471,6 @@ See also C-17 (implicit column naming between mapper and manager — a different
 | Resolution | **Resolved (2026-06-02): Path A confirmed.** FAO-FSFC provided written confirmation (Release Note 02, `summary.tex`) agreeing to area-majority allocation as the locked aggregation rule: "Each PRIO-GRID cell is assigned to a single country using an area-majority rule." The area-based algorithm is a contractual requirement, not a historical accident. Path B (centroid-based) is off the table. Next step: build a one-time precomputed area-based lookup table (~65K rows, Parquet) and replace the 3,100-line runtime mapper with a dictionary lookup. This still eliminates geopandas, the shapefile bundle, and the runtime spatial operations — but preserves the area-majority assignment rule. |
 
 ---
-
-### D-06: C-24 schema divergence — undocumented renaming layer vs genuine gap
-
-| Field | Value |
-|-------|-------|
-| ID | D-06 |
-| Source | `falsification-audit` (2026-06-02) |
-| Perspectives | Possibility A: a renaming/conversion layer exists between the Appwrite upload and the FAO-facing API (e.g., the API service reads from Appwrite and transforms column names to match the RN01 contract — ISO A3 → M49, admin1_gaul1_code → ADM1_CODE, pg_xcoord → lon). If so, C-24 is an undocumented architectural boundary, not a data gap. Possibility B: no renaming layer exists — the postprocessor's output reaches FAO as-is, and the schema mismatch is a genuine contract violation. Possibility C: the postprocessor output and the API are separate delivery paths serving different purposes — the postprocessor delivers raw enriched data via Appwrite for FAO's own processing, while the API delivers a reformatted version. The naming conventions may be intentionally different for the two paths. |
-| Resolution | **Unresolved — requires investigation.** Check: (1) trace the data path from Appwrite upload to what FAO actually receives, (2) determine whether the API layer (mentioned in RN02 conclusion as "a live API endpoint hosted on a dedicated production domain") performs field renaming, (3) clarify whether Appwrite delivery and API delivery serve different consumers with different schema expectations. Do NOT change the postprocessor's field names until this is understood. |
 
 ---
 
@@ -522,6 +515,16 @@ See also C-17 (implicit column naming between mapper and manager — a different
 | ID | D-04 |
 | Resolved | 2026-06-02 |
 | Resolution | Kleppmann/Feathers consensus applied to code: `make_valid()` called in `_load_and_preprocess_naturalearth`, `_load_priogrid`, `_load_admin_data`. |
+
+---
+
+### D-06: C-24 schema divergence — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | D-06 |
+| Resolved | 2026-06-03 |
+| Resolution | **Possibility B confirmed.** Investigation of views-faoapi (`/home/simon/Documents/scripts/views_platform/views-faoapi/`) shows that `FAOApiManager` downloads from Appwrite, wraps in `FAO_PGMDataset`, and serves via HTTP with NO column renaming. `dataframe_to_dict()` (api.py:182-191) passes columns through as-is. `_METADATA_COLS` in handlers.py:1146-1156 lists the postprocessor's exact column names. The column renaming from postprocessor names to FAO contract names (Release Note 01 Topic C) was never implemented. FAO receives `country_iso_a3`, `admin1_gaul1_code`, `pg_xcoord` — not UN M49, `ADM1_CODE`, `lat`. This is a genuine schema mismatch between contract and implementation, but it is NOT this repo's responsibility to fix — the renaming belongs in views-faoapi. The postprocessor should keep its current column names. |
 
 ---
 
