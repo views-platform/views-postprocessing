@@ -1,0 +1,105 @@
+"""Lookup-based geographic enrichment (ADR-011).
+
+Drop-in replacement for the runtime spatial mapper's
+``enrich_dataframe_with_pg_info``. Instead of loading 774 MB of shapefiles and
+computing spatial intersections at run time, it merges a precomputed lookup
+table (built by ``scripts/build_gaul_lookup.py`` from the views-datafactory's
+area-majority GAUL parquets) onto the prediction frame by PRIO-GRID cell id.
+
+No geopandas, no shapefiles, no spatial computation. The lookup contains only
+fully-complete cells; an unknown or incomplete cell id left-merges to NaN, so
+the manager's ``_validate()`` null gate still crashes the delivery (fail-loud)
+rather than shipping a hole. This is intentional and matches the old mapper's
+behaviour (it returned ``None`` for such cells).
+
+Produces exactly the 9-column contract enforced at
+``unfao.py`` (``_append_metadata`` filter_cols / ``_validate``) and at
+views-faoapi ``handlers.py`` (``FAO_PGMDataset._METADATA_COLS``).
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# The 9 contract columns the lookup carries (and the manager consumes).
+METADATA_COLS = [
+    "pg_xcoord", "pg_ycoord", "country_iso_a3",
+    "admin1_gaul1_code", "admin1_gaul1_name",
+    "admin1_gaul0_code", "admin1_gaul0_name",
+    "admin2_gaul2_code", "admin2_gaul2_name",
+]
+
+_DEFAULT_LOOKUP = Path(__file__).resolve().parent.parent / "data" / "gaul_lookup.parquet"
+
+
+class GaulLookupEnricher:
+    """Merge precomputed GAUL metadata onto a prediction frame by cell id."""
+
+    def __init__(self, lookup_path: str | Path | None = None) -> None:
+        self._lookup_path = Path(lookup_path) if lookup_path else _DEFAULT_LOOKUP
+        if not self._lookup_path.exists():
+            raise FileNotFoundError(
+                f"GAUL lookup table not found at {self._lookup_path}. "
+                f"Build it with scripts/build_gaul_lookup.py."
+            )
+        self._lookup = pd.read_parquet(self._lookup_path)
+        # Index is priogrid_gid; columns are the 9 metadata columns.
+        missing = [c for c in METADATA_COLS if c not in self._lookup.columns]
+        if missing:
+            raise ValueError(
+                f"Lookup table is missing contract columns: {missing}"
+            )
+        logger.info(
+            "Loaded GAUL lookup: %d cells from %s",
+            len(self._lookup), self._lookup_path,
+        )
+
+    def enrich_dataframe_with_pg_info(
+        self,
+        df: pd.DataFrame,
+        pg_id_col: str = "priogrid_gid",
+        time_id_col: str = "month_id",
+        only_metadata: bool = True,
+        **_ignored,
+    ) -> pd.DataFrame:
+        """Return ``df`` with the 9 metadata columns merged in by cell id.
+
+        Signature mirrors the mapper's method so the manager call site changes
+        minimally. ``batch_size`` / ``use_multiprocessing`` etc. are accepted
+        and ignored — a table join needs none of them.
+
+        Cells absent from the lookup get NaN metadata (fail-loud downstream).
+        """
+        if pg_id_col not in df.columns:
+            raise ValueError(f"Column '{pg_id_col}' not found in DataFrame")
+
+        if only_metadata:
+            keep = [pg_id_col]
+            if time_id_col in df.columns:
+                keep.append(time_id_col)
+            base = df[keep].copy()
+        else:
+            base = df.copy()
+
+        merged = base.merge(
+            self._lookup, left_on=pg_id_col, right_index=True, how="left",
+        )
+
+        n_total = len(merged)
+        n_unmapped = int(merged["country_iso_a3"].isna().sum())
+        if n_unmapped:
+            logger.warning(
+                "%d/%d rows have no lookup match (will fail validation): %s",
+                n_unmapped, n_total,
+                sorted(merged.loc[merged["country_iso_a3"].isna(), pg_id_col]
+                       .unique().tolist())[:20],
+            )
+        return merged
+
+    # Convenience alias for new call sites that don't need the legacy name.
+    enrich = enrich_dataframe_with_pg_info
