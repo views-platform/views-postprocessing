@@ -32,6 +32,35 @@ Every single differing cell falls into a known, expected class. There are no sur
 
 The new engine implements area-majority from a single consistent boundary source (GAUL), which is FAO's contracted aggregation rule (Release Note 02). The old engine mixed two boundary datasets (Natural Earth for country, GAUL for admin) and constrained admin to the NE-chosen country. Where they differ, the **new** answer is the contractually-correct one. The verification maps show the differences land precisely on country and admin borders — e.g. the Lesotho and Eswatini enclave borders (`maps/04_zoom_lesotho_sa.png`), exactly where a tiny enclave's cells are split between two algorithms.
 
+## Disputed territories — two worked examples
+
+A large share of the `country_reassignment` cells sit on disputed borders, where Natural Earth (old) and GAUL (new) encode the politics differently. Both examples below are confirmed at the shapefile level.
+
+### Morocco / Western Sahara — a boundary-placement difference (not a code difference)
+
+Both sources have Western Sahara as a separate territory with the **same** ISO code (`ESH`). They differ on **where the Morocco–Western Sahara line falls**, in the 228-cell disputed zone:
+
+| Assignment | Natural Earth (old) | GAUL (new) |
+|---|---:|---:|
+| Morocco (`MAR`) | 78 | 9 |
+| Western Sahara (`ESH`) | 31 | 100 |
+| Mauritania (`MRT`) | 117 | 117 (identical) |
+
+Natural Earth folds the northern ~2/3 of the disputed territory into Morocco (de-facto control); GAUL keeps it as Western Sahara. Net: **69 cells flip Morocco → Western Sahara**. Both codes are valid ISO-3166; the Mauritanian south is untouched.
+
+### Somalia / Somaliland — a data-quality fix, not just a relabel
+
+- **Natural Earth** carries Somaliland as a separate entity but gives it `ISO_A3 = "-99"` — the sentinel for "no recognized ISO code".
+- **GAUL has no Somaliland** — those cells are part of Somalia (`SOM`).
+
+The old mapper therefore ships **64 africa_me cells to FAO with `country_iso_a3 = "-99"`**, an invalid country code. It passes the current validation because the gate only rejects nulls, and `"-99"` is a non-null string. The new lookup assigns all 64 to `SOM`, and there are **zero `-99` codes anywhere in the global lookup** (all 64,742 cells checked).
+
+So the swap does not merely relabel these cells — **it removes invalid country codes that are in the FAO delivery today.** Tracked as register **C-35** (Tier 1). Other Natural Earth `-99` territories outside africa_me (e.g. N. Cyprus, Kosovo) are covered by the same fix at global scale.
+
+### Framing
+
+Both cases align the delivered data with **GAUL's** choices: Western Sahara stays separate; Somaliland folds into Somalia. Since GAUL is FAO's own boundary product, this is the contractually-correct outcome — the delivered data now matches the admin boundaries FAO itself publishes. Both are politically sensitive and should be called out explicitly in the Stage 4 FAO release note.
+
 ## Maps (`reports/enrichment_diff/maps/`)
 
 | File | Shows |

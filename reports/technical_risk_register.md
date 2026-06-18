@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-06-12                           |
-| Total Concerns    | 34                                   |
-| Open Concerns     | 32                                   |
+| Total Concerns    | 35                                   |
+| Open Concerns     | 33                                   |
 | Resolved Concerns | 2                                    |
 
 ---
@@ -596,6 +596,24 @@ See also C-24 (schema contract per store), D-09.
 The coverage decision lives in one repo (views-models), the cell-set definition in a second (views-datafactory), and the consequences in a third (this repo). Mitigation: a coverage test asserting enrichment completeness for the configured region (for `land`: 64,736 complete + exactly the 82 known exclusions), plus cell-count logging in `_read` and `_validate`.
 
 See also C-30, C-26 (both are coverage-integrity failures with no signal).
+
+---
+
+### C-35: Invalid `-99` country code shipped to FAO for Somaliland cells
+
+| Field | Value |
+|-------|-------|
+| ID | C-35 |
+| Tier | 1 — silent invalid data delivered to the partner: a non-ISO sentinel string passes the null-only validation gate and reaches FAO as a country code |
+| Source | `enrichment-diff` (2026-06-18) — empirically measured, old mapper vs new lookup on africa_me |
+| Trigger | Whenever the current runtime mapper enriches cells in the Somaliland region (and any other Natural Earth `ISO_A3 = "-99"` territory), it emits `country_iso_a3 = "-99"`; `_validate()` checks only for nulls, so the invalid code ships |
+| Location | `views_postprocessing/unfao/mapping/mapping.py` (country from Natural Earth `ISO_A3`); `unfao.py:188-221` (`_validate` — null-only, no code-validity check); Natural Earth `ne_10m_admin_0_countries` (`ADMIN="Somaliland", ISO_A3="-99"`) |
+
+The current mapper sources `country_iso_a3` from Natural Earth's `ISO_A3` field. Natural Earth represents Somaliland as a separate de-facto entity but assigns it the sentinel `ISO_A3 = "-99"` (no recognized ISO code). The diff measured **64 africa_me cells** delivered with `country_iso_a3 = "-99"`. Because `"-99"` is a non-null string, the `_validate()` gate (which only rejects nulls) passes it, and it reaches the FAO Appwrite bucket as the country code for those cells. FAO consumers filtering or aggregating by country code receive an invalid value.
+
+**Resolved by ADR-011's lookup.** The new GAUL-sourced lookup has zero `-99` codes anywhere (verified across all 64,742 global cells); Somaliland cells become `SOM` (Somalia), matching GAUL — FAO's own boundary product. So the engine swap (Stage 3) eliminates this defect as a side effect. Until the swap ships, the current production output carries it. Note: other Natural Earth `-99` territories (e.g. N. Cyprus, Kosovo) could surface the same way outside africa_me — the global swap covers them too.
+
+See also C-01 (null-validation re-enabled — but it does not check code *validity*), and the disputed-territories section of `reports/enrichment_diff/report.md`.
 
 ---
 
