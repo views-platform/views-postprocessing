@@ -27,11 +27,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from views_postprocessing.unfao.enrichment import GaulLookupEnricher
+from views_postprocessing.unfao.gaul_schema import METADATA_COLS
+
+# Quiet the noisy mapper run; the imports above are clean and stay at top.
 warnings.filterwarnings("ignore")
 logging.getLogger().setLevel(logging.WARNING)
-
-from views_postprocessing.unfao.enrichment import GaulLookupEnricher
-from views_postprocessing.unfao.gaul_schema import CODE_COLS, METADATA_COLS
 
 
 def _resolve_datafactory() -> Path:

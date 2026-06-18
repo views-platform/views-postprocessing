@@ -39,9 +39,9 @@ class TestReleaseGate:
     def test_version_bumped_past_latest_tag(self):
         version_line = (_DF / "pyproject.toml").read_text()
         current = next(
-            l.split("=")[1].strip().strip('"')
-            for l in version_line.splitlines()
-            if l.startswith("version")
+            ln.split("=")[1].strip().strip('"')
+            for ln in version_line.splitlines()
+            if ln.startswith("version")
         )
         tags = _git("tag", "-l").splitlines()
         assert f"v{current}" not in tags, (
