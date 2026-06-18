@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import warnings
 from pathlib import Path
 
@@ -29,14 +30,21 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 logging.getLogger().setLevel(logging.WARNING)
 
-from views_postprocessing.unfao.enrichment import GaulLookupEnricher, METADATA_COLS
+from views_postprocessing.unfao.enrichment import GaulLookupEnricher
+from views_postprocessing.unfao.gaul_schema import CODE_COLS, METADATA_COLS
 
-_DATAFACTORY = Path("/home/simon/Documents/scripts/views_platform/views-datafactory")
+
+def _resolve_datafactory() -> Path:
+    env = os.environ.get("VIEWS_DATAFACTORY")
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parents[2] / "views-datafactory"
+
+
+_DATAFACTORY = _resolve_datafactory()
 _AFRICA_ME = _DATAFACTORY / "src" / "datafactory_query" / "africa_me_legacy_pgids.json"
 _AZORES_GIDS = {182470, 183190, 183909, 183910, 186058, 186778}
 _OUT = Path("reports/enrichment_diff")
-
-CODE_COLS = ["admin1_gaul1_code", "admin1_gaul0_code", "admin2_gaul2_code"]
 
 
 def _run_new(gids: list[int]) -> pd.DataFrame:

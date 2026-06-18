@@ -25,60 +25,42 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-# PRIO-GRID is a fixed 0.5-degree global grid, 720 columns x 360 rows.
-_NCOL = 720
-_CELL = 0.5
-_HALF = 0.25
-
-# datafactory (gid, value) parquet  ->  postprocessor contract column.
-# Note the prefixes: gaul0/gaul1 land under the admin1_ prefix, gaul2 under
-# admin2_, iso3 becomes country_iso_a3 (see the mapper's _process_pg_batch).
-_RENAME = {
-    "gaul0_code": "admin1_gaul0_code",
-    "gaul0_name": "admin1_gaul0_name",
-    "gaul1_code": "admin1_gaul1_code",
-    "gaul1_name": "admin1_gaul1_name",
-    "gaul2_code": "admin2_gaul2_code",
-    "gaul2_name": "admin2_gaul2_name",
-    "iso3_code": "country_iso_a3",
-}
-_CODE_COLS = ["admin1_gaul0_code", "admin1_gaul1_code", "admin2_gaul2_code"]
-_NAME_COLS = ["admin1_gaul0_name", "admin1_gaul1_name", "admin2_gaul2_name",
-              "country_iso_a3"]
-_COORD_COLS = ["pg_xcoord", "pg_ycoord"]
-
-# The 9-column contract, in the order the manager selects them.
-CONTRACT_COLS = [
-    "pg_xcoord", "pg_ycoord", "country_iso_a3",
-    "admin1_gaul1_code", "admin1_gaul1_name",
-    "admin1_gaul0_code", "admin1_gaul0_name",
-    "admin2_gaul2_code", "admin2_gaul2_name",
-]
-
-_DEFAULT_DATAFACTORY = Path(
-    "/home/simon/Documents/scripts/views_platform/views-datafactory"
+from views_postprocessing.unfao.gaul_schema import (
+    CODE_COLS,
+    COORD_COLS,
+    METADATA_COLS,
+    NAME_COLS,
+    SOURCE_RENAME,
+    xcoord,
+    ycoord,
 )
 
 
-def _xcoord(gid: int) -> float:
-    return -180.0 + ((gid - 1) % _NCOL) * _CELL + _HALF
+def _resolve_datafactory() -> Path:
+    """Locate the views-datafactory checkout without a machine-specific path.
 
-
-def _ycoord(gid: int) -> float:
-    return -90.0 + ((gid - 1) // _NCOL) * _CELL + _HALF
+    Order: $VIEWS_DATAFACTORY, then the sibling repo next to this one
+    (views_platform/views-datafactory). Overridable with --datafactory.
+    """
+    env = os.environ.get("VIEWS_DATAFACTORY")
+    if env:
+        return Path(env)
+    sibling = Path(__file__).resolve().parents[2] / "views-datafactory"
+    return sibling
 
 
 def _load_source(datafactory: Path) -> pd.DataFrame:
     """Join the 7 GAUL parquets on gid into one wide frame (source names)."""
     gaul_dir = datafactory / "data" / "raw" / "gaul_admin"
     frames = {}
-    for src_col in _RENAME:
+    for src_col in SOURCE_RENAME:
         t = pq.read_table(gaul_dir / f"{src_col}.parquet")
         s = pd.Series(
             t.column("value").to_pylist(),
@@ -134,41 +116,41 @@ def build(datafactory: Path, region: str, out: Path) -> pd.DataFrame:
         src = src.loc[src.index.intersection(sorted(region_gids))]
 
     # Rename to the contract names.
-    df = src.rename(columns=_RENAME)
+    df = src.rename(columns=SOURCE_RENAME)
 
     # Keep only fully-complete cells. Incomplete cells must NOT enter the
     # lookup: an unknown/incomplete gid then merges to null downstream and the
     # manager's _validate() gate crashes (fail-loud) instead of shipping a hole
     # or a -1 sentinel. Never carry -1 / "" as a value.
     complete = pd.Series(True, index=df.index)
-    for c in _CODE_COLS:
+    for c in CODE_COLS:
         complete &= df[c].notna() & (df[c] != -1)
-    for c in _NAME_COLS:
+    for c in NAME_COLS:
         complete &= df[c].notna() & (df[c].astype(str).str.len() > 0)
     dropped = int((~complete).sum())
     df = df[complete].copy()
 
     # Coordinates from the gid (no geometry needed).
     gids = df.index.to_numpy()
-    df["pg_xcoord"] = [_xcoord(int(g)) for g in gids]
-    df["pg_ycoord"] = [_ycoord(int(g)) for g in gids]
+    df["pg_xcoord"] = [xcoord(int(g)) for g in gids]
+    df["pg_ycoord"] = [ycoord(int(g)) for g in gids]
 
     # dtypes: codes numeric, coords float64, names/iso categorical (C-32 memory).
-    for c in _CODE_COLS:
+    for c in CODE_COLS:
         df[c] = df[c].astype("int64")
-    for c in _COORD_COLS:
+    for c in COORD_COLS:
         df[c] = df[c].astype("float64")
-    for c in _NAME_COLS:
+    for c in NAME_COLS:
         df[c] = df[c].astype("category")
 
-    df = df[CONTRACT_COLS]
+    df = df[METADATA_COLS]
     df.index = df.index.astype("int64")
     df.index.name = "priogrid_gid"
     df = df.sort_index()
 
     # Hard invariants — the lookup must be clean by construction.
     assert df.isna().sum().sum() == 0, "lookup contains nulls"
-    for c in _CODE_COLS:
+    for c in CODE_COLS:
         assert (df[c] != -1).all(), f"{c} contains -1 sentinel"
 
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -190,14 +172,20 @@ def build(datafactory: Path, region: str, out: Path) -> pd.DataFrame:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--datafactory", type=Path, default=_DEFAULT_DATAFACTORY)
+    ap.add_argument("--datafactory", type=Path, default=None)
     ap.add_argument("--region", default="land_gaul")
     ap.add_argument(
         "--out", type=Path,
         default=Path("views_postprocessing/data/gaul_lookup.parquet"),
     )
     args = ap.parse_args()
-    build(args.datafactory, args.region, args.out)
+    datafactory = args.datafactory or _resolve_datafactory()
+    if not (datafactory / "data" / "raw" / "gaul_admin").exists():
+        raise SystemExit(
+            f"views-datafactory not found at {datafactory}. Set $VIEWS_DATAFACTORY "
+            f"or pass --datafactory /path/to/views-datafactory."
+        )
+    build(datafactory, args.region, args.out)
 
 
 if __name__ == "__main__":

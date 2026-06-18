@@ -21,11 +21,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from views_postprocessing.unfao.gaul_schema import CELL_SIZE, colrow
+
 _DIFF = Path("reports/enrichment_diff/diff_cells.csv")
 _MAPS = Path("reports/enrichment_diff/maps")
 _NE110 = Path("views_postprocessing/shapefiles/ne_110m_admin_0_countries/"
               "ne_110m_admin_0_countries.shp")
-_CELL = 0.5
+_CELL = CELL_SIZE
 
 CLASS_COLORS = {
     "identical": "#e8e8e8",
@@ -38,9 +40,7 @@ CLASS_COLORS = {
 
 
 def _gid_to_colrow(gid):
-    col = (gid - 1) % 720
-    row = (gid - 1) // 720
-    return col, row
+    return colrow(gid)
 
 
 def _borders(ax, bbox):

@@ -24,15 +24,9 @@ from pathlib import Path
 
 import pandas as pd
 
-logger = logging.getLogger(__name__)
+from views_postprocessing.unfao.gaul_schema import METADATA_COLS
 
-# The 9 contract columns the lookup carries (and the manager consumes).
-METADATA_COLS = [
-    "pg_xcoord", "pg_ycoord", "country_iso_a3",
-    "admin1_gaul1_code", "admin1_gaul1_name",
-    "admin1_gaul0_code", "admin1_gaul0_name",
-    "admin2_gaul2_code", "admin2_gaul2_name",
-]
+logger = logging.getLogger(__name__)
 
 _DEFAULT_LOOKUP = Path(__file__).resolve().parent.parent / "data" / "gaul_lookup.parquet"
 
@@ -65,16 +59,23 @@ class GaulLookupEnricher:
         pg_id_col: str = "priogrid_gid",
         time_id_col: str = "month_id",
         only_metadata: bool = True,
-        **_ignored,
+        **ignored_mapper_kwargs,
     ) -> pd.DataFrame:
         """Return ``df`` with the 9 metadata columns merged in by cell id.
 
         Signature mirrors the mapper's method so the manager call site changes
-        minimally. ``batch_size`` / ``use_multiprocessing`` etc. are accepted
-        and ignored — a table join needs none of them.
+        minimally. Mapper-only kwargs (``batch_size``, ``use_multiprocessing``,
+        ``show_progress`` …) are accepted and ignored — a table join needs none
+        of them — but any unrecognised kwarg is logged at debug so a genuine
+        caller mistake is not wholly silent.
 
         Cells absent from the lookup get NaN metadata (fail-loud downstream).
         """
+        if ignored_mapper_kwargs:
+            logger.debug(
+                "GaulLookupEnricher ignoring mapper-only kwargs: %s",
+                sorted(ignored_mapper_kwargs),
+            )
         if pg_id_col not in df.columns:
             raise ValueError(f"Column '{pg_id_col}' not found in DataFrame")
 
