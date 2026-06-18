@@ -12,7 +12,7 @@
 
 > **What is this class for?**
 
-`UNFAOPostProcessorManager` orchestrates the end-to-end postprocessing pipeline that reads VIEWS conflict predictions, enriches them with geographic metadata via the Spatial Mapping Engine, validates the output schema, and delivers the enriched data to the UN FAO via Appwrite cloud storage.
+`UNFAOPostProcessorManager` orchestrates the end-to-end postprocessing pipeline that reads VIEWS conflict predictions, enriches them with geographic metadata via the precomputed GAUL lookup (`GaulLookupEnricher`, ADR-011), validates the output schema, and delivers the enriched data to the UN FAO via Appwrite cloud storage.
 
 It is the single entrypoint for producing and delivering UN FAO-formatted prediction data.
 
@@ -20,7 +20,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 
 ## 2. Non-Goals (Explicit Exclusions)
 
-- This class does **not** perform spatial mapping logic — it delegates to `PriogridCountryMapper`
+- This class does **not** perform spatial mapping logic — it delegates enrichment to `GaulLookupEnricher` (a merge against the precomputed GAUL lookup)
 - This class does **not** train, evaluate, or modify prediction models
 - This class does **not** define the spatial assignment algorithm
 - This class does **not** manage shapefile data or geographic reference assets
@@ -33,7 +33,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 - Guarantees a 4-stage pipeline: read → transform → validate → save
 - Guarantees that historical data is sourced from ViewsER via `ViewsDataLoader`
 - Guarantees that forecast data is sourced from the Appwrite production forecasts bucket
-- Guarantees that geographic metadata is added via `PriogridCountryMapper.enrich_dataframe_with_pg_info()`
+- Guarantees that geographic metadata is added via `GaulLookupEnricher.enrich_dataframe_with_pg_info()` (a cell-id merge against the precomputed lookup)
 - Guarantees that required metadata columns are validated before upload
 - Guarantees that both historical and forecast datasets are uploaded to the UN FAO Appwrite bucket with correct metadata (name, loa, type, category)
 - Guarantees that all structural failures are logged and raised (ADR-008)
@@ -47,7 +47,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 - Requires environment variables for Appwrite connectivity (endpoint, project ID, API key, bucket/collection IDs)
 - Requires the ensemble's `.env` file to be loadable via `dotenv`
 - Requires the Appwrite production forecasts bucket to contain at least one file with `category="forecast"`
-- Requires the `PriogridCountryMapper` to be initialized (via module-level `set_default_mapper()`)
+- Requires the precomputed GAUL lookup parquet to be present so `GaulLookupEnricher` can load it at construction
 
 Assumptions that are not met **must cause failure**, not fallback behavior.
 
@@ -88,7 +88,7 @@ The following **must never** fail silently:
 ## 7. Boundaries and Interactions
 
 **Allowed interactions:**
-- Delegates spatial mapping to `PriogridCountryMapper` (Spatial Mapping Engine layer)
+- Delegates geographic enrichment to `GaulLookupEnricher` (a merge against the precomputed GAUL lookup)
 - Uses `views-pipeline-core` managers for path resolution, data loading, and Appwrite integration
 - Reads environment variables for external service configuration
 - Writes to local filesystem and Appwrite cloud storage
@@ -96,9 +96,9 @@ The following **must never** fail silently:
 **Must not depend on:**
 - Shapefile loading or spatial intersection logic directly
 - PRIO-GRID geometry details
-- Cache management internals of the mapper
+- The internals of how the lookup table was built
 
-This anchors the class within ADR-002 (topology): it sits at the Pipeline Manager layer, above the Spatial Mapping Engine, consuming its outputs without knowledge of its internals.
+This anchors the class within ADR-002 (topology): it sits at the Pipeline Manager layer, above the enrichment layer, consuming its outputs without knowledge of its internals.
 
 ---
 
@@ -127,7 +127,7 @@ manager._save()
 
 - **Calling `_transform()` before `_read()`** — datasets will be None, causing AttributeError
 - **Calling `_save()` without `_validate()`** — may upload incomplete data to partners
-- **Accessing `_mapper` directly to bypass the enrichment pipeline** — violates the orchestration boundary
+- **Accessing `_enricher` directly to bypass the enrichment pipeline** — violates the orchestration boundary
 - **Hardcoding Appwrite configuration instead of reading from environment** — violates ADR-009
 
 ---
@@ -148,7 +148,7 @@ Currently: **no tests exist** (C-03 in risk register). This contract defines wha
 - Partner-specific output formats are **evolving** — the UN FAO schema may change (see C-24, D-06 for schema divergence investigation)
 - The source of forecast data (Appwrite bucket/collection) is **evolving** — operational configuration
 - Null validation is **active** (C-01 resolved 2026-06-02)
-- The enrichment source is **transitioning** from runtime mapper to precomputed lookup table (ADR-011)
+- The enrichment source is the **precomputed GAUL lookup table** (`GaulLookupEnricher`, ADR-011), as of the Stage 3 swap; the runtime mapper (`mapping.py`) remains in the repo but is no longer used by this manager and is slated for removal after one verified production cycle
 
 ---
 
