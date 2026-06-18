@@ -17,6 +17,7 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 from views_postprocessing.unfao.enrichment import GaulLookupEnricher
+from views_postprocessing.unfao.gaul_schema import METADATA_COLS
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -109,19 +110,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self._read_forecast_data()
 
     def _append_metadata(self, dataset: PGMDataset) -> pd.DataFrame:
-        filter_cols = [
-            dataset._time_id,
-            dataset._entity_id,
-            "pg_xcoord",
-            "pg_ycoord",
-            "country_iso_a3",
-            "admin1_gaul1_code",
-            "admin1_gaul1_name",
-            "admin1_gaul0_code",
-            "admin1_gaul0_name",
-            "admin2_gaul2_code",
-            "admin2_gaul2_name",
-        ]
+        filter_cols = [dataset._time_id, dataset._entity_id, *METADATA_COLS]
         raw_result = self._enricher.enrich_dataframe_with_pg_info(
             dataset.dataframe.reset_index(),
             pg_id_col=dataset._entity_id,
@@ -156,15 +145,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self._forecast_dataframe = self._append_metadata(self._forecast_dataset)
 
     def _validate(self) -> pd.DataFrame:
-        _necessary_metadata_cols = ["pg_xcoord",
-            "pg_ycoord",
-            "country_iso_a3",
-            "admin1_gaul1_code",
-            "admin1_gaul1_name",
-            "admin1_gaul0_code",
-            "admin1_gaul0_name",
-            "admin2_gaul2_code",
-            "admin2_gaul2_name"]
+        _necessary_metadata_cols = METADATA_COLS
 
         for col in _necessary_metadata_cols:
             if col not in self._historical_dataframe.columns:

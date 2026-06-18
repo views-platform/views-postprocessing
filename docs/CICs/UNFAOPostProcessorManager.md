@@ -138,7 +138,7 @@ manager._save()
 - **Beige tests:** Missing ensemble name in config; None environment variables; empty forecast bucket; DataFrames with unexpected index structure
 - **Red tests:** Corrupted parquet downloads; network timeouts during upload; DataFrames where all cells map to None (all-ocean input)
 
-Currently: **no tests exist** (C-03 in risk register). This contract defines what tests must verify when written.
+Currently: the manager cannot be instantiated without `views-pipeline-core`, so its stage logic is covered by **replica tests** that mirror the real methods — `tests/test_validation.py` (`_validate`) and `tests/test_append_metadata.py` (`_append_metadata`). A full end-to-end test against the live manager (C-03) still requires a production-like environment.
 
 ---
 
