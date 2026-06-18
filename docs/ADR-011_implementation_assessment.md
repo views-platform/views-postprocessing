@@ -1,7 +1,7 @@
 # ADR-011 Implementation Assessment
 
-**Last updated:** 2026-06-03
-**Status:** Paused — implementation deferred pending infrastructure and verification
+**Last updated:** 2026-06-12
+**Status:** Data prerequisites MET — see §10. Implementation unblocked on the data side; verification infrastructure (Appwrite, pipeline-core E2E) still required before switching the pipeline.
 
 ---
 
@@ -496,3 +496,49 @@ The alternative is **Option 4 (do nothing)** — which is also legitimate. The c
 1. The column naming question is settled — keep current names
 2. The architecture decision (precomputed table) is confirmed — area-majority, sequential allocation, Parquet lookup
 3. What blocks progress is infrastructure: LFS for precomputation, views-pipeline-core for E2E testing, Appwrite for verification
+
+---
+
+## 10. June 2026 Status Update — Datafactory Prerequisites MET
+
+**Added:** 2026-06-12. Full detail in `docs/cross_repo_integration_report.md`.
+
+### 10.1 What changed upstream
+
+The views-datafactory completed the area-majority work (issue #115 → PR #127, ADR-039 accepted, shipped v1.2.28/29):
+
+| Artifact | State (verified 2026-06-12) |
+|---|---|
+| `gaul0/1/2_code.parquet` | 259,200 rows each, int32, **area-majority** (regenerated Jun 11) |
+| `gaul0/1/2_name.parquet` | 259,200 rows each, string, **area-majority** (regenerated Jun 11 — the earlier 86,091-row centroid gap is closed) |
+| `iso3_code.parquet` | 259,200 rows, string, **area-majority** (Jun 11) |
+| Assembled grid/zarr | gaul codes at channels 72-74, area-majority, fill = -1 (assembled Jun 8) |
+
+Consistency for africa_me_legacy (13,110 cells): 13,105 fully consistent (code + name + iso3); 5 pure-ocean cells unassigned (gids 62356, 94776, 99027, 107733, 107742).
+
+### 10.2 What this resolves
+
+- **The "regeneration requires LFS + 774 MB shapefiles" blocker is gone.** The lookup table no longer needs this repo's mapper or shapefiles to be built — it is a join of the 7 factory parquets plus a coordinate formula (`xcoord = -180 + ((gid-1) % 720) * 0.5 + 0.25`, `ycoord = -90 + ((gid-1) // 720) * 0.5 + 0.25`).
+- **The area-majority requirement is satisfied at the source.** The factory's single L2-based join yields all three admin levels from the same winning polygon; empirically 0 cells diverge from a direct L0 computation (sequential-allocation invariant preserved).
+- **D-05 (platform mapping divergence) is resolved upstream** — the datafactory now ships area-majority, the same algorithm family FAO's contract requires.
+
+### 10.3 Revised implementation path (supersedes §6 options)
+
+Build the lookup FROM the datafactory parquets (Option 1 in the integration report):
+
+1. Offline script joins the 7 parquets by gid, computes pg_xcoord/pg_ycoord, renames to the 9 contract columns (`gaul0_code → admin1_gaul0_code`, `iso3_code → country_iso_a3`, …).
+2. Commit the resulting parquet (~1-2 MB africa_me / ~15 MB global) to this repo.
+3. New enricher = merge-by-gid; replaces `mapper.enrich_dataframe_with_pg_info()` in `_append_metadata()`.
+4. Serves BOTH historical and forecast paths (decisive — forecast data bypasses the factory entirely).
+5. **Fail-loud preservation:** unassigned gids (factory code = -1) must surface as nulls so `_validate()` still crashes the pipeline rather than shipping wrong attributions. Do not pass -1/"" through as values.
+6. **Acceptance criterion:** output schema (column names, dtypes, index) identical to current mapper output. faoapi then requires zero changes.
+
+### 10.4 What still blocks the switch (unchanged)
+
+- Verification infrastructure: Appwrite access + views-pipeline-core for an E2E run and an old-vs-new diff on real data.
+- FAO communication: attribution values change for ~711 border cells (5.4%) and 149 recovered coastal cells — contractually correct (area-majority per Release Note 02) but a visible data-version change.
+- Open: deployed-zarr sync status at the remote server; whether the 5 ocean cells ever appear in prediction inputs.
+
+### 10.5 Semantic change to flag
+
+`country_iso_a3` switches source from Natural Earth to GAUL. Current pipeline mixes boundary datasets (NE country + GAUL admin); the lookup makes each row internally consistent from a single GAUL polygon. This is an improvement but technically a change in what the ISO column means at disputed borders.

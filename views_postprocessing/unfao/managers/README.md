@@ -28,7 +28,7 @@ The `UNFAOPostProcessorManager` is a specialized postprocessor that prepares VIE
 │           └───────────┬───────────┘                             │
 │                       ▼                                         │
 │           ┌───────────────────────┐                             │
-│           │  PriogridCountryMapper │                            │
+│           │   GaulLookupEnricher   │                            │
 │           │  (Geographic Metadata) │                            │
 │           └───────────┬───────────┘                             │
 │                       ▼                                         │
@@ -51,7 +51,7 @@ The `UNFAOPostProcessorManager` is a specialized postprocessor that prepares VIE
 
 2. **Transform Phase** (`_transform`)
    - Enriches both historical and forecast dataframes with geographic metadata
-   - Uses `PriogridCountryMapper` to map PRIO-GRID cells to administrative boundaries
+   - Uses `GaulLookupEnricher` to merge a precomputed GAUL lookup onto PRIO-GRID cells (ADR-011)
 
 3. **Validate Phase** (`_validate`)
    - Ensures all required metadata columns are present
@@ -175,7 +175,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 | `_forecast_dataframe` | pd.DataFrame | Forecast predictions from ensemble |
 | `_historical_dataset` | PGMDataset | Wrapped historical data with utilities |
 | `_forecast_dataset` | PGMDataset | Wrapped forecast data with utilities |
-| `_mapper` | PriogridCountryMapper | Geographic mapping utility |
+| `_enricher` | GaulLookupEnricher | Precomputed-lookup geographic enrichment (ADR-011) |
 | `ensemble_path_manager` | EnsemblePathManager | Path manager for source ensemble |
 
 ## Methods
@@ -335,7 +335,7 @@ Error while trying to download the latest forecast data...
 ```
 ValueError: Historical dataframe is missing required metadata column: country_iso_a3
 ```
-*Solution:* Ensure the `PriogridCountryMapper` has access to required shapefiles
+*Solution:* Ensure the `GaulLookupEnricher`'s lookup table (`views_postprocessing/data/gaul_lookup.parquet`) is present and covers the requested cells
 
 ## Dependencies
 
@@ -384,4 +384,5 @@ except Exception as e:
 
 ## See Also
 
-- [PriogridCountryMapper](../mapping/README.md) - Geographic mapping documentation
+- [GaulLookupEnricher](../../../docs/CICs/GaulLookupEnricher.md) - Precomputed-lookup enrichment (ADR-011)
+- [PriogridCountryMapper](../mapping/README.md) - Legacy runtime mapper (retained, no longer used by the manager)

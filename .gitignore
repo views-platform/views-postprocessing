@@ -216,3 +216,6 @@ cython_debug/
 # generated artifacts
 graphify-out/
 .claude/
+
+# ADR-011 precomputed GAUL lookup (small, must be tracked despite *.parquet rule)
+!views_postprocessing/data/gaul_lookup.parquet

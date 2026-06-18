@@ -1,0 +1,145 @@
+# Class Intent Contract: GaulLookupEnricher
+
+**Status:** Draft
+**Owner:** PRIO MD&D Team
+**Last reviewed:** 2026-06-18
+**Related ADRs:** ADR-011 (replace runtime mapper with precomputed lookup)
+
+---
+
+## 1. Purpose
+
+> Attach the 9 geographic metadata columns to a prediction frame by merging a
+> precomputed GAUL lookup table on the PRIO-GRID cell id.
+
+It is the lookup-based replacement for `PriogridCountryMapper`'s runtime spatial
+enrichment: the spatial computation has already happened upstream (the
+views-datafactory area-majority join), so this class does only a table join.
+
+---
+
+## 2. Non-Goals (Explicit Exclusions)
+
+- This class does **not** perform spatial computation — no geometry, no
+  shapefiles, no geopandas, no area-majority calculation.
+- This class does **not** build the lookup table (that is
+  `scripts/build_gaul_lookup.py`, run offline).
+- This class does **not** fill, impute, or invent metadata for unmatched cells.
+- This class does **not** validate the result — null/coverage validation is the
+  manager's `_validate()` responsibility.
+- This class does **not** read from the datafactory, viewser, or Appwrite.
+
+---
+
+## 3. Responsibilities and Guarantees
+
+- Loads exactly one lookup Parquet at construction and verifies it carries the 9
+  contract columns; missing columns raise at construction.
+- Returns the input frame augmented with exactly the 9 columns of
+  `gaul_schema.METADATA_COLS`, with their dtypes preserved from the lookup
+  (codes numeric, coordinates float, names/iso categorical).
+- A cell id present in the lookup is enriched with that cell's metadata.
+- A cell id **absent** from the lookup yields **null** metadata for that row —
+  never a sentinel, never a fabricated value (fail-loud downstream).
+- Row count and row order of the input are preserved (left merge).
+
+---
+
+## 4. Inputs and Assumptions
+
+- A lookup Parquet exists at the configured path (default: the committed
+  `views_postprocessing/data/gaul_lookup.parquet`), indexed by `priogrid_gid`,
+  containing only fully-complete cells (no nulls, no `-1`, no empty strings).
+- The input DataFrame has a column named by `pg_id_col` holding PRIO-GRID cell
+  ids; a missing `pg_id_col` raises `ValueError`.
+- The lookup is the single source of geographic truth — the caller does not
+  expect this class to reconcile it against any other source.
+
+---
+
+## 5. Outputs and Side Effects
+
+- Output: the input frame (or, with `only_metadata=True`, just `pg_id_col` +
+  `time_id_col`) left-merged with the 9 metadata columns.
+- Side effects: logs the lookup size at construction (INFO); logs a WARNING with
+  the count and sample of unmatched cell ids when any occur; logs ignored
+  mapper-only kwargs at DEBUG. No file writes, no network.
+
+---
+
+## 6. Failure Modes and Loudness
+
+- **Raises** at construction if the lookup file is missing or lacks a contract
+  column.
+- **Raises** `ValueError` if `pg_id_col` is not in the input.
+- **Does not raise** on unmatched cells — it surfaces them as nulls and logs a
+  WARNING. This is deliberate: the manager's `_validate()` null gate is the
+  single enforcement point, so a coverage hole fails loudly there (one place),
+  not in two. Passing a sentinel for unmatched cells would be a **bug** (it would
+  bypass that gate). Aligns with ADR-003 (fail loud on semantic ambiguity).
+
+---
+
+## 7. Boundaries and Interactions
+
+- Allowed to depend on: pandas, `gaul_schema`, and a local Parquet file.
+- Must **not** depend on: geopandas/shapely, the runtime mapper, the
+  datafactory, viewser, Appwrite, or any network resource.
+- Treats the lookup table as an opaque, trusted artifact produced by the build
+  script; it does not re-validate the table's spatial correctness.
+
+---
+
+## 8. Examples of Correct Usage
+
+```python
+enricher = GaulLookupEnricher()
+out = enricher.enrich_dataframe_with_pg_info(
+    df.reset_index(), pg_id_col="priogrid_gid", time_id_col="month_id",
+    only_metadata=True,
+)
+# out has the 9 metadata columns; unmatched cells are null.
+```
+
+Drop-in for the manager's existing call (same method name and key kwargs).
+
+---
+
+## 9. Examples of Incorrect Usage
+
+- Filling unmatched cells with `-1`/`""`/`"unknown"` to "avoid validation
+  errors" — defeats the fail-loud contract and ships wrong data to FAO.
+- Using it to enrich against a lookup built for a different region without
+  expecting nulls for out-of-region cells.
+- Calling it expecting spatial recomputation when the lookup is stale — regenerate
+  the lookup with the build script instead.
+
+---
+
+## 10. Test Alignment
+
+`tests/test_enrichment.py`:
+- **Green:** the 9 columns present; values match the lookup; row count preserved;
+  codes numeric / coords float.
+- **Beige:** lookup integrity (cell count, no nulls, no `-1`, dtypes); coordinate
+  formula (independent oracle).
+- **Red:** unknown cell id and excluded ocean cells yield null; missing
+  `pg_id_col` raises.
+
+---
+
+## 11. Evolution Notes
+
+- Stable: the 9-column contract and the fail-loud-on-unmatched behavior (changing
+  either is a coordinated change across this repo and views-faoapi).
+- Expected to change: the lookup's cell-set/region and its source GAUL version,
+  via re-running the build script. Such regenerations must not change the schema.
+
+---
+
+## End of Contract
+
+This document defines the **intended meaning** of `GaulLookupEnricher`.
+
+Changes to behavior that violate this intent are bugs.
+Changes to intent must update this contract.

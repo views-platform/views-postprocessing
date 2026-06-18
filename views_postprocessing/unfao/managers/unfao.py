@@ -16,7 +16,8 @@ import io
 from datetime import datetime
 import os
 from dotenv import load_dotenv
-from views_postprocessing.unfao.mapping.mapping import get_default_mapper
+from views_postprocessing.unfao.enrichment import GaulLookupEnricher
+from views_postprocessing.unfao.gaul_schema import METADATA_COLS
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 
         self._historical_dataset = None
         self._forecast_dataset = None
-        self._mapper = get_default_mapper()
+        self._enricher = GaulLookupEnricher()
         self.ensemble_path_manager = None
 
     def _read_historical_data(self):
@@ -76,35 +77,6 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         
         # Force it to the correct .env just to be safe
         load_dotenv(dotenv_path=str(self.ensemble_path_manager.dotenv))
-        
-        # appwrite_config = AppwriteConfig(
-        #     path_manager=self.ensemble_path_manager,
-        #     endpoint=os.getenv("APPWRITE_ENDPOINT"),
-        #     project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
-        #     credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
-        #     auth_method="api_key",
-        #     cache_ttl_hours=24,
-        #     bucket_id=os.getenv("APPWRITE_UNFAO_BUCKET_ID"),
-        #     bucket_name=os.getenv("APPWRITE_UNFAO_BUCKET_NAME"),
-        #     collection_name=os.getenv("APPWRITE_UNFAO_COLLECTION_NAME"),
-        #     collection_id=os.getenv("APPWRITE_UNFAO_COLLECTION_ID"),
-        #     database_id=os.getenv("APPWRITE_DATABASE_ID"),
-        #     database_name=os.getenv("APPWRITE_DATABASE_NAME"),
-        # )
-        # appwrite_config = AppwriteConfig(
-        #     path_manager=self._model_path,
-        #     endpoint=os.getenv("APPWRITE_ENDPOINT"),
-        #     project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
-        #     credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
-        #     auth_method="api_key",
-        #     cache_ttl_hours=24,
-        #     bucket_id=os.getenv("APPWRITE_UNFAO_FORECASTS_BUCKET_ID"),
-        #     bucket_name=os.getenv("APPWRITE_UNFAO_FORECASTS_BUCKET_NAME"),
-        #     collection_id=os.getenv("APPWRITE_UNFAO_COLLECTION_ID"),
-        #     collection_name=os.getenv("APPWRITE_UNFAO_COLLECTION_NAME"),
-        #     database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
-        #     database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
-        # )
 
         appwrite_config = AppwriteConfig(
             path_manager=self.ensemble_path_manager,
@@ -138,25 +110,12 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self._read_forecast_data()
 
     def _append_metadata(self, dataset: PGMDataset) -> pd.DataFrame:
-        filter_cols = [
-            dataset._time_id,
-            dataset._entity_id,
-            "pg_xcoord",
-            "pg_ycoord",
-            "country_iso_a3",
-            "admin1_gaul1_code",
-            "admin1_gaul1_name",
-            "admin1_gaul0_code",
-            "admin1_gaul0_name",
-            "admin2_gaul2_code",
-            "admin2_gaul2_name",
-        ]
-        raw_result = self._mapper.enrich_dataframe_with_pg_info(
+        filter_cols = [dataset._time_id, dataset._entity_id, *METADATA_COLS]
+        raw_result = self._enricher.enrich_dataframe_with_pg_info(
             dataset.dataframe.reset_index(),
             pg_id_col=dataset._entity_id,
             time_id_col=dataset._time_id,
             only_metadata=True,
-            batch_size=1000
         )
         
         raw_result = raw_result[filter_cols].set_index([dataset._time_id, dataset._entity_id])
@@ -186,15 +145,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self._forecast_dataframe = self._append_metadata(self._forecast_dataset)
 
     def _validate(self) -> pd.DataFrame:
-        _necessary_metadata_cols = ["pg_xcoord",
-            "pg_ycoord",
-            "country_iso_a3",
-            "admin1_gaul1_code",
-            "admin1_gaul1_name",
-            "admin1_gaul0_code",
-            "admin1_gaul0_name",
-            "admin2_gaul2_code",
-            "admin2_gaul2_name"]
+        _necessary_metadata_cols = METADATA_COLS
 
         for col in _necessary_metadata_cols:
             if col not in self._historical_dataframe.columns:
@@ -248,7 +199,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         dsm = DatastoreModule(appwrite_file_manager_config=unfao_appwrite_config)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        enrichment_description = f"Enriched with geographic metadata on {timestamp} using PriogridCountryMapper."
+        enrichment_description = f"Enriched with geographic metadata on {timestamp} using precomputed GAUL lookup (ADR-011)."
         historical_file_path = self._model_path.data_generated / f"historical_dataset_{timestamp}.parquet"
         forecast_file_path = self._model_path.data_generated / f"forecast_dataset_{timestamp}.parquet"
 
