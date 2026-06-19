@@ -61,9 +61,13 @@ views-datafactory area-majority join), so this class does only a table join.
 
 - Output: the input frame (or, with `only_metadata=True`, just `pg_id_col` +
   `time_id_col`) left-merged with the 9 metadata columns.
-- Side effects: logs the lookup size at construction (INFO); logs a WARNING with
-  the count and sample of unmatched cell ids when any occur; logs ignored
-  mapper-only kwargs at DEBUG. No file writes, no network.
+- Public attribute: `lookup_version` — a short, stampable id read from the
+  lookup's embedded provenance at construction (`<region>@<short digest>`, or
+  `"unknown"` if the lookup carries none). The manager stamps it on each
+  delivery so a delivery is traceable to the exact lookup build.
+- Side effects: logs the lookup size + version at construction (INFO); logs a
+  WARNING with the count and sample of unmatched cell ids when any occur; logs
+  ignored mapper-only kwargs at DEBUG. No file writes, no network.
 
 ---
 

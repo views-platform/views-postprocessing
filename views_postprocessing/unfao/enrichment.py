@@ -19,10 +19,12 @@ views-faoapi ``handlers.py`` (``FAO_PGMDataset._METADATA_COLS``).
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
 
@@ -48,10 +50,31 @@ class GaulLookupEnricher:
             raise ValueError(
                 f"Lookup table is missing contract columns: {missing}"
             )
+        self.lookup_version = self._read_version(self._lookup_path)
         logger.info(
-            "Loaded GAUL lookup: %d cells from %s",
-            len(self._lookup), self._lookup_path,
+            "Loaded GAUL lookup: %d cells from %s (version=%s)",
+            len(self._lookup), self._lookup_path, self.lookup_version,
         )
+
+    @staticmethod
+    def _read_version(path: Path) -> str:
+        """A short, stampable version id from the lookup's embedded provenance.
+
+        Format: ``<region>@<short source digest>`` (e.g. ``land_gaul@f74d3b2b``)
+        so a delivery can be traced to the exact lookup build. Falls back to
+        ``"unknown"`` if the parquet carries no provenance metadata.
+        """
+        meta = pq.read_metadata(path).metadata or {}
+        meta = {k.decode(): v.decode() for k, v in meta.items()}
+        region = meta.get("region", "?")
+        digest = "?"
+        try:
+            prov = json.loads(meta.get("source_provenance", "{}"))
+            digest = (prov.get("land_gaul_region", {})
+                      .get("content_digest", "?"))[:8]
+        except (ValueError, AttributeError):
+            pass
+        return "unknown" if region == "?" and digest == "?" else f"{region}@{digest}"
 
     def enrich_dataframe_with_pg_info(
         self,

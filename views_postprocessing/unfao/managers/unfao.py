@@ -199,7 +199,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         dsm = DatastoreModule(appwrite_file_manager_config=unfao_appwrite_config)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        enrichment_description = f"Enriched with geographic metadata on {timestamp} using precomputed GAUL lookup (ADR-011)."
+        enrichment_description = f"Enriched with geographic metadata on {timestamp} using precomputed GAUL lookup (ADR-011, version={self._enricher.lookup_version})."
         historical_file_path = self._model_path.data_generated / f"historical_dataset_{timestamp}.parquet"
         forecast_file_path = self._model_path.data_generated / f"forecast_dataset_{timestamp}.parquet"
 
