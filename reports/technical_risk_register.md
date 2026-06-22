@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-06-12                           |
-| Total Concerns    | 35                                   |
-| Open Concerns     | 33                                   |
+| Last Updated      | 2026-06-22                           |
+| Total Concerns    | 36                                   |
+| Open Concerns     | 34                                   |
 | Resolved Concerns | 2                                    |
 
 ---
@@ -614,6 +614,22 @@ The current mapper sources `country_iso_a3` from Natural Earth's `ISO_A3` field.
 **Resolved by ADR-011's lookup.** The new GAUL-sourced lookup has zero `-99` codes anywhere (verified across all 64,742 global cells); Somaliland cells become `SOM` (Somalia), matching GAUL — FAO's own boundary product. So the engine swap (Stage 3) eliminates this defect as a side effect. Until the swap ships, the current production output carries it. Note: other Natural Earth `-99` territories (e.g. N. Cyprus, Kosovo) could surface the same way outside africa_me — the global swap covers them too.
 
 See also C-01 (null-validation re-enabled — but it does not check code *validity*), and the disputed-territories section of `reports/enrichment_diff/report.md`.
+
+---
+
+### C-36: Permanently-red test suite makes the CI/ship-it gate unable to detect new regressions
+
+| Field | Value |
+|-------|-------|
+| ID | C-36 |
+| Tier | 3 |
+| Source | `review-diff` (2026-06-22) |
+| Trigger | When a future change to the enrichment/manager path introduces a genuine test failure, verify it is noticed — `pytest tests/` already reports 43 failures on `development`, so a real regression appears only as a change in the failure *count* and a green gate is impossible |
+| Location | `tests/test_falsification_*.py` (16 files, deliberate `assert False` probes), `tests/test_datafactory_deploy_readiness.py` (3 deploy-gate failures), `.github/workflows/run_pytest.yml` |
+
+The repo's `pytest tests/` is red on `development` independent of any feature branch: ~40 falsification-campaign tests are intentional `assert False` probes that encode open findings (e.g. the lat/lon vs `pg_xcoord` schema gap in C-24), and 3 `test_datafactory_deploy_readiness.py` gates fail until a real datafactory deploy (version-past-tag, GAUL provenance digest). CI runs `poetry run pytest tests/` with no deselection, so the gate is permanently failing and cannot signal "this branch is green." A genuine regression from a future change surfaces as failure #44 — indistinguishable at a glance from the 43 known reds — so the automated gate provides no protection and a reviewer must diff failure sets by hand. Mitigation: mark the falsification probes `@pytest.mark.xfail(strict=True)` (so a probe that *starts passing* is itself flagged) and gate the deploy-readiness tests behind a marker excluded from the default run, leaving a suite that is green-when-healthy. Surfaced while shipping the views-frames conformance proof (8 new tests green, suite gate red); the decision to commit over the red gate was deliberate and documented.
+
+See also C-03 (test-coverage gaps — distinct: that is *missing* coverage; this is *existing* tests masking regressions).
 
 ---
 
