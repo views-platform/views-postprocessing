@@ -8,6 +8,13 @@ Rounds: R1 FALSIFIED (3H/3S) → R2 CONTESTED (1H/3S) → R3 FALSIFIED (2H/0S) �
 These tests are in TDD RED state -- they FAIL against the current code.
 """
 
+import pytest
+
+# Falsification probes assert known-open findings by design (assert False).
+# Marked xfail(strict) so the suite is green-when-healthy and a probe that
+# starts passing is surfaced for promotion. See C-36 in the risk register.
+pytestmark = pytest.mark.xfail(reason="falsification probe — asserts a known-open finding by design (see reports/technical_risk_register.md, C-36); xfail(strict) keeps the suite green-when-healthy and surfaces any probe that starts passing", strict=True)
+
 
 def test_falsify_r4_01_make_valid_not_applied_to_load_methods():
     """

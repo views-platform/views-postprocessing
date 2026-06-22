@@ -9,7 +9,15 @@ Round 3: 2 hard falsifications found.
 These tests are in TDD RED state -- they FAIL against the current code.
 """
 
+import pytest
 
+
+@pytest.mark.xfail(
+    reason="falsification probe (C-06/C-20 — 7th zero-area guard site) — open "
+           "finding; xfail(strict) keeps the suite green-when-healthy and "
+           "surfaces it if the guard is added. See C-36 in the risk register.",
+    strict=True,
+)
 def test_falsify_r3_03_dominant_gids_zero_area_guard_missing():
     """
     Probe 3 (Category B): _find_dominant_country_gids has no zero-area guard

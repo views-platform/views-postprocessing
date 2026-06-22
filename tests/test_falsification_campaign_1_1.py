@@ -7,6 +7,13 @@ READ-ONLY CAMPAIGN: These stubs document CIC-code discrepancies.
 Source code is NOT modified. CIC should be updated to match reality.
 """
 
+import pytest
+
+# Falsification probes assert known-open findings by design (assert False).
+# Marked xfail(strict) so the suite is green-when-healthy and a probe that
+# starts passing is surfaced for promotion. See C-36 in the risk register.
+pytestmark = pytest.mark.xfail(reason="falsification probe — asserts a known-open finding by design (see reports/technical_risk_register.md, C-36); xfail(strict) keeps the suite green-when-healthy and surfaces any probe that starts passing", strict=True)
+
 
 def test_falsify_1_1_01_cache_mode_guarantee_contradicted_by_c05():
     """

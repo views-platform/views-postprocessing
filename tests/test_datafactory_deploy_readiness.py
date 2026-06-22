@@ -36,6 +36,12 @@ class TestReleaseGate:
     views-models#127's REGION='land_gaul' flip would hit a package without it.
     """
 
+    @pytest.mark.xfail(
+        reason="cross-repo deploy gate — tracked as views-datafactory#224 "
+               "(development version 1.3.0 collides with released tag); "
+               "xfail(strict) passes once datafactory bumps + tags. See C-36.",
+        strict=True,
+    )
     def test_version_bumped_past_latest_tag(self):
         version_line = (_DF / "pyproject.toml").read_text()
         current = next(
@@ -68,6 +74,12 @@ class TestServedArtifactMatchesBranch:
     disagree with land_gaul and with the postprocessing lookup.
     """
 
+    @pytest.mark.xfail(
+        reason="cross-repo deploy gate — tracked as views-datafactory#223 "
+               "(served grid stale vs June-12 GAUL parquets); xfail(strict) "
+               "passes once the grid is re-assembled. See C-36.",
+        strict=True,
+    )
     def test_assembled_grid_not_older_than_gaul_parquets(self):
         grid = _DF / "data/assembled/grid.npy"
         parquet = _DF / "data/raw/gaul_admin/gaul0_code.parquet"
@@ -86,6 +98,12 @@ class TestServedArtifactProvenanceTracksGaul:
     channels can silently stay stale across pipeline runs.
     """
 
+    @pytest.mark.xfail(
+        reason="cross-repo deploy gate — tracked as views-datafactory#223 "
+               "(provenance omits admin_digest, so ADR-041 skip can't rebuild "
+               "on GAUL change); xfail(strict) passes once added. See C-36.",
+        strict=True,
+    )
     def test_provenance_includes_admin_digest(self):
         prov = json.loads((_DF / "data/assembled/provenance.json").read_text())
         sources = prov.get("sources", {})
