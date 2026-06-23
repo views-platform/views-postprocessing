@@ -36,12 +36,9 @@ class TestReleaseGate:
     views-models#127's REGION='land_gaul' flip would hit a package without it.
     """
 
-    @pytest.mark.xfail(
-        reason="cross-repo deploy gate — tracked as views-datafactory#224 "
-               "(development version 1.3.0 collides with released tag); "
-               "xfail(strict) passes once datafactory bumps + tags. See C-36.",
-        strict=True,
-    )
+    # views-datafactory#224 RESOLVED 2026-06-24 (datafactory 6f7f4ec bumped to
+    # v1.4.0, untagged) — xfail(strict) flipped this to a pass, so it's promoted
+    # to a live guard: it now fails if a future version collides with a tag again.
     def test_version_bumped_past_latest_tag(self):
         version_line = (_DF / "pyproject.toml").read_text()
         current = next(
