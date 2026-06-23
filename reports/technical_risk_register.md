@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-06-22                           |
-| Total Concerns    | 36                                   |
-| Open Concerns     | 33                                   |
+| Last Updated      | 2026-06-24                           |
+| Total Concerns    | 37                                   |
+| Open Concerns     | 34                                   |
 | Resolved Concerns | 3                                    |
 
 ---
@@ -614,6 +614,22 @@ The current mapper sources `country_iso_a3` from Natural Earth's `ISO_A3` field.
 **Resolved by ADR-011's lookup.** The new GAUL-sourced lookup has zero `-99` codes anywhere (verified across all 64,742 global cells); Somaliland cells become `SOM` (Somalia), matching GAUL — FAO's own boundary product. So the engine swap (Stage 3) eliminates this defect as a side effect. Until the swap ships, the current production output carries it. Note: other Natural Earth `-99` territories (e.g. N. Cyprus, Kosovo) could surface the same way outside africa_me — the global swap covers them too.
 
 See also C-01 (null-validation re-enabled — but it does not check code *validity*), and the disputed-territories section of `reports/enrichment_diff/report.md`.
+
+---
+
+### C-37: Reconciliation uses a pragmatic per-draw approximation, not principled probabilistic reconciliation
+
+| Field | Value |
+|-------|-------|
+| ID | C-37 |
+| Tier | 3 |
+| Source | `manual` (2026-06-24) — phase-2 reconciliation migration |
+| Trigger | When reconciliation is wired into a delivery and its uncertainty is consumed (intervals, scores), verify the method is the principled one — the current per-draw scaling can distort the joint predictive distribution |
+| Location | `views_postprocessing/reconciliation/proportional.py` |
+
+`reconcile_proportional` is a faithful numpy port of views-reporting's `ForecastReconciler.reconcile_forecast`: **top-down disaggregation using forecast proportions** (FPP3), applied **per posterior draw**. It rescales each marginal draw independently to hit that draw's country total, which implicitly assumes the grid and country samples are index-aligned joint draws. This is a pragmatic approximation, **not** principled joint probabilistic reconciliation (the IJF paper, PII `S0169207023001097` — exact title TBC; cf. FPP3 §reconciliation), under which the reconciled draws would be coherent samples from a single reconciled joint distribution (e.g. MinT-style projection on samples). The migration deliberately preserves the existing method first (parity proven bit-for-bit against the untouched views-reporting oracle, `tests/test_reconciliation_parity.py`); the upgrade is **gated behind** completing the move and wiring (slices 2-3) so behaviour change and relocation never mix. Until then, treat reconciled uncertainty as approximate.
+
+See also the migration plan (reconciliation slices 2-4) and views-reporting issue #72 (the relocation).
 
 ---
 
