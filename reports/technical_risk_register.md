@@ -649,6 +649,8 @@ See also the migration plan (reconciliation slices 2-4) and views-reporting issu
 
 Tier 2: structural fragility under the realistic change of wiring to global, with a clear trigger; not Tier 1 (no silent corruption — parity is exact; this is a runtime/memory failure). See also C-31 (mapper scale), C-32 (enricher memory), C-37 (the algorithm), epic #31 / views-reporting#72.
 
+**Update 2026-06-24 — compute RESOLVED.** The per-group `np.nonzero(inverse == gi)` was replaced with **group-by-sort** (`argsort(inverse)` + contiguous slices from `np.unique` counts, O(N log N), one index array). Parity stays **bit-exact** (`tests/test_reconciliation_grouping.py`, `test_reconciliation_e2e_parity.py` → 0.0) and a scale guard (`tests/test_reconciliation_scale.py`) protects against regression. **Residual (still open):** the module holds the whole pgm frame in memory at once; at global volume the **caller must chunk by time** (reconciliation is independent across months) — the chunk-by-time contract is documented in the CIC (`docs/CICs/ReconciliationModule.md` §5), to be **verified on a global-volume dry-run at S7 (#39)**. This entry stays open until that verification.
+
 ---
 
 ## Disagreements

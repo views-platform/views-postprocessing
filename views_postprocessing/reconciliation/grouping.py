@@ -58,13 +58,19 @@ def reconcile_pgm_to_cm(
     cm_pos = {(int(cm_time[j]), int(cm_unit[j])): j for j in range(cm_frame.n_rows)}
 
     # 3. Group grid rows by (time, country) and reconcile each group with the leaf.
-    #    Grouping is vectorised via np.unique (no per-row Python loop, so it scales
-    #    to the full grid); the outer loop is over the few unique groups only.
+    #    Group-by-sort: a single argsort lays the rows out contiguously per group
+    #    (O(N log N), one index array) — no per-group full-array scan — so it
+    #    scales to the full grid (register C-38). Group iteration order is
+    #    irrelevant: each group writes only its own rows.
     pg_vals = pgm_frame.values
     out = np.empty_like(pg_vals)
     group_key = np.stack([pg_time, cm_units], axis=1)  # (N_pg, 2)
-    unique_groups, inverse = np.unique(group_key, axis=0, return_inverse=True)
+    unique_groups, inverse, counts = np.unique(
+        group_key, axis=0, return_inverse=True, return_counts=True
+    )
     inverse = np.asarray(inverse).reshape(-1)
+    order = np.argsort(inverse, kind="stable")  # rows grouped contiguously by group
+    bounds = np.concatenate(([0], np.cumsum(counts)))  # group gi -> order[bounds[gi]:bounds[gi+1]]
 
     for gi in range(unique_groups.shape[0]):
         t, c = int(unique_groups[gi, 0]), int(unique_groups[gi, 1])
@@ -72,7 +78,7 @@ def reconcile_pgm_to_cm(
             raise ValueError(
                 f"grid group (time={t}, country={c}) has no country forecast in cm_frame"
             )
-        rows = np.nonzero(inverse == gi)[0]
+        rows = order[bounds[gi]:bounds[gi + 1]]
         country_total = cm_vals[cm_pos[(t, c)]]  # (S,)
         # leaf convention: grid is (samples, cells); our frame slice is (cells, samples)
         scaled = reconcile_proportional(pg_vals[rows].T, country_total)  # (S, n_cells)

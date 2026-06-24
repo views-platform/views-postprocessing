@@ -20,6 +20,10 @@ Story S6 (#38) formalises this into the `ReconciliationModule` CIC.
   frozen views-reporting pipeline **bit-for-bit** on every target
   (`tests/test_reconciliation_e2e_parity.py`). No torch / pandas / viewser / wandb.
 - **S6 (#38) — done.** CIC at `docs/CICs/ReconciliationModule.md`.
+- **C-38 (scale) — compute fixed.** The grouping is now `O(N log N)` (group-by-sort
+  in `reconciliation/grouping.py`); parity stays bit-exact and a scale guard
+  (`tests/test_reconciliation_scale.py`) protects it. Residual: global peak memory
+  is bounded by caller-side **chunk-by-time** (documented in the CIC), verified at S7.
 - **In-repo migration complete.** Remaining: S7 (#39) pipeline-core repoint and
   S8 (#40) views-reporting phase-out — both cross-repo, **blocked** on this
   landing; and the principled-algorithm upgrade (**C-37**), a separate epic.

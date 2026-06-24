@@ -44,6 +44,7 @@ It is the frames-native, numpy-only home of the reconciliation that previously l
 ## 5. Outputs and Side Effects
 
 - Output: a new pgm `PredictionFrame` `(N, S)`, reconciled. **No** side effects (no I/O, no logging of data, no global state).
+- **Memory ∝ frame size.** Grouping is `O(N log N)` (group-by-sort; register C-38), but the whole frame is held in memory at once — peak ≈ input + output ≈ `2·N·S·4` bytes. At global volume (`land` region) the **caller must chunk by time**: reconciliation is independent across months, so call `reconcile` per month-slice and write each result out rather than materialising the global frame. (C-38; verified on a global dry-run at S7, #39.)
 - **Approximate where flagged:** for a draw in which *all* of a country's grid cells are zero, there are no proportions to distribute, so those cells stay zero and that draw's total is not conserved (the algorithm's documented edge case). Uncertainty is reconciled per-draw, which is a pragmatic approximation (C-37).
 
 ---
@@ -96,7 +97,8 @@ Multi-target: call `rm.reconcile(cm_t, pgm_t)` once per target.
 - **Parity (gate):** `tests/test_reconciliation_e2e_parity.py` — the module reproduces the frozen oracle (`tests/fixtures/reconciliation_e2e_parity.npz`) bit-for-bit on every target.
 - **Unit:** `tests/test_reconciliation_{frames,grouping,validation}.py` — adapters, grouping core, and each fail-loud guard.
 - **Leaf parity:** `tests/test_reconciliation_parity.py` — `reconcile_proportional` vs the torch oracle.
-- Regression-protected: bit-exact parity, zero-preservation, de-mutation, and every `ValueError` guard.
+- **Scale:** `tests/test_reconciliation_scale.py` — conservation holds across thousands of `(time, country)` groups (guards the group-by-sort logic; C-38).
+- Regression-protected: bit-exact parity, zero-preservation, de-mutation, every `ValueError` guard, and grouping correctness at scale.
 
 ---
 
