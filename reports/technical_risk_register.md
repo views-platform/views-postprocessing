@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-06-24                           |
 | Total Concerns    | 40                                   |
-| Open Concerns     | 25                                   |
-| Resolved Concerns | 15                                   |
+| Open Concerns     | 24                                   |
+| Resolved Concerns | 16                                   |
 
 ---
 
@@ -45,7 +45,7 @@
 **Highest tier:** 2 (C-02)
 **Fix strategy:** Lazy initialization or removal of module-level call. Add `mapper` constructor parameter to manager.
 **Resolution scope:** Full
-**✅ RESOLVED 2026-06-24:** ADR-011 is executed and the runtime mapper (`mapping.py`) was deleted (C-39, PR #42). The module-level `set_default_mapper()` side effect this cluster describes no longer exists — C-02 is resolved (C-10 was already resolved).
+**✅ RESOLVED 2026-06-24:** ADR-011 is executed and the runtime mapper (`mapping.py`) was deleted (C-39, PR #42). The module-level `set_default_mapper()` side effect this cluster describes no longer exists — C-02 and C-10 are both resolved.
 
 ### Cluster D: Mapper-manager boundary contract
 **Root cause:** No explicit contract declares what columns the mapper produces and the manager consumes.
@@ -134,22 +134,6 @@ All overlap ratio calculations use `.area` on EPSG:4326 geometries, which produc
 | Location | `.github/workflows/publish_package.yml:33` |
 
 The "Validate Version" step fetches the latest version from `https://pypi.org/pypi/views-pipeline-core/json` instead of `https://pypi.org/pypi/views-postprocessing/json`. This compares the local `views-postprocessing` version against `views-pipeline-core`'s PyPI version, which is a different package entirely. The check may incorrectly block a valid release or allow a version that collides with an existing `views-postprocessing` release.
-
----
-
-### C-10: Manager-to-Mapper coupling via module-level global state
-
-| Field | Value |
-|-------|-------|
-| ID | C-10 |
-| Tier | 3 |
-| Source | `graphify` (2026-06-02) |
-| Trigger | When writing unit tests for `UNFAOPostProcessorManager` that need to mock the mapper, verify that the dependency is injectable — currently it is hard-wired through the `_DEFAULT_MAPPER` global |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:3088-3122`, `views_postprocessing/unfao/managers/unfao.py:43` |
-
-Graphify graph traversal revealed that `UNFAOPostProcessorManager` (component 4) and `PriogridCountryMapper` (component 0) are in completely disconnected graph components — they share no structural edge despite being tightly coupled at runtime. The connection goes through `get_default_mapper()` which returns the module-level `_DEFAULT_MAPPER` global (line 3116). In `unfao.py` line 43, the manager calls `self._mapper = get_default_mapper()`, coupling it to a singleton created at import time rather than accepting the mapper as an injected dependency. This makes the manager untestable in isolation (our test suite had to intercept `gpd.read_file` at conftest module level to work around this), and prevents using different mapper configurations in different contexts.
-
-See also C-02 (the same module-level side effect that creates the global mapper).
 
 ---
 
@@ -550,6 +534,16 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 ---
 
 ## Resolved Concerns
+
+### C-10: Manager-to-Mapper coupling via module-level global state — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-10 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the module-level `_DEFAULT_MAPPER` global and `get_default_mapper()` coupling this concern describes no longer exist (the manager now uses `GaulLookupEnricher`). |
+
+---
 
 ### C-04: Inconsistent forward/reverse mapping breaks expected bijection — RESOLVED
 
