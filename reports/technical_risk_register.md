@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-06-24                           |
-| Total Concerns    | 38                                   |
-| Open Concerns     | 35                                   |
-| Resolved Concerns | 3                                    |
+| Total Concerns    | 40                                   |
+| Open Concerns     | 36                                   |
+| Resolved Concerns | 4                                    |
 
 ---
 
@@ -653,6 +653,22 @@ Tier 2: structural fragility under the realistic change of wiring to global, wit
 
 ---
 
+### C-40: FAO delivery logic fused to pipeline-core via double inheritance + interleaved infrastructure
+
+| Field | Value |
+|-------|-------|
+| ID | C-40 |
+| Tier | 2 |
+| Source | `expert-code-review` (2026-06-24) |
+| Trigger | When pipeline-core changes `PGMDataset` / the data loader / the postprocessor base (it is mid-migration: their #186/#188/#161), or when wanting to unit-test or numpy-ify the FAO enrich/validate without standing up the whole framework |
+| Location | `views_postprocessing/unfao/managers/unfao.py:26` (double inheritance); `:78-98` and `:185-199` (inline env/AppwriteConfig/DatastoreModule); `:112-122` (`_append_metadata`), `:147-172` (`_validate`) |
+
+`UNFAOPostProcessorManager` subclasses **two concrete** pipeline-core base classes (`PostprocessorManager`, `ForecastingModelManager`) and **interleaves infrastructure** (env reading, `AppwriteConfig` construction, `DatastoreModule`, path resolution) with the FAO **business logic** (GAUL enrichment, the 9-column null gate) inside the lifecycle hooks. Consequences: (a) the FAO logic cannot be instantiated or unit-tested without the full framework + Appwrite env + viewser; (b) **pandas cannot leave the delivery path** because the inherited data loader and `PGMDataset` are pandas — gated on pipeline-core's own DataFrame retirement; (c) **SDP exposure** — heavy *inheritance* coupling to a pipeline-core that is itself unstable (mid-migration), so upstream changes break far from their cause (cf. C-27, C-29); (d) it's the repo's only composition-over-inheritance violation. The dependency itself is correct (`unfao.py` genuinely *is* a pipeline-core postprocessor) — the issue is its **blast radius**. Mitigation (does **not** fight the Template-Method framework): keep the subclass as a **thin shell** but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager *calls*, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP). This makes the FAO logic testable standalone and insulates it from pipeline-core churn.
+
+See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper cleanup that precedes any unfao restructuring).
+
+---
+
 ## Disagreements
 
 ### D-01: Cache strategy refactoring — extract now vs. characterize first
@@ -740,6 +756,16 @@ Tier 2: structural fragility under the realistic change of wiring to global, wit
 ---
 
 ## Resolved Concerns
+
+### C-39: Dead geopandas runtime mapper + 1.3 GB shapefiles — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-39 |
+| Resolved | 2026-06-24 |
+| Resolution | Deleted the dead mapper cluster on branch `chore/remove-dead-geopandas-mapper`: `unfao/mapping/` (3,171 lines), the 1.3 GB `shapefiles/` bundle, the mapper tests + `conftest.py`, the two ADR-011 diff scripts, and the CIC — **45 files / ~5,069 deletions**. **geopandas + shapely are now gone from the codebase** (zero references); `cachetools` dropped from pyproject (mapper-only). Verified: deletion broke nothing (keep-tests green). **Dissolves the old-mapper concern cluster** — C-02, C-05, C-06, C-11, C-12, C-14, C-16, C-17, C-19, C-20, C-21 and D-01, D-02 describe code that no longer exists; they are superseded by this deletion and should be relocated to Resolved in a register-curation pass. (C-08's high-latitude-area note also dies on the mapper side; its datafactory dimension stays under C-31.) |
+
+---
 
 ### C-01: Silent upload of incomplete geographic metadata to UN FAO — RESOLVED
 

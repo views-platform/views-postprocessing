@@ -385,4 +385,3 @@ except Exception as e:
 ## See Also
 
 - [GaulLookupEnricher](../../../docs/CICs/GaulLookupEnricher.md) - Precomputed-lookup enrichment (ADR-011)
-- [PriogridCountryMapper](../mapping/README.md) - Legacy runtime mapper (retained, no longer used by the manager)

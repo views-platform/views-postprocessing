@@ -50,8 +50,9 @@ Contracts must be clear enough that:
 
 ## Active Contracts
 
-- `PriogridCountryMapper.md` — Core spatial mapping engine (GID → country/admin boundary assignment)
 - `UNFAOPostProcessorManager.md` — Pipeline orchestration manager (read → transform → validate → save)
+- `GaulLookupEnricher.md` — Precomputed GAUL lookup enrichment (ADR-011; replaced the runtime mapper)
+- `ReconciliationModule.md` — Reconcile pgm forecasts to cm country totals (numpy-native)
 
 ---
 
