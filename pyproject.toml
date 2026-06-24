@@ -6,6 +6,7 @@ authors = [
     "Dylan Pinheiro <dylpin@prio.org>",
 ]
 readme = "README.md"
+license = "MIT"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.15"
