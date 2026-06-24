@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-06-24                           |
 | Total Concerns    | 40                                   |
-| Open Concerns     | 36                                   |
-| Resolved Concerns | 4                                    |
+| Open Concerns     | 25                                   |
+| Resolved Concerns | 15                                   |
 
 ---
 
@@ -73,20 +73,6 @@
 
 ## Open Concerns
 
-### C-02: Module-level side effect blocks package import on shapefile failure
-
-| Field | Value |
-|-------|-------|
-| ID | C-02 |
-| Tier | 2 |
-| Source | `repo-assimilation` (2026-06-02) |
-| Trigger | When updating, relocating, or removing any shapefile in `views_postprocessing/shapefiles/`, verify that import of the package still succeeds |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:3122` |
-
-Line 3122 calls `set_default_mapper()` at module scope, which instantiates `PriogridCountryMapper` and loads 4 large shapefiles (Natural Earth 10m, PRIO-GRID, GAUL L1, GAUL L2). If any shapefile is missing or malformed, the import of `mapping.py` raises an exception. Because `unfao.py` imports `get_default_mapper` from this module, and the `managers/__init__.py` re-exports `UNFAOPostProcessorManager`, any consumer importing from this package will fail — even code paths that do not need the mapper. This makes the package entirely unusable if a single shapefile is corrupted.
-
----
-
 ### C-03: Test coverage gaps across mapper-manager boundary and manager code
 
 | Field | Value |
@@ -100,54 +86,6 @@ Line 3122 calls `set_default_mapper()` at module scope, which instantiates `Prio
 Initial state was zero test coverage. A 73-test suite was written (2026-06-02) covering the mapper's core guarantees (determinism, largest-overlap, admin assignment, cache equivalence, GID-not-found, missing shapefile, C-05 disk-cache bug) and the validation logic (missing columns, null rejection, error messages). Remaining gaps: (1) the validation tests replicate `_validate()` logic in a standalone function because `views-pipeline-core` is unavailable in test environments — if the real `_validate()` diverges, tests pass while production fails; (2) no end-to-end test enriches through the mapper then validates through the manager; (3) the `ThreadPoolExecutor` code path is never exercised in tests; (4) no tests run against real shapefiles (Git LFS not installed). CI pytest step has been uncommented.
 
 Tier recalibrated from 2 to 3 during review-rr (2026-06-02): 73 tests now exist covering core mapper guarantees. The gap is maintainability (test-code divergence, missing integration path), not structural fragility.
-
----
-
-### C-04: Inconsistent forward/reverse mapping breaks expected bijection
-
-| Field | Value |
-|-------|-------|
-| ID | C-04 |
-| Tier | 2 |
-| Source | `repo-assimilation` (2026-06-02) |
-| Trigger | When using `find_gids_for_country()` to enumerate cells for aggregation, verify that the result set is consistent with what `find_country_for_gid()` would assign to that country |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:920-922,662-668` |
-
-`find_country_for_gid()` assigns a GID to the country with the largest overlap regardless of magnitude (a 30% overlap wins if it's the largest). `_find_dominant_country_gids()` (used by `find_gids_for_country()`) requires `overlap_ratio > 0.5` to include a GID (line 922). A border cell with 40% overlap in country A and 35% in country B will be assigned to A by the forward lookup but excluded from `find_gids_for_country("A")`. Any downstream aggregation using the reverse lookup will silently miss cells that the enrichment step assigned to that country.
-
----
-
-### C-05: Multiple methods crash when disk caching is active
-
-| Field | Value |
-|-------|-------|
-| ID | C-05 |
-| Tier | 2 |
-| Source | `repo-assimilation` (2026-06-02), `graphify` (2026-06-02) |
-| Trigger | When calling `batch_country_mapping()`, `batch_admin_mapping()`, `find_multiple_countries_by_iso_a3()`, `get_cache_stats()`, or `clear_cache()` on a mapper initialized with `use_disk_cache=True`, the call will raise `AttributeError` |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:786-787,1665-1668,2331-2332,286-294,332-344` |
-
-Multiple methods directly access `self._country_cache`, `self._admin1_cache`, and `self._admin2_cache`, which are in-memory LRU/TTL cache attributes only created when `use_disk_cache=False`. When `use_disk_cache=True`, the `__init__` method only creates `self._disk_*_cache` variants and never initializes the in-memory attributes. Affected methods: `batch_country_mapping()` (line 787), `batch_admin_mapping()` (lines 1665-1668), `find_multiple_countries_by_iso_a3()` (line 2331), `clear_cache()` (lines 286-294), and `get_cache_stats()` (lines 332-344). The default mapper is initialized with `use_disk_cache=True` (line 3102), making this the default failure mode for all these methods.
-
-Graphify graph traversal (2026-06-02) identified the broader scope: the same `self._*_cache` pattern appears in 6 methods beyond the originally identified `batch_country_mapping`.
-
-See also C-03 (no tests to catch this), C-06 (duplication is the root cause — each cache branch has its own API surface).
-
----
-
-### C-06: Massive code duplication across disk/memory cache branches
-
-| Field | Value |
-|-------|-------|
-| ID | C-06 |
-| Tier | 3 |
-| Source | `repo-assimilation` (2026-06-02) |
-| Trigger | When fixing a bug in the spatial overlap logic within any `find_*` method, verify that the fix is applied to BOTH the disk-cache and memory-cache branches of that method |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:609-775,807-900,1130-1362,1364-1612` |
-
-Every method supporting both cache modes (`find_country_for_gid`, `find_admin1_for_gid`, `find_admin2_for_gid`, `find_gids_for_country`) contains the full spatial lookup implementation duplicated in both `if self.use_disk_cache` branches. The `find_country_for_gid` method alone has ~165 lines of identical logic in each branch. Total duplication accounts for approximately 1500 of the file's 3122 lines (~48%). A bug fixed in one branch may be missed in the other, creating divergent behavior depending on cache mode.
-
-See also C-05 (an example of this risk materializing).
 
 ---
 
@@ -211,48 +149,6 @@ See also C-02 (the same module-level side effect that creates the global mapper)
 
 ---
 
-### C-11: PriogridCountryMapper is a god class bridging 3 architectural concerns
-
-| Field | Value |
-|-------|-------|
-| ID | C-11 |
-| Tier | 3 |
-| Source | `graphify` (2026-06-02) |
-| Trigger | When adding a new spatial lookup method or output format, verify whether it belongs in the mapper or should be extracted into a separate class with a focused responsibility |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:133-3085` |
-
-Graphify community detection identified `PriogridCountryMapper` as the highest-betweenness node in the repository graph (0.111), with 50 edges bridging 3 distinct functional communities: Spatial Mapping Engine (core overlap logic), Country Lookup Methods (`find_country_by_iso_a3`, `search_countries_by_name`, `get_country_summary`), and Utilities & Visualization (`visualize_grid_and_country`, `calculate_capital_distance`, `cached_haversine`). The class cohesion score is 0.04, indicating its internal methods are weakly interconnected. This single 3000-line class mixes spatial intersection logic, country metadata retrieval, DataFrame enrichment, batch processing, cache management, multiprocessing orchestration, and matplotlib visualization — violating the single-responsibility principle. The god class pattern increases the cost of change: modifying visualization code risks breaking spatial assignment, and vice versa.
-
-Deep graph traversal (2026-06-02) quantified the structural fragility: 33.2% of all nodes are articulation points (removing any one disconnects subgraphs) and 37.7% of edges are bridges. Both metrics exceed the 30% threshold for tree-like fragility, confirming that the codebase has a star topology centered on this single class rather than a resilient mesh.
-
-See also C-06 (code duplication within the same class amplifies the SRP violation).
-
----
-
-### C-12: Silent wrong-country assignment when geometry intersection fails
-
-| Field | Value |
-|-------|-------|
-| ID | C-12 |
-| Tier | 2 |
-| Source | `expert-review` (2026-06-02) |
-| Trigger | When Natural Earth or GAUL shapefiles contain an invalid polygon for a country that is the correct assignment for a PRIO-GRID cell, verify that the geometry error is surfaced — currently the cell is silently assigned to the next-best country |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:658-660` (also duplicated at ~line 1192, 1428 in admin1/admin2 branches) |
-
-In `find_country_for_gid()`, the overlap calculation loop (line 644-660) wraps each `country["geometry"].intersection(grid_geometry)` call in a bare `except Exception` that logs at DEBUG and skips the country with `continue`. The identical pattern exists in 7 locations across both cache branches: lines 659, 744 (country), 925 (reverse lookup), 1202, 1320 (admin1), 1436, 1562 (admin2). All 7 use `logger.debug` — invisible in production where DEBUG is disabled. The exception type is `Exception` (widest possible), catching not just `GEOSException` but also `TypeError`, `KeyError`, and any code bug.
-
-If the correct country's polygon has an invalid geometry, its intersection fails, it's skipped, and the cell is assigned to the next-best country. The output contains no error signal — `method` still reads `"largest overlap"`. The wrong result is cached persistently by `joblib.Memory`. Critically, this is a *correlated* failure: if country X's polygon is invalid, ALL cells overlapping country X are misassigned — not just one. The UN FAO would receive data showing country X has zero conflict predictions while neighbors show inflated numbers. The failure is both systematic and undetectable from the output.
-
-The mapper's own `_validate_naturalearth_data` (line 473-477) detects invalid geometries at load time and logs a WARNING, but does not call `make_valid()` or reject the data — a validate-then-proceed-anyway pattern. D-04 resolved (2026-06-02) to apply `make_valid()` at load time in all three `_load_*` methods. `make_valid()` has been applied to all three methods.
-
-Critically, the manager's `_validate()` method — the only safety gate before upload — is structurally incapable of catching Cluster B's primary failure mode. `_validate()` checks column presence and null counts. A misassigned cell has a valid ISO code (just the wrong one), non-null values, and all required columns present. Validation passes. The safety net has a hole shaped exactly like the failure mode it should catch: wrong-but-valid geographic assignments are invisible to every automated check in the pipeline.
-
-Tier recalibrated from 1 to 2 during post-campaign review-rr (2026-06-02): `make_valid()` now applied at load time mitigates the root cause. With valid geometries, intersection failures are limited to precision edge cases. The 7 DEBUG handlers remain but are defense-in-depth, not the primary failure path. Campaign Claim 2.1-2.4 confirmed correct algorithm behavior.
-
-See also C-08 (a different mechanism for wrong-country at high latitudes), D-05 (if mapper eliminated, this concern is moot). Contingent on ADR-011.
-
----
-
 ### C-13: No timeout on Appwrite operations — pipeline can hang indefinitely
 
 | Field | Value |
@@ -264,28 +160,6 @@ See also C-08 (a different mechanism for wrong-country at high latitudes), D-05 
 | Location | `views_postprocessing/unfao/managers/unfao.py:131,262,272` |
 
 `prediction_store_manager.download_latest_file()` (line 131) and `dsm.upload_data()` (lines 262, 272) make network calls to Appwrite with no configured timeout. If the endpoint hangs (DNS resolution stalls, connection accepted but response never arrives, TLS handshake blocks), the pipeline blocks indefinitely. There is no watchdog timer, no circuit breaker, and no automated alert for a run that never completes. The only detection is manual observation that a scheduled run didn't finish.
-
----
-
-### C-14: Stale disk cache returns outdated mappings after shapefile update
-
-| Field | Value |
-|-------|-------|
-| ID | C-14 |
-| Tier | 2 |
-| Source | `expert-review` (2026-06-02) |
-| Trigger | When updating GAUL or Natural Earth shapefiles to a new version, verify that the disk cache at `~/.priogrid_mapper_cache/` is manually cleared — there is no automatic invalidation |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:55-69,183-192` |
-
-The `joblib.Memory` disk cache at `~/.priogrid_mapper_cache/` stores spatial mapping results keyed by function arguments (GID values), not by shapefile content or version. When shapefiles are updated (e.g., GAUL boundary revision, Natural Earth ISO code correction), the cache continues returning results computed against the old shapefiles. No staleness signal is emitted. The `clear_cache()` method exists but must be called manually — nothing in the initialization or shapefile loading path checks whether the cached results match the current shapefiles. A shapefile hash or modification timestamp in the cache key would provide automatic invalidation.
-
-Wrong assignments persist in three layers beyond the cache: (1) joblib disk cache, (2) local timestamped parquet files in `data_generated/`, (3) Appwrite UN FAO bucket. Correcting a discovered error requires clearing the cache, re-running the pipeline, re-uploading to Appwrite, and notifying the partner — but no documented procedure exists for identifying which uploaded files contain affected GIDs or triggering a partner-side data retraction.
-
-Additionally, stale cache violates the PriogridCountryMapper CIC's determinism guarantee ("the same GID always maps to the same country given the same input shapefiles"). Two environments with different cache states produce different output.
-
-FAO Release Note 01, Topic C confirms: "FAO will release updated GAUL boundaries annually. Only boundaries that change will be updated." This establishes an annual regeneration cadence for the precomputed lookup table (ADR-011). Partial boundary updates mean only affected cells need re-mapping, but the current cache has no mechanism to identify which cells are affected by a partial shapefile update.
-
-See also C-05 (cache API bugs), C-22 (no post-delivery correction process), ADR-011 (precomputed lookup replaces runtime cache).
 
 ---
 
@@ -307,36 +181,6 @@ See also C-14 (stale cache without version tracking), C-22 (no post-delivery cor
 
 ---
 
-### C-16: Thread-unsafe caches under concurrent enrichment
-
-| Field | Value |
-|-------|-------|
-| ID | C-16 |
-| Tier | 1 |
-| Source | `expert-review` (2026-06-02) |
-| Trigger | When `enrich_dataframe_with_pg_info` processes >1000 unique GIDs (triggering the `ThreadPoolExecutor` path at line 2546), concurrent threads read/write the shared `self._country_cache` LRUCache — verify thread safety of cache access |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:2557,697-774,1250-1362,1490-1612` |
-
-`enrich_dataframe_with_pg_info` dispatches concurrent threads via `ThreadPoolExecutor` (line 2557) when `use_multiprocessing=True` (the default) and `total_ids > batch_size`. Each thread calls `find_country_for_gid`, `find_admin1_for_gid`, and `find_admin2_for_gid`, all of which read and write the shared `self._country_cache`, `self._admin1_cache`, and `self._admin2_cache` instances. The `cachetools` documentation explicitly states: "all these classes are not thread-safe. Access to a shared cache from multiple threads must be properly synchronized." Concurrent cache mutations can corrupt the internal `OrderedDict`, causing `RuntimeError: dictionary changed size during iteration`, `KeyError` on entries that should exist, or silently returning wrong cached values. The race window is a classic TOCTOU: thread A checks `cache_key in cache` (True), thread B evicts that key (LRU full), thread A reads `cache[cache_key]` → `KeyError` or wrong value.
-
-See also C-05 (cache attribute bugs), D-02 (disagreement on fix approach).
-
----
-
-### C-17: Implicit column naming contract between mapper and manager
-
-| Field | Value |
-|-------|-------|
-| ID | C-17 |
-| Tier | 3 |
-| Source | `expert-review` (2026-06-02) |
-| Trigger | When Natural Earth updates their shapefile and renames or adds columns (e.g., `ISO_A3` → `ISO_A3_EH`), verify that the mapper's 3-step column derivation still produces the names the manager expects in `filter_cols` |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:675,2709-2714`, `views_postprocessing/unfao/managers/unfao.py:146-158` |
-
-The manager expects columns like `country_iso_a3` (unfao.py:151). The mapper produces this via a 3-step chain: Natural Earth column `ISO_A3` → `find_country_for_gid` dict key `iso_a3` (mapping.py:675) → `_process_pg_batch` prepends `country_` prefix (mapping.py:2709) → `country_iso_a3`. No explicit contract declares this mapping. Furthermore, when `country_cols=None` (the default), `_process_pg_batch` (lines 2710-2714) dumps ALL shapefile columns with the `country_` prefix, making the output schema dependent on external shapefile content. A Natural Earth column rename would silently break the chain, causing `_validate()` to reject the enriched data with a confusing "missing required metadata column" error that doesn't mention the shapefile as the root cause.
-
----
-
 ### C-19: Systematic ADR-008 non-compliance — 23 of 24 raises lack preceding log
 
 | Field | Value |
@@ -351,39 +195,7 @@ ADR-008 requires structural failures to be both logged persistently AND raised e
 
 Part of Cluster B (expanded scope).
 
----
-
-### C-20: ZeroDivisionError on degenerate zero-area cells
-
-| Field | Value |
-|-------|-------|
-| ID | C-20 |
-| Tier | 3 |
-| Source | `falsification-audit` (2026-06-02) |
-| Trigger | When a new shapefile version introduces a near-zero-but-not-exactly-zero area cell geometry, verify the `== 0.0` guard catches it — very small positive areas bypass the guard |
-| Location | `views_postprocessing/unfao/mapping/mapping.py` (7 guard sites) |
-
-Zero-area guards (`if grid_geometry.area == 0.0: logger.warning; return None`) were added at all 7 overlap calculation sites including `_find_dominant_country_gids`. A degenerate cell now returns `None` with a WARNING instead of silently vanishing. Remaining theoretical risk: near-zero-but-not-exactly-zero areas (e.g., 5e-31 square degrees) bypass the `== 0.0` check. This is physically impossible for real PRIO-GRID cells (~0.25 sq degrees) but could be strengthened with an epsilon-based guard.
-
-Tier recalibrated from 1 to 3 during review-rr (2026-06-02): all 7 sites now have guards. The concern is mitigated from "silent vanishing" to "theoretical precision edge case."
-
-See also C-12 (geometry intersection failures in the same catch block).
-
----
-
-### C-21: Batch enrichment failures produce incomplete DataFrames (observability-only fix)
-
-| Field | Value |
-|-------|-------|
-| ID | C-21 |
-| Tier | 2 |
-| Source | `falsification-audit` (2026-06-02) |
-| Trigger | When `enrich_dataframe_with_pg_info` or `enrich_dataframe_with_country_info` encounters a batch-level processing failure, verify whether the failure is surfaced to the caller — currently failed batches are logged but not raised |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:2597-2600,2636-2638,2871-2874,2902-2904` |
-
-Four `except Exception: logger.error(...); continue` handlers drop failed batches during DataFrame enrichment in both `enrich_dataframe_with_pg_info` and `enrich_dataframe_with_country_info`. `failed_batches` counters and summary ERROR logs were added to both methods. However, the fix is observability-only: `failed_batches` and `failed_gids` are tracked and logged but NOT included in the return value or raised as an exception. The caller receives the partial DataFrame with no programmatic signal. This does not satisfy ADR-003's fail-loud requirement.
-
-Part of Cluster B (expanded scope). See also C-06 (duplication root cause).
+**Update 2026-06-24:** the mapper portion (20 of the 23 raises, in `mapping.py`) is gone with the deleted runtime mapper (C-39); the **3 raises in `unfao.py`** remain (tracked by issue #13). Narrowed to the manager.
 
 ---
 
@@ -671,28 +483,6 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 
 ## Disagreements
 
-### D-01: Cache strategy refactoring — extract now vs. characterize first
-
-| Field | Value |
-|-------|-------|
-| ID | D-01 |
-| Source | `expert-review` (2026-06-02) |
-| Perspectives | Martin/GoF (extract Strategy pattern now), Feathers/Beck (characterize disk-cache branch with tests first) |
-| Resolution | **⚠ CONTINGENT ON ADR-011.** If precomputed lookup table replaces mapping.py, no cache to refactor — this disagreement is moot. Only resolve if mapper is kept. |
-
----
-
-### D-02: Thread safety fix — lock caches vs. remove threading
-
-| Field | Value |
-|-------|-------|
-| ID | D-02 |
-| Source | `expert-review` (2026-06-02) |
-| Perspectives | Nygard (threading.Lock), Beck (remove ThreadPoolExecutor), Hickey (sequential is simpler), Ousterhout (keep threading for speed) |
-| Resolution | **⚠ CONTINGENT ON ADR-011.** If precomputed lookup table replaces mapping.py, no threading — this disagreement is moot. Only resolve if mapper is kept. |
-
----
-
 ### D-05: Strategic direction — eliminate runtime mapper vs keep area-based algorithm
 
 | Field | Value |
@@ -757,6 +547,116 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 
 ## Resolved Concerns
 
+### C-04: Inconsistent forward/reverse mapping breaks expected bijection — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-04 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-02: Module-level side effect blocks package import on shapefile failure — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-02 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-05: Multiple methods crash when disk caching is active — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-05 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-06: Massive code duplication across disk/memory cache branches — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-06 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-11: PriogridCountryMapper is a god class bridging 3 architectural concerns — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-11 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-12: Silent wrong-country assignment when geometry intersection fails — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-12 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-14: Stale disk cache returns outdated mappings after shapefile update — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-14 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-16: Thread-unsafe caches under concurrent enrichment — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-16 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-17: Implicit column naming contract between mapper and manager — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-17 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-20: ZeroDivisionError on degenerate zero-area cells — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-20 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### C-21: Batch enrichment failures produce incomplete DataFrames (observability-only fix) — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-21 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
 ### C-39: Dead geopandas runtime mapper + 1.3 GB shapefiles — RESOLVED
 
 | Field | Value |
@@ -798,6 +698,26 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 ---
 
 ## Resolved Disagreements
+
+### D-01: Cache strategy refactoring — extract now vs. characterize first — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | D-01 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
+
+### D-02: Thread safety fix — lock caches vs. remove threading — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | D-02 |
+| Resolved | 2026-06-24 |
+| Resolution | The `PriogridCountryMapper` runtime mapper was deleted (C-39, PR #42); the code this concern describes no longer exists. |
+
+---
 
 ### D-03: Warning suppression — RESOLVED
 
