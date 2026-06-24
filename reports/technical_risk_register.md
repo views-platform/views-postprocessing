@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-06-24                           |
-| Total Concerns    | 40                                   |
-| Open Concerns     | 24                                   |
+| Total Concerns    | 41                                   |
+| Open Concerns     | 25                                   |
 | Resolved Concerns | 16                                   |
 
 ---
@@ -466,6 +466,20 @@ Tier 2: structural fragility under the realistic change of wiring to global, wit
 `UNFAOPostProcessorManager` subclasses **two concrete** pipeline-core base classes (`PostprocessorManager`, `ForecastingModelManager`) and **interleaves infrastructure** (env reading, `AppwriteConfig` construction, `DatastoreModule`, path resolution) with the FAO **business logic** (GAUL enrichment, the 9-column null gate) inside the lifecycle hooks. Consequences: (a) the FAO logic cannot be instantiated or unit-tested without the full framework + Appwrite env + viewser; (b) **pandas cannot leave the delivery path** because the inherited data loader and `PGMDataset` are pandas — gated on pipeline-core's own DataFrame retirement; (c) **SDP exposure** — heavy *inheritance* coupling to a pipeline-core that is itself unstable (mid-migration), so upstream changes break far from their cause (cf. C-27, C-29); (d) it's the repo's only composition-over-inheritance violation. The dependency itself is correct (`unfao.py` genuinely *is* a pipeline-core postprocessor) — the issue is its **blast radius**. Mitigation (does **not** fight the Template-Method framework): keep the subclass as a **thin shell** but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager *calls*, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP). This makes the FAO logic testable standalone and insulates it from pipeline-core churn.
 
 See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper cleanup that precedes any unfao restructuring).
+
+---
+
+### C-41: Vestigial Git LFS config breaks routine git operations (no git-lfs installed)
+
+| Field | Value |
+|-------|-------|
+| ID | C-41 |
+| Tier | 2 |
+| Source | `register-risk` (2026-06-24, from PR #42 merge friction) |
+| Trigger | When the next contributor (or CI) runs a normal `git push` / `gh pr merge` / branch-switch in this repo without `git-lfs` on PATH, the LFS hooks fire and abort mid-operation — observed during the PR #42 merge, which left the working tree half-reverted (~90 files showing as deleted) until manual recovery |
+| Location | `.gitattributes` (LFS filter rules for `*.shp`, `*.dbf`, `*.shx`, `*.cpg`, `*.prj`); `.git/hooks/{pre-push,post-merge,post-checkout,post-commit}`; git config `filter.lfs.process = git-lfs filter-process` |
+
+The repo is configured for Git LFS, but `git-lfs` is not installed in the working environment. Every push/merge/checkout fires an LFS hook that fails with `git-lfs: not found`, forcing `--no-verify` and ad-hoc hook/filter bypasses on routine operations. During the PR #42 merge the post-merge hook aborted a branch-switch **mid-operation**, leaving the local working tree half-reverted — alarming and recoverable (all commits were safe on the remote), but a realistic path to losing **uncommitted** work if a future operation's abort discards it. The configuration is now **vestigial**: the only LFS patterns in `.gitattributes` are the five shapefile extensions, and all shapefiles were deleted in C-39 — so the LFS rules match **zero** current files yet still break tooling for anyone who clones without git-lfs. Tier 2 (not 1): the failure is visible and recoverable (no silent data/model corruption), but it is structural tooling fragility that recurs on every push/merge with a demonstrated near-miss. **Fix (either):** (a) `git lfs install` in the environment; or (b) since no LFS-tracked files remain, retire LFS — remove the LFS rules from `.gitattributes`, drop the `filter.lfs.*` git config, and delete the LFS hooks. Option (b) is cleaner given the shapefiles are gone. Not part of any causal cluster (environment/tooling, not application code).
 
 ---
 
