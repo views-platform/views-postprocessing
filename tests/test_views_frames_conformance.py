@@ -35,7 +35,7 @@ def _frame(months=(100, 101), gids=(1, 2, 3)):
     return pd.DataFrame(
         {
             "pred_ln_sb_best": rng.gamma(2.0, 1.0, size=len(rows)),
-            "ged_sb_best": rng.integers(0, 50, size=len(rows)),
+            "lr_ged_sb": rng.integers(0, 50, size=len(rows)),
         },
         index=idx,
     )
@@ -72,12 +72,12 @@ class TestPredictionFrameConformance:
 
 class TestTargetFrameConformance:
     def test_satisfies_frame_contract(self):
-        tf = to_target_frame(_frame(), "ged_sb_best")
+        tf = to_target_frame(_frame(), "lr_ged_sb")
         assert_frame_contract(tf)
 
     def test_observed_actuals_shape(self):
         df = _frame()
-        tf = to_target_frame(df, "ged_sb_best")
+        tf = to_target_frame(df, "lr_ged_sb")
         assert isinstance(tf, TargetFrame)
         assert tf.n_rows == len(df)
         assert tf.values.shape == (len(df), 1)
