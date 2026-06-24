@@ -12,6 +12,17 @@ Story S6 (#38) formalises this into the `ReconciliationModule` CIC.
 - **S0 (#32) — done.** End-to-end oracle fixture captured offline
   (`tests/fixtures/reconciliation_e2e_parity.npz`, via
   `scripts/gen_reconciliation_e2e_fixture.py`). Decisions below.
+- **S1–S5 (#33–#37) — done.** The frames-native module is complete and
+  **end-to-end parity-proven**: `cm/pgm` adapters (`reconciliation/frames.py`),
+  the `cross_level_align` grouping core (`reconciliation/grouping.py`), fail-loud
+  validation (`reconciliation/validation.py`), and the public
+  `ReconciliationModule` (`reconciliation/module.py`) — which reproduces the
+  frozen views-reporting pipeline **bit-for-bit** on every target
+  (`tests/test_reconciliation_e2e_parity.py`). No torch / pandas / viewser / wandb.
+- **S6 (#38) — done.** CIC at `docs/CICs/ReconciliationModule.md`.
+- **In-repo migration complete.** Remaining: S7 (#39) pipeline-core repoint and
+  S8 (#40) views-reporting phase-out — both cross-repo, **blocked** on this
+  landing; and the principled-algorithm upgrade (**C-37**), a separate epic.
 
 ## D-R1 — Group by injected VIEWS `country_id`, not GAUL (for parity)
 
