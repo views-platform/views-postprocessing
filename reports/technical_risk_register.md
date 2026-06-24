@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-06-24                           |
 | Total Concerns    | 41                                   |
-| Open Concerns     | 25                                   |
-| Resolved Concerns | 16                                   |
+| Open Concerns     | 24                                   |
+| Resolved Concerns | 17                                   |
 
 ---
 
@@ -469,20 +469,6 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 
 ---
 
-### C-41: Vestigial Git LFS config breaks routine git operations (no git-lfs installed)
-
-| Field | Value |
-|-------|-------|
-| ID | C-41 |
-| Tier | 2 |
-| Source | `register-risk` (2026-06-24, from PR #42 merge friction) |
-| Trigger | When the next contributor (or CI) runs a normal `git push` / `gh pr merge` / branch-switch in this repo without `git-lfs` on PATH, the LFS hooks fire and abort mid-operation — observed during the PR #42 merge, which left the working tree half-reverted (~90 files showing as deleted) until manual recovery |
-| Location | `.gitattributes` (LFS filter rules for `*.shp`, `*.dbf`, `*.shx`, `*.cpg`, `*.prj`); `.git/hooks/{pre-push,post-merge,post-checkout,post-commit}`; git config `filter.lfs.process = git-lfs filter-process` |
-
-The repo is configured for Git LFS, but `git-lfs` is not installed in the working environment. Every push/merge/checkout fires an LFS hook that fails with `git-lfs: not found`, forcing `--no-verify` and ad-hoc hook/filter bypasses on routine operations. During the PR #42 merge the post-merge hook aborted a branch-switch **mid-operation**, leaving the local working tree half-reverted — alarming and recoverable (all commits were safe on the remote), but a realistic path to losing **uncommitted** work if a future operation's abort discards it. The configuration is now **vestigial**: the only LFS patterns in `.gitattributes` are the five shapefile extensions, and all shapefiles were deleted in C-39 — so the LFS rules match **zero** current files yet still break tooling for anyone who clones without git-lfs. Tier 2 (not 1): the failure is visible and recoverable (no silent data/model corruption), but it is structural tooling fragility that recurs on every push/merge with a demonstrated near-miss. **Fix (either):** (a) `git lfs install` in the environment; or (b) since no LFS-tracked files remain, retire LFS — remove the LFS rules from `.gitattributes`, drop the `filter.lfs.*` git config, and delete the LFS hooks. Option (b) is cleaner given the shapefiles are gone. Not part of any causal cluster (environment/tooling, not application code).
-
----
-
 ## Disagreements
 
 ### D-05: Strategic direction — eliminate runtime mapper vs keep area-based algorithm
@@ -548,6 +534,16 @@ The repo is configured for Git LFS, but `git-lfs` is not installed in the workin
 ---
 
 ## Resolved Concerns
+
+### C-41: Vestigial Git LFS config breaks routine git operations (no git-lfs installed) — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-41 |
+| Resolved | 2026-06-24 |
+| Resolution | Retired Git LFS (C-41 fix, this PR): removed the all-shapefile `.gitattributes` LFS rules (matched zero files after C-39) and unwired the local LFS filter config + the four `.git/hooks` LFS hooks. Verified: `git commit`/push now run with no `--no-verify` and no `git-lfs: not found` error. No LFS-tracked files remain in the repo. |
+
+---
 
 ### C-10: Manager-to-Mapper coupling via module-level global state — RESOLVED
 
