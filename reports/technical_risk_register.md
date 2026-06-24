@@ -30,7 +30,7 @@
 **Highest tier:** 1 (C-16)
 **Fix strategy:** Extract `CacheStrategy` interface with disk/memory implementations. Thread-lock in memory impl. Shapefile hash in disk cache keys.
 **Resolution scope:** Full
-**⚠ CONTINGENT ON ADR-011:** If precomputed lookup table replaces mapping.py, this entire cluster is eliminated. Defer until ADR-011 is executed.
+**✅ RESOLVED 2026-06-24:** ADR-011 is executed and the runtime mapper (`mapping.py`) was deleted (C-39, PR #42). The cache machinery this cluster describes no longer exists — C-05, C-06, C-14, C-16, D-01, D-02 are all resolved.
 
 ### Cluster B: Silent error hiding architecture
 **Root cause:** The codebase suppresses problem signals at three levels — global warning filter, DEBUG-level exception logging with `continue`, and raises without preceding logs. The impact propagates through a delivery chain with no correction mechanism.
@@ -45,7 +45,7 @@
 **Highest tier:** 2 (C-02)
 **Fix strategy:** Lazy initialization or removal of module-level call. Add `mapper` constructor parameter to manager.
 **Resolution scope:** Full
-**⚠ CONTINGENT ON ADR-011:** If precomputed lookup table replaces mapping.py, this entire cluster is eliminated. Defer until ADR-011 is executed.
+**✅ RESOLVED 2026-06-24:** ADR-011 is executed and the runtime mapper (`mapping.py`) was deleted (C-39, PR #42). The module-level `set_default_mapper()` side effect this cluster describes no longer exists — C-02 is resolved (C-10 was already resolved).
 
 ### Cluster D: Mapper-manager boundary contract
 **Root cause:** No explicit contract declares what columns the mapper produces and the manager consumes.
@@ -53,7 +53,7 @@
 **Highest tier:** 2 (C-04)
 **Fix strategy:** Define `ENRICHMENT_SCHEMA` constant. Harmonize forward/reverse thresholds. Add end-to-end integration test.
 **Resolution scope:** Full
-**⚠ CONTINGENT ON ADR-011:** If precomputed lookup table replaces mapping.py, the boundary simplifies to a Parquet schema. C-17 is eliminated; C-04 is eliminated (no runtime forward/reverse divergence).
+**✅ RESOLVED 2026-06-24:** ADR-011 is executed and the runtime mapper (`mapping.py`) was deleted (C-39, PR #42). The mapper/manager column boundary is now a precomputed Parquet schema (`gaul_schema.py` + `GaulLookupEnricher`); there is no runtime forward/reverse divergence — C-04 and C-17 are both resolved.
 
 ### Cluster F: CIC-code drift (documentation describes aspirational, not actual behavior)
 **Root cause:** CICs were written as design contracts and never validated against the code. Multiple guarantees are false.
@@ -61,6 +61,7 @@
 **Highest tier:** Not a code risk — documentation accuracy risk
 **Fix strategy:** Update CICs to describe actual code behavior. Specifically: (1) cache guarantee needs C-05 caveat, (2) return types need full key listing, (3) §6 log level should say DEBUG not WARNING, (4) ADR-008 compliance claim needs qualifying, (5) env var boundary validation claim needs qualifying. Pure documentation, no code changes.
 **Resolution scope:** Full
+**✅ PARTIALLY RESOLVED 2026-06-24:** the `PriogridCountryMapper` CIC was deleted with the mapper (C-39, PR #42), so its drift findings (1.1, 1.2) are moot. The `UNFAOPostProcessorManager` CIC remains and is kept current (it now describes `GaulLookupEnricher`).
 
 ### Cluster E: Replace runtime mapper with precomputed lookup table
 **Root cause:** The area-majority algorithm is a confirmed FAO requirement (D-05 resolved), but it doesn't need 3,100 lines of geopandas runtime code — a one-time precomputation produces a ~65K-row Parquet lookup table that replaces the entire mapper with a dictionary join.
@@ -68,24 +69,27 @@
 **Highest tier:** 2 (C-23)
 **Fix strategy (revised 2026-06-12):** (1) Build the lookup by joining views-datafactory's 7 area-majority GAUL parquets (regenerated June 11, 259,200 rows each) plus the GID→lat/lon formula — the original "run the current mapper with LFS" precomputation is obsolete. (2) Replace `mapping.py` with a simple Parquet-join enricher. (3) Remove 774 MB shapefile bundle, geopandas dependency, and all cache machinery. See `docs/cross_repo_integration_report.md` and ADR-011 assessment §10.
 **Resolution scope:** Full — resolves Clusters A and C entirely. Eliminates C-07, C-08, C-11. Reduces Cluster B to manager-side concerns only (C-19 unfao.py raises, C-21 batch tracking, C-22 correction process).
+**✅ EXECUTED 2026-06-24:** the lookup enricher shipped (`GaulLookupEnricher`, ADR-011) and the runtime mapper + shapefiles + geopandas were deleted (C-39, PR #42). The remaining open entries here are the datafactory-side area-math (C-08/C-31, tracked in views-datafactory) and the manager-side Cluster B residue (C-19/C-22) — not mapper code.
 
 ---
 
 ## Open Concerns
 
-### C-03: Test coverage gaps across mapper-manager boundary and manager code
+### C-03: Test coverage gaps in manager validation and the enrich→validate path
 
 | Field | Value |
 |-------|-------|
 | ID | C-03 |
 | Tier | 3 |
 | Source | `repo-assimilation` (2026-06-02), `test-review` (2026-06-02) |
-| Trigger | When modifying the manager's `_validate()` or the mapper's `find_*` methods, verify that the test suite covers the changed behavior — integration-level coverage across the mapper-manager boundary is still absent |
-| Location | `tests/test_mapping.py`, `tests/test_validation.py`, `views_postprocessing/unfao/managers/unfao.py` |
+| Trigger | When modifying the manager's `_validate()` or the enricher, verify that the test suite covers the changed behavior — end-to-end coverage across the enrich→validate path is still absent |
+| Location | `tests/test_validation.py`, `views_postprocessing/unfao/managers/unfao.py` |
 
-Initial state was zero test coverage. A 73-test suite was written (2026-06-02) covering the mapper's core guarantees (determinism, largest-overlap, admin assignment, cache equivalence, GID-not-found, missing shapefile, C-05 disk-cache bug) and the validation logic (missing columns, null rejection, error messages). Remaining gaps: (1) the validation tests replicate `_validate()` logic in a standalone function because `views-pipeline-core` is unavailable in test environments — if the real `_validate()` diverges, tests pass while production fails; (2) no end-to-end test enriches through the mapper then validates through the manager; (3) the `ThreadPoolExecutor` code path is never exercised in tests; (4) no tests run against real shapefiles (Git LFS not installed). CI pytest step has been uncommented.
+Initial state was zero test coverage. A 73-test suite was written (2026-06-02) covering the (now-deleted) mapper's core guarantees and the validation logic (missing columns, null rejection, error messages). Remaining gaps after the mapper removal: (1) the validation tests replicate `_validate()` logic in a standalone function because `views-pipeline-core` is unavailable in test environments — if the real `_validate()` diverges, tests pass while production fails; (2) no end-to-end test enriches through `GaulLookupEnricher` then validates through the manager.
 
-Tier recalibrated from 2 to 3 during review-rr (2026-06-02): 73 tests now exist covering core mapper guarantees. The gap is maintainability (test-code divergence, missing integration path), not structural fragility.
+Tier recalibrated from 2 to 3 during review-rr (2026-06-02): the gap is maintainability (test-code divergence, missing integration path), not structural fragility.
+
+**Update 2026-06-24:** narrowed with the mapper deletion (C-39, PR #42). The mapper-coverage dimension is gone with the mapper (`tests/test_mapping.py` deleted; the determinism/cache/shapefile/`ThreadPoolExecutor` gaps no longer exist). Two manager-side gaps remain: the standalone `_validate()` replica and the missing enrich→validate end-to-end test.
 
 ---
 
