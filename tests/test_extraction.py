@@ -33,3 +33,42 @@ def test_works_on_flat_columns_too():
     df = pd.DataFrame({"month_id": [100, 100, 101], "priogrid_gid": [1, 2, 1]})
     assert extraction.cells_of(df) == {1, 2}
     np.testing.assert_array_equal(extraction.months_of(df), np.array([100, 101]))
+
+
+class _FakeResult:
+    """Stands in for a DatastoreModule.get_file_metadata OperationResult."""
+
+    def __init__(self, document):
+        self._document = document
+
+    def to_dict(self):
+        return {"data": self._document, "code": "FOUND"}
+
+
+def test_file_metadata_normalizes_record_to_identity_dict():
+    record = _FakeResult(
+        {
+            "name": "fatalities_ensemble",
+            "loa": "pgm",
+            "category": "forecast",
+            "targets": ["pred_a", "pred_b"],
+            "$id": "doc123",  # appwrite system fields are dropped
+            "fileId": "file456",
+        }
+    )
+    assert extraction.file_metadata(record) == {
+        "name": "fatalities_ensemble",
+        "loa": "pgm",
+        "category": "forecast",
+        "targets": ["pred_a", "pred_b"],
+    }
+
+
+def test_file_metadata_missing_fields_become_none():
+    record = _FakeResult({"name": "m"})
+    assert extraction.file_metadata(record) == {
+        "name": "m",
+        "loa": None,
+        "category": None,
+        "targets": None,
+    }

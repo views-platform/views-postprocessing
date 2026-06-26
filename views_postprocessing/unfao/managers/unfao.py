@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from views_postprocessing.unfao.enrichment import GaulLookupEnricher
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
 from views_postprocessing.unfao import extraction, source_metadata
-from views_postprocessing.delivery import coverage, observed_range
+from views_postprocessing.delivery import coverage, identity, observed_range
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,26 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 
         try:
             prediction_store_manager = DatastoreModule(appwrite_file_manager_config=appwrite_config)
-            self._forecast_dataframe = pd.read_parquet(io.BytesIO(prediction_store_manager.download_latest_file(filters={"category": "forecast"}).to_dict().get("data", {}).get("file_bytes", None)))
+
+            # The store is filtered by category alone (newest-wins), so resolve the file,
+            # then verify its identity before delivering it (S3/C-25): a stray upload with
+            # category="forecast" must not be silently shipped as the configured ensemble.
+            file_id = prediction_store_manager.get_latest_file_id(filters={"category": "forecast"})
+            if file_id is None:
+                raise FileNotFoundError(
+                    "No forecast file found in the prediction store (category='forecast')."
+                )
+            selected = extraction.file_metadata(prediction_store_manager.get_file_metadata(file_id))
+            # Identity contract: the producer's FileMetadata `name`/`loa` written on upload
+            # must equal the configured ensemble's model_name/loa. Verified against
+            # pipeline-core's code but NOT a live upload (register C-25) — confirm at the
+            # first real run. The guard fails loud (not silent) if the contract is off, so
+            # a mismatch surfaces immediately rather than shipping the wrong file.
+            expected = {"name": self.ensemble_path_manager.model_name, "loa": loa}
+            logger.info("Selected forecast file identity: %s (expected %s).", selected, expected)
+            identity.assert_forecast_identity(selected, expected)
+
+            self._forecast_dataframe = pd.read_parquet(io.BytesIO(prediction_store_manager.download_prediction(file_id).to_dict().get("data", {}).get("file_bytes", None)))
 
             self._forecast_dataset = PGMDataset(self._forecast_dataframe)
         except Exception as e:
