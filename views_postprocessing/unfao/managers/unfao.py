@@ -18,6 +18,8 @@ import os
 from dotenv import load_dotenv
 from views_postprocessing.unfao.enrichment import GaulLookupEnricher
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
+from views_postprocessing.unfao import extraction, source_metadata
+from views_postprocessing.delivery import coverage, observed_range
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -55,6 +57,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self._historical_dataframe = read_dataframe(
             self._data_loader.cached_data_path
         )
+        self._clip_observed_history()
         self._historical_dataset = PGMDataset(
             source=self._historical_dataframe, targets=self.configs.get("targets")
         )
@@ -170,6 +173,73 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 logger.error(err_msg)
                 raise ValueError(err_msg)
         logger.info("Forecast dataframe metadata validation passed.")
+
+        self._check_coverage()
+
+    def _clip_observed_history(self) -> None:
+        """Drop fabricated (unobserved) months from the historical delivery (S2/C-26).
+
+        The historical request runs to the current calendar month, but UCDP data ends
+        earlier (reporting lag) at datafactory's ``last_valid_month_id``; the tail months
+        are zero-padding, not observed zeros, and would ship to FAO as "zero conflict".
+
+        The boundary is read straight from the **producer** (views-datafactory) via
+        ``source_metadata`` — never pipeline-core. Only the *historical* (observed) frame
+        is clipped; the forecast frame is future-dated by design and untouched.
+        """
+        lv = source_metadata.last_valid_month_id(self.configs.get("zarr_url"))
+        if lv is None:
+            logger.warning(
+                "last_valid_month_id unavailable from datafactory; the historical "
+                "delivery was NOT clipped to observed range (C-26 guard skipped)."
+            )
+            return
+        fabricated = observed_range.fabricated_months(
+            extraction.months_of(self._historical_dataframe), lv
+        )
+        if len(fabricated):
+            logger.warning(
+                "Clipping %d fabricated (unobserved) month(s) > last_valid_month_id=%d "
+                "from the historical delivery: %s",
+                len(fabricated),
+                lv,
+                fabricated.tolist(),
+            )
+            self._historical_dataframe = extraction.drop_months_above(
+                self._historical_dataframe, lv
+            )
+
+    def _check_coverage(self) -> None:
+        """Log delivered cell counts and enforce the region coverage contract (S1/C-34).
+
+        Orchestration only: extract primitives via ``extraction`` (the pandas seam),
+        then call the representation-free ``delivery.coverage`` invariant — the rule is
+        *called*, not embedded. The count-gate fires only for regions pinned in
+        ``coverage.EXPECTED_CELLS``; an unpinned/unresolved region logs a skipped gate
+        rather than guessing.
+        """
+        region = self.configs.get("region")
+        expected = coverage.expected_for(region)
+        for label, df in (
+            ("historical", self._historical_dataframe),
+            ("forecast", self._forecast_dataframe),
+        ):
+            cells = extraction.cells_of(df)
+            logger.info(
+                "%s delivery coverage: %d distinct cells, %d rows.",
+                label,
+                len(cells),
+                len(df),
+            )
+            if expected is not None:
+                coverage.assert_complete_coverage(cells, expected, label=label)
+            else:
+                logger.warning(
+                    "Coverage count-gate skipped for %s: region %r is not pinned in "
+                    "delivery.coverage.EXPECTED_CELLS — verify and pin before relying on it.",
+                    label,
+                    region,
+                )
 
     def _save(self) -> list:
         if self._historical_dataset is None or self._forecast_dataset is None:
