@@ -19,6 +19,8 @@ migration), so a polymorphic interface would be speculative (YAGNI/ISP).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
@@ -51,7 +53,7 @@ def months_of(df: pd.DataFrame, time_id: str = _TIME_ID) -> NDArray[np.int64]:
 
 
 def unmapped_cell_count(
-    df: pd.DataFrame, metadata_cols, pg_id: str = _PG_ID
+    df: pd.DataFrame, metadata_cols: Sequence[str], pg_id: str = _PG_ID
 ) -> int:
     """Distinct cells with a null in any metadata column (the post-enrich unmapped count).
 

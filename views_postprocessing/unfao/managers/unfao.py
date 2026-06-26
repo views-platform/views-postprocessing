@@ -206,8 +206,22 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         The boundary is read straight from the **producer** (views-datafactory) via
         ``source_metadata`` — never pipeline-core. Only the *historical* (observed) frame
         is clipped; the forecast frame is future-dated by design and untouched.
+
+        Degrade-open policy: if the boundary cannot be resolved — the store predates the
+        attribute (``None``) or the producer read fails (network) — the clip is skipped
+        with a WARNING rather than blocking delivery. Both unresolved cases are treated
+        identically so a transient datafactory hiccup does not crash the historical read.
         """
-        lv = source_metadata.last_valid_month_id(self.configs.get("zarr_url"))
+        try:
+            lv = source_metadata.last_valid_month_id(self.configs.get("zarr_url"))
+        except Exception as e:  # producer unreachable — degrade open, like lv is None
+            logger.warning(
+                "last_valid_month_id could not be read from datafactory (%s); the "
+                "historical delivery was NOT clipped to observed range (C-26 guard "
+                "skipped).",
+                e,
+            )
+            return
         if lv is None:
             logger.warning(
                 "last_valid_month_id unavailable from datafactory; the historical "

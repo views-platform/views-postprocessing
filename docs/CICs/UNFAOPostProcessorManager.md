@@ -77,11 +77,17 @@ Assumptions that are not met **must cause failure**, not fallback behavior.
 - **Null values in required metadata columns:** Raises `ValueError` with null count and affected column name (C-01 resolved — validation active)
 - **Dataset initialization failure:** Raises `ValueError` in `_save()` if datasets are None
 - **Appwrite upload failure:** Propagates exception from `DatastoreModule`
+- **Wrong forecast file selected:** Raises `ForecastIdentityError` in `_read_forecast_data()` if the newest `category="forecast"` file's identity (name/loa) does not match the configured ensemble (S3/C-25 — a stray upload cannot be silently shipped)
+- **Region coverage mismatch:** Raises `CoverageError` in `_check_coverage()` (called from `_validate()`) if a pinned region's delivered cell count is wrong (S1/C-34) or a GAUL-uncovered excluded cell leaks into the delivery (S4/C-30)
+- **Fabricated historical tail:** `_clip_observed_history()` drops months beyond the producer's `last_valid_month_id` so unobserved zero-padding is not shipped as observed history (S2/C-26); **degrades open** (skips the clip with a WARNING) if the boundary cannot be resolved
+- **Upload provenance:** every upload's `description` carries structured provenance (lookup version, region, expected/actual cell counts, unmapped count) via `_delivery_description()` (S5/C-15)
 
 The following **must never** fail silently:
 - Missing or None environment variables for Appwrite
 - Network failures during download or upload
 - Schema validation failures (missing columns or null values)
+- A forecast file whose identity does not match the configured ensemble (S3/C-25)
+- Wrong region coverage or a leaked GAUL-uncovered cell (S1/C-34, S4/C-30)
 
 ---
 
@@ -139,6 +145,8 @@ manager._save()
 - **Red tests:** Corrupted parquet downloads; network timeouts during upload; DataFrames where all cells map to None (all-ocean input)
 
 Currently: the manager cannot be instantiated without `views-pipeline-core`, so its stage logic is covered by **replica tests** that mirror the real methods — `tests/test_validation.py` (`_validate`) and `tests/test_append_metadata.py` (`_append_metadata`). A full end-to-end test against the live manager (C-03) still requires a production-like environment.
+
+The input-integrity guards (S0–S6, epic #51) are representation-free invariants in `views_postprocessing/delivery/` that the manager **calls** (never inherits). Each has primitives unit tests — `tests/test_delivery_coverage.py` (S1/S4), `tests/test_delivery_observed_range.py` (S2), `tests/test_identity.py` (S3), `tests/test_provenance.py` (S5), `tests/test_extraction.py` (the seam) — and `tests/test_input_integrity_e2e.py` replicates the manager's extract→invariant chain end-to-end. The design contract (representation-free, called-not-inherited) is pinned by `tests/test_input_integrity_design_contract.py`.
 
 ---
 
