@@ -239,6 +239,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         """
         region = self.configs.get("region")
         expected = coverage.expected_for(region)
+        excluded = coverage.excluded_for(region)
         for label, df in (
             ("historical", self._historical_dataframe),
             ("forecast", self._forecast_dataframe),
@@ -250,6 +251,12 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 len(cells),
                 len(df),
             )
+            # GAUL-uncovered cells the curated region must drop (S4/C-30) — checked
+            # before the count gate so a leaked island names itself, not "over-coverage
+            # by 1". Empty for unpinned regions (e.g. africa_me_legacy keeps its ocean
+            # cells), so this is a no-op there.
+            if excluded:
+                coverage.assert_no_excluded_cells(cells, excluded, label=label)
             if expected is not None:
                 coverage.assert_complete_coverage(cells, expected, label=label)
             else:
