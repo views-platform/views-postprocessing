@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-06-26                           |
-| Total Concerns    | 42                                   |
-| Open Concerns     | 22                                   |
+| Total Concerns    | 43                                   |
+| Open Concerns     | 23                                   |
 | Resolved Concerns | 20                                   |
 
 ---
@@ -450,7 +450,29 @@ Verified 2026-06-26 on `origin/development`: pipeline-core **still imports `view
 
 See also C-37 / C-38 (the reconciler concerns — relocating to views-frames with the code), views-platform/views-frames#131 (the final home), #62 (retire vpp's copy), views-platform/views-models#191 (repoint), pipeline-core PR #217 (the merged DIP port, Decision K).
 
-**Residual tail (verified 2026-06-26 — already tracked cross-repo, no new vpp entry):** pipeline-core still imports `views_reporting.statistics.ForecastReconciler` (`modules/statistics/__init__.py:5`), so the pipeline-core↔views-reporting edge is not yet fully severed and views-reporting's `reconciliation/` + `torch` retirement (#40 / views-reporting#72) is still blocked. But this is **not an untracked hazard**: the re-export is explicitly marked *"remove after downstream consumers update"*; `ForecastReconciler`'s only pipeline-core consumers are the transitional **golden-output equivalence tests** (#119 / #196, "new frames-native == old torch"); and **pipeline-core #198** already owns the removal — its scope note names *"the `reconciliation/` package **and** the `ForecastReconciler` class"* and it triggers vpp **#40** / views-reporting#72. Blocked on pipeline-core #197 (views-postprocessing/views-frames must be "default and stable") first. So C-42 stays open as a thin tracker until #198 lands; no separate vpp entry warranted (would duplicate #198). *(A speculative C-43 was drafted then withdrawn here after verification showed it was a duplicate.)*
+**Residual tail (verified 2026-06-26 — already tracked cross-repo, no new vpp entry):** pipeline-core still imports `views_reporting.statistics.ForecastReconciler` (`modules/statistics/__init__.py:5`), so the pipeline-core↔views-reporting edge is not yet fully severed and views-reporting's `reconciliation/` + `torch` retirement (#40 / views-reporting#72) is still blocked. But this is **not an untracked hazard**: the re-export is explicitly marked *"remove after downstream consumers update"*; `ForecastReconciler`'s only pipeline-core consumers are the transitional **golden-output equivalence tests** (#119 / #196, "new frames-native == old torch"); and **pipeline-core #198** already owns the removal — its scope note names *"the `reconciliation/` package **and** the `ForecastReconciler` class"* and it triggers vpp **#40** / views-reporting#72. Blocked on pipeline-core #197 (views-postprocessing/views-frames must be "default and stable") first. So C-42 stays open as a thin tracker until #198 lands; no separate vpp entry warranted (would duplicate #198). *(A speculative residual-coupling entry was drafted then withdrawn here after verification showed it was a duplicate of pipeline-core #198.)*
+
+---
+
+### C-43: ADR-011 enrichment swap shipped without its output-equivalence proof — and the proof is now unrecoverable
+
+| Field | Value |
+|-------|-------|
+| ID | C-43 |
+| Tier | 2 |
+| Source | `manual` (2026-06-26) — user-flagged rigor loss on accepting option A; verified against git history (`eba1df8` / PR #42) |
+| Trigger | When the `africa_me_legacy` smoke-test delivery (option A) is accepted as the swap's verification, and — more acutely — when Stage 4 flips the region to `land_gaul` (64,736 cells, views-platform/views-models#127): the go-global run is the first time the lookup enricher's output reaches FAO at scale with **no** equivalence check against the previously-trusted mapper. Also fires if FAO / faoapi reports geographic metadata that looks wrong for specific cells. |
+| Location | `views_postprocessing/unfao/enrichment.py` (`GaulLookupEnricher`); `views_postprocessing/unfao/managers/unfao.py:129` (`_append_metadata`), `:147-172` (`_validate` — the 9-column NULL gate, checks presence not correctness); umbrella #20 / issues #21, #23, #24 (the baseline+diff procedure, now unrunnable); deleted in `eba1df8` (PR #42): `mapping.py` + both ADR-011 diff scripts |
+
+ADR-011 swapped FAO geo-enrichment from the runtime geopandas mapper to the GAUL lookup enricher (commit `65635b6`). The swap's own plan (umbrella #20) required an **output-equivalence proof** before trusting it in production: Stage 0 (#21) run the OLD mapper on real `africa_me_legacy` data to archive a ground-truth baseline; Stage 2 (#23) diff the new enricher against it with *"zero unexplained differences."* That proof was **never produced** — no `baseline_schema.md` or baseline parquet was ever committed — and on 2026-06-24 the old mapper **and both diff scripts** were deleted (`eba1df8`, PR #42, C-39). So the equivalence check is now **unrecoverable** short of `git revert`-ing the mapper back.
+
+The accepted path forward (**option A**) is a single smoke-test delivery: "the run is green and the output looks sane," which proves the path *runs*, not that it produces the *same / correct* values the trusted mapper did. The manager's `_validate` enforces only that the 9 GAUL columns are **non-null** — it does not check value correctness — so a latent bug in the lookup build or the merge-by-gid (wrong join key, stale `lookup_version`, gid misalignment) would ship **wrong-but-non-null** geographic metadata to FAO with **no error signal**.
+
+**Why not Tier 1:** the lookup is built from views-datafactory's authoritative area-majority GAUL parquets — the canonical *producer* source (D-07). The new path sources from the gold standard; the old mapper was the *less*-trusted path being retired (C-31, C-23). So the missing diff is a lost cross-check, not "unverified code," and the Stage-1 enricher unit tests + coverage guards (C-30/C-34) cover part of the build. **Why Tier 2:** the residual silent-wrong-value path is real, the null gate cannot catch it, the one guard that would have is gone for good, and the trigger (go-global to 64k cells) is concrete and imminent.
+
+**Mitigation if assurance is wanted before go-global** (cheaper than reverting the mapper): forward-check a sample of `land_gaul` cell assignments directly against the datafactory GAUL parquet, or add a lightweight value-level assertion into the enricher path (a forward check against the producer source — *not* a resurrection of the deleted old-mapper diff).
+
+See also C-03 (the sibling enrich→validate test-coverage gap), C-22 (no post-delivery correction/recall process — the consequence if wrong values do ship), C-39 / C-31 / C-23 (the resolved mapper-deletion cluster this emerged from), C-30 / C-32 / C-34 (the go-global scale risks where this bites), D-08 (the swap-to-lookup-first decision whose verification debt this is).
 
 ---
 
