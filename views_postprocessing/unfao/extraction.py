@@ -50,6 +50,23 @@ def months_of(df: pd.DataFrame, time_id: str = _TIME_ID) -> NDArray[np.int64]:
     return np.unique(_level_or_column(df, time_id).astype(np.int64))
 
 
+def unmapped_cell_count(
+    df: pd.DataFrame, metadata_cols, pg_id: str = _PG_ID
+) -> int:
+    """Distinct cells with a null in any metadata column (the post-enrich unmapped count).
+
+    Feeds the provenance invariant (``delivery.provenance``). 0 once ``_validate`` passes,
+    but recorded as an explicit audit value rather than assumed.
+    """
+    cols = [c for c in metadata_cols if c in df.columns]
+    if not cols:
+        return 0
+    mask = df[cols].isnull().any(axis=1)
+    if not bool(mask.any()):
+        return 0
+    return len(cells_of(df[mask], pg_id))
+
+
 def drop_months_above(
     df: pd.DataFrame, last_valid_month_id: int, time_id: str = _TIME_ID
 ) -> pd.DataFrame:

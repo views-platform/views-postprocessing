@@ -35,6 +35,28 @@ def test_works_on_flat_columns_too():
     np.testing.assert_array_equal(extraction.months_of(df), np.array([100, 101]))
 
 
+def _meta_frame(rows, meta):
+    """rows: list of (month_id, priogrid_gid); meta: list of metadata values (None = null)."""
+    idx = pd.MultiIndex.from_tuples(rows, names=["month_id", "priogrid_gid"])
+    return pd.DataFrame({"country_iso_a3": meta}, index=idx)
+
+
+def test_unmapped_cell_count_is_zero_when_all_mapped():
+    df = _meta_frame([(100, 1), (100, 2), (101, 1)], ["AUS", "NZL", "AUS"])
+    assert extraction.unmapped_cell_count(df, ["country_iso_a3"]) == 0
+
+
+def test_unmapped_cell_count_counts_distinct_cells_with_nulls():
+    # cell 2 is null in one row; cell 3 null too; cell 1 fully mapped.
+    df = _meta_frame([(100, 1), (100, 2), (101, 2), (101, 3)], ["AUS", None, None, None])
+    assert extraction.unmapped_cell_count(df, ["country_iso_a3"]) == 2
+
+
+def test_unmapped_cell_count_zero_when_no_metadata_cols_present():
+    df = _meta_frame([(100, 1)], ["AUS"])
+    assert extraction.unmapped_cell_count(df, ["not_a_column"]) == 0
+
+
 class _FakeResult:
     """Stands in for a DatastoreModule.get_file_metadata OperationResult."""
 

@@ -13,13 +13,14 @@ from views_pipeline_core.managers.model import ForecastingModelManager
 from views_pipeline_core.managers.ensemble import EnsemblePathManager
 import pandas as pd
 import io
+import json
 from datetime import datetime
 import os
 from dotenv import load_dotenv
 from views_postprocessing.unfao.enrichment import GaulLookupEnricher
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
 from views_postprocessing.unfao import extraction, source_metadata
-from views_postprocessing.delivery import coverage, identity, observed_range
+from views_postprocessing.delivery import coverage, identity, observed_range, provenance
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -295,7 +296,6 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         dsm = DatastoreModule(appwrite_file_manager_config=unfao_appwrite_config)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        enrichment_description = f"Enriched with geographic metadata on {timestamp} using precomputed GAUL lookup (ADR-011, version={self._enricher.lookup_version})."
         historical_file_path = self._model_path.data_generated / f"historical_dataset_{timestamp}.parquet"
         forecast_file_path = self._model_path.data_generated / f"forecast_dataset_{timestamp}.parquet"
 
@@ -307,7 +307,8 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                        name=self._model_path.model_name,
                        loa="pgm",
                        type="model", targets=self.configs.get("targets", []),
-                       description=enrichment_description, category="historical")
+                       description=self._delivery_description(self._historical_dataframe, timestamp),
+                       category="historical")
 
         self._forecast_dataframe.to_parquet(
             forecast_file_path
@@ -317,4 +318,28 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                        name=self.ensemble_path_manager.model_name,
                        loa="pgm",
                        type="model", targets=["pred_ln_sb_best", "pred_ln_ns_best", "pred_ln_os_best", "pred_ln_sb_prob", "pred_ln_ns_prob", "pred_ln_os_prob"],
-                       description=enrichment_description, category="forecast")
+                       description=self._delivery_description(self._forecast_dataframe, timestamp),
+                       category="forecast")
+
+    def _delivery_description(self, df: pd.DataFrame, timestamp: str) -> str:
+        """Human prefix + structured provenance (S5/C-15) for an upload's metadata.
+
+        Sources every provenance field from the actual delivery — the enricher's lookup
+        version, the configured region, the S1 coverage counts, the post-enrich unmapped
+        count — and serializes the representation-free ``delivery.provenance`` dict into
+        the only structured carrier ``upload_data`` exposes today (the ``description``
+        free-text field; a dedicated metadata field is requested upstream, C-15).
+        """
+        region = self.configs.get("region")
+        prov = provenance.build_provenance(
+            lookup_version=self._enricher.lookup_version,
+            region=region,
+            expected_cell_count=coverage.expected_for(region),
+            actual_cell_count=len(extraction.cells_of(df)),
+            unmapped_count=extraction.unmapped_cell_count(df, METADATA_COLS),
+        )
+        return (
+            f"Enriched with geographic metadata on {timestamp} using precomputed GAUL "
+            f"lookup (ADR-011, version={self._enricher.lookup_version}). "
+            f"provenance={json.dumps(prov, separators=(',', ':'))}"
+        )
