@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-06-24                           |
-| Total Concerns    | 41                                   |
-| Open Concerns     | 24                                   |
-| Resolved Concerns | 17                                   |
+| Last Updated      | 2026-06-26                           |
+| Total Concerns    | 43                                   |
+| Open Concerns     | 23                                   |
+| Resolved Concerns | 20                                   |
 
 ---
 
@@ -38,6 +38,7 @@
 **Highest tier:** 2 (C-12, C-21)
 **Fix strategy (5/9 done):** ✅ Replace global warning suppression with targeted filter. ◻ Promote geometry errors from DEBUG to WARNING. ✅ Add `make_valid()` preprocessing. ◻ Narrow exception scope. ✅ Zero-area guard clause (all 7 sites). ◻ `logger.error` before all raises (3 of ~23 done). ✅ Surface batch failures to caller (both methods). ◻ Enrichment provenance in upload (timestamp added, no shapefile version). ◻ Post-delivery correction procedure (C-22).
 **Resolution scope:** Full (code mechanisms) + Partial (operational impact — C-22 requires process documentation). **Note:** If D-05 resolves toward mapper elimination, remaining code fixes become moot.
+**✅ MOSTLY RESOLVED 2026-06-24:** the mapper deletion (C-39) removed the `mapping.py` error-hiding sites — **C-12, C-20, C-21 are resolved**, and the remaining ◻ fix-strategy items (geometry-error log level, exception-scope narrowing, `logger.error` before `mapping.py` raises) describe deleted code and are **moot**. Only the manager-side residue remains: **C-19** (3 `unfao.py` raises) and **C-22** (post-delivery correction process).
 
 ### Cluster C: Module-level import side effect
 **Root cause:** `set_default_mapper()` couples class definition with instantiation and shapefile loading at import time.
@@ -105,6 +106,8 @@ Tier recalibrated from 2 to 3 during review-rr (2026-06-02): the gap is maintain
 
 `mapping.py` directly imports `geopandas`, `shapely`, `numpy`, `pandas`, `joblib`, and `multiprocessing`. `unfao.py` directly imports `pandas`, `polars`, and `python-dotenv`. Only `views-pipeline-core` and `cachetools` are declared in `pyproject.toml`. The undeclared dependencies presumably arrive transitively via `views-pipeline-core`, but this coupling is implicit and fragile. If the upstream package refactors its dependency tree, this package will break with `ImportError` at install time.
 
+**Update 2026-06-24 (narrowed):** the `mapping.py` dimension is gone (C-39 — the `geopandas`/`shapely`/`joblib`/`multiprocessing` imports were deleted; `cachetools` dropped from `pyproject.toml`). Residual: `unfao.py` imports `pandas`/`polars`/`python-dotenv` undeclared, arriving transitively via `views-pipeline-core` (which *is* declared). Much smaller surface (Tier 4-ish); consider resolving outright if the transitive-via-pipeline-core guarantee is deemed sufficient.
+
 ---
 
 ### C-08: Planar area calculation on geographic (degree-based) coordinates
@@ -120,6 +123,8 @@ Tier recalibrated from 2 to 3 during review-rr (2026-06-02): the gap is maintain
 All overlap ratio calculations use `.area` on EPSG:4326 geometries, which produces values in square degrees. At the equator, 1° longitude ≈ 1° latitude in distance. At 60°N, 1° longitude ≈ 0.5° latitude in distance, distorting area by up to 2x. For border cells at high latitudes, this distortion could theoretically cause incorrect assignment to the wrong country/admin region. In practice, most VIEWS conflict prediction zones are equatorial/mid-latitude, limiting the impact. No projection to equal-area CRS is performed before area calculations.
 
 **Update 2026-06-12 (expert-code-review):** The "equatorial/mid-latitude, limiting the impact" rationale dies with the planned global coverage — Russia, Scandinavia, and Canada (55°N+) enter scope when the region switches to `"land"`. Mitigating consideration: within a single 0.5° cell, all candidate polygon intersections sit at the same latitude band, so the cos(lat) distortion multiplies all candidates roughly equally and largely cancels in the *ranking* — this applies to both this repo's mapper and the datafactory's area-majority script. Required action before global delivery: one falsification probe on ~20 border cells above 55°N comparing degree-based assignment against an equal-area-projected computation. See C-31 (mapper unverified at global scale).
+
+**Update 2026-06-24 (narrowed to the datafactory dimension):** this repo's mapper area-math (`mapping.py:649-650,920,1192,1428`) is deleted (C-39); no degree-based area math runs in this repo anymore. The remaining concern is the **views-datafactory** area-majority script's degree-based area math at high latitudes — a cross-repo views-datafactory concern (this repo now consumes the lookup built from those parquets, so any distortion is upstream). Tracked there, not here.
 
 ---
 
@@ -165,7 +170,9 @@ Both `dsm.upload_data()` calls in `_save()` carry metadata: `name`, `loa`, `type
 
 Tier recalibrated from 4 to 3 during falsification audit (2026-06-02): the missing provenance affects the partner's ability to audit data quality.
 
-See also C-14 (stale cache without version tracking), C-22 (no post-delivery correction process).
+**Mitigation landed (S5, 2026-06-26, `sprint/fao-input-integrity`):** a representation-free `delivery/provenance.py` (`build_provenance`) assembles structured provenance — `lookup_version`, `region`, `expected_cell_count`, `actual_cell_count`, `unmapped_count` — sourced from the enricher + S1 coverage + a new `extraction.unmapped_cell_count` seam (nothing hardcoded). Both `_save` uploads now carry it via `_delivery_description`. **Carrier constraint:** pipeline-core's `upload_data` exposes **no structured field** — only free-text `description` — so the dict is JSON-encoded into `description` behind a human prefix for now. A dedicated metadata field is requested upstream (**pipeline-core #245**); when it lands, only the manager's attach step changes (the provenance shape is already representation-free). `fill_count` is omitted until a fabricated-value count is available (cf. C-26). Residual is now just the carrier abuse, tracked by #245.
+
+See also C-14 (stale cache without version tracking), C-22 (no post-delivery correction process), C-26 (fabricated zeros — the eventual `fill_count` source).
 
 ---
 
@@ -203,24 +210,6 @@ Part of Cluster B (operational impact dimension). See also C-14, C-15.
 
 ---
 
-### C-23: Algorithmic divergence — area-based vs centroid-based GAUL mapping across VIEWS platform
-
-| Field | Value |
-|-------|-------|
-| ID | C-23 |
-| Tier | 2 |
-| Source | `manual` (2026-06-02) — external assessment |
-| Trigger | When datafactory's assembled grid is used alongside postprocessor enrichment for the same GIDs, verify that gaul0/gaul1/gaul2 assignments agree — currently they use different algorithms (centroid vs area-based) that disagree on border cells |
-| Location | `views_postprocessing/unfao/mapping/mapping.py` (area-based), external `views-datafactory/datafactory/gaul_admin.py` (centroid-based) |
-
-The VIEWS platform has two independent PRIO-GRID-to-GAUL mapping implementations using different algorithms. For the ~95% of cells entirely within one region, both agree. For border cells, they disagree — and nothing reconciles them. It is unclear whether area-based is a deliberate FAO requirement or historical accident.
-
-**Update 2026-06-12 — divergence resolved upstream.** views-datafactory shipped area-majority GAUL assignment (issue #115 → PR #127, v1.2.28/29); all 7 GAUL parquets regenerated June 11 as area-majority. Both implementations now use the same algorithm family. Residual difference: this repo's mapper sources `country_iso_a3` from Natural Earth while the factory uses GAUL boundaries — disputed-border cells can still differ on ISO code. This residual disappears when ADR-011's lookup (built from factory parquets) replaces the mapper. See `docs/cross_repo_integration_report.md`.
-
-Part of Cluster E. See also D-05 (the gating decision), C-11 (god class — moot if mapper eliminated).
-
----
-
 ### C-24: Postprocessor output schema diverges from FAO-confirmed API contract
 
 | Field | Value |
@@ -255,7 +244,9 @@ See also C-17 (implicit column naming between mapper and manager), D-06 (resolve
 
 This concern became visible during the cross-repo investigation (`docs/cross_repo_integration_report.md` §2.4, §4.2); it was previously implicit in the C-13 narrative (timeouts) but is a distinct failure mode: C-13 is "the call hangs," C-25 is "the call succeeds with the wrong file."
 
-See also C-13 (no timeout on the same calls), C-15 (upload metadata lacks provenance to detect this downstream).
+**Mitigation landed (S3, 2026-06-26, `sprint/fao-input-integrity`):** `_read_forecast_data` now resolves the file id, fetches its metadata, and asserts identity (`delivery/identity.assert_forecast_identity`) against the configured ensemble (`{name: ensemble_path_manager.model_name, loa: "pgm"}`) **before** download — a stray `category="forecast"` upload now fails loud instead of shipping silently. **Residual (verify before relying on it):** the guard assumes the producer's uploaded `name`/`loa` equal `model_name`/`"pgm"`; this is checked against pipeline-core's code but **not a live Appwrite upload**. If the contract differs, the guard fails loud on *every* run — caught at the first smoke-test delivery (option A / S6 #57), **not** silently — so the residual is an availability / false-positive risk, not a corruption one. Confirm the field match at the option-A run; until then C-25 stays open.
+
+See also C-13 (no timeout on the same calls), C-15 (upload metadata lacks provenance to detect this downstream), C-43 (the same "verify at the first live run" debt pattern on the enrichment swap).
 
 ---
 
@@ -331,25 +322,13 @@ See also C-13.
 | Trigger | When the region switches from `africa_me_legacy` to `land` for global historical delivery, verify the 82 unassigned cells are explicitly excluded before `_validate()` — they have no GAUL assignment in any source |
 | Location | `views_postprocessing/unfao/managers/unfao.py:188-221`; views-datafactory `data/raw/gaul_admin/gaul0_code.parquet` (value = -1) |
 
-Verified 2026-06-12: of the datafactory's 64,818 `land`-region cells, 64,736 have complete area-majority metadata; exactly 82 are unassigned across all 7 GAUL fields — all remote sub-Antarctic islands FAO's GAUL 2024 boundaries do not cover (Macquarie, Auckland Islands, Prince Edward; sample gids 51078, 51798, 53979, 62356, 94776, 99027). The mitigation must be a named exclusion-list constant with the 82 gids, count-asserted (`== 82`) in both the enricher and a test, logged at WARNING, and disclosed to FAO — not a generic `code != -1` filter, which would silently absorb future coverage regressions. Generalizes the previously documented "5 ocean cells" of africa_me_legacy (those 5 are among the 82).
+Verified 2026-06-12: of the datafactory's 64,818 `land`-region cells, 64,736 have complete area-majority metadata; exactly 82 are unassigned across all 7 GAUL fields — all remote sub-Antarctic islands FAO's GAUL 2024 boundaries do not cover (Macquarie, Auckland Islands, Prince Edward; sample gids 51078, 51798, 53979, 62356, 94776, 99027). The mitigation must be a named exclusion-list constant with the gids, count-asserted in both the enricher and a test, logged at WARNING, and disclosed to FAO — not a generic `code != -1` filter, which would silently absorb future coverage regressions. Generalizes the previously documented "5 ocean cells" of africa_me_legacy (those 5 are among the excluded set).
+
+**Count drift corrected 2026-06-26 (the frozen-list tripwire working as designed):** deriving the exclusions from the live producer (datafactory **v1.4.0**) gives **64,742** complete + **76** excluded, *not* the 64,736 / 82 verified on 2026-06-12. Cause: datafactory **#163 (ADR-043)** supplemented **6 Azorean cells** (gids 182470, 183190, 183909, 183910, 186058, 186778) into `land_gaul` — they are now covered, not excluded. vpp's *own* built lookup (`data/gaul_lookup.parquet`) already ships 64,742, so the old 64,736 pin would have false-positived against our own artifact. NB the authoritative exclusion source is the **region complement** `land − land_gaul` (76), not the raw `gaul0_code == -1` (82) — the latter does not reflect the ADR-043 curation.
+
+**Mitigation landed (S4, 2026-06-26, `sprint/fao-input-integrity`):** the 76 excluded gids are pinned as a frozen manifest in `delivery/coverage.py` (`EXCLUDED_GIDS_BY_REGION`), the count is corrected to 64,742, `assert_no_excluded_cells` is wired into the manager's `_check_coverage` **region-gated** (a no-op for unpinned `africa_me_legacy`, so its 5 ocean cells are unaffected), the 76 are disclosed in `docs/fao_excluded_cells.md`, and a test cross-checks the manifest against the datafactory sibling when present (drift tripwire). **Residual:** still Tier 1 until the live `land_gaul` run (views-platform/views-models#127) exercises it end-to-end — the guard is unit-proven but not yet run against a real global delivery.
 
 See also D-10 (handling decision), C-34 (coverage contract).
-
----
-
-### C-31: Runtime mapper unverified and unverifiable at global scale
-
-| Field | Value |
-|-------|-------|
-| ID | C-31 |
-| Tier | 2 — choosing this path for global delivery converts unknown runtime, unknown memory, and unknown Natural-Earth coverage into delivery-day discoveries |
-| Source | `expert-code-review` (2026-06-12) |
-| Trigger | Before any global (`land` region) run that enriches via `mapping.py`, verify runtime, peak memory, and Natural-Earth assignment coverage for all 64,818 cells — none has ever been measured, and none can be measured in the development environment (shapefiles are LFS stubs) |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:2727` (per-gid boolean mask over all 259,200 grid rows — O(N) per lookup), `mapping.py:649-650,920,1192,1428` (degree-based area math, C-08, newly in scope above 55°N) |
-
-The mapper is production-proven at 13,110 cells and never executed at 64,818. Per-cell linear scans put plausible global runtime in the hours; any cell Natural Earth fails to assign produces a null that crashes `_validate()` **at the end of those hours**. The equivalent completeness number for the lookup path is known exactly (C-30: 64,736/82); for the mapper path it is unknowable before a production-machine run. This asymmetry — enumerable versus discoverable failures — is the core argument in D-08.
-
-See also C-08 (high-latitude math, escalated), C-11 (god class), D-08.
 
 ---
 
@@ -399,24 +378,6 @@ See also C-30, C-26 (both are coverage-integrity failures with no signal).
 
 ---
 
-### C-35: Invalid `-99` country code shipped to FAO for Somaliland cells
-
-| Field | Value |
-|-------|-------|
-| ID | C-35 |
-| Tier | 1 — silent invalid data delivered to the partner: a non-ISO sentinel string passes the null-only validation gate and reaches FAO as a country code |
-| Source | `enrichment-diff` (2026-06-18) — empirically measured, old mapper vs new lookup on africa_me |
-| Trigger | Whenever the current runtime mapper enriches cells in the Somaliland region (and any other Natural Earth `ISO_A3 = "-99"` territory), it emits `country_iso_a3 = "-99"`; `_validate()` checks only for nulls, so the invalid code ships |
-| Location | `views_postprocessing/unfao/mapping/mapping.py` (country from Natural Earth `ISO_A3`); `unfao.py:188-221` (`_validate` — null-only, no code-validity check); Natural Earth `ne_10m_admin_0_countries` (`ADMIN="Somaliland", ISO_A3="-99"`) |
-
-The current mapper sources `country_iso_a3` from Natural Earth's `ISO_A3` field. Natural Earth represents Somaliland as a separate de-facto entity but assigns it the sentinel `ISO_A3 = "-99"` (no recognized ISO code). The diff measured **64 africa_me cells** delivered with `country_iso_a3 = "-99"`. Because `"-99"` is a non-null string, the `_validate()` gate (which only rejects nulls) passes it, and it reaches the FAO Appwrite bucket as the country code for those cells. FAO consumers filtering or aggregating by country code receive an invalid value.
-
-**Resolved by ADR-011's lookup.** The new GAUL-sourced lookup has zero `-99` codes anywhere (verified across all 64,742 global cells); Somaliland cells become `SOM` (Somalia), matching GAUL — FAO's own boundary product. So the engine swap (Stage 3) eliminates this defect as a side effect. Until the swap ships, the current production output carries it. Note: other Natural Earth `-99` territories (e.g. N. Cyprus, Kosovo) could surface the same way outside africa_me — the global swap covers them too.
-
-See also C-01 (null-validation re-enabled — but it does not check code *validity*), and the disputed-territories section of `reports/enrichment_diff/report.md`.
-
----
-
 ### C-37: Reconciliation uses a pragmatic per-draw approximation, not principled probabilistic reconciliation
 
 | Field | Value |
@@ -435,6 +396,10 @@ See also the migration plan (reconciliation slices 2-4) and views-reporting issu
 
 **Update 2026-06-24 (reframe — now near-term, not deferred):** this is no longer a someday concern. FAO (`rusty_bucket`) sidesteps reconciliation entirely (pure-grid ensemble aggregated *up* — sums by construction), but the **next UN-agency deliverable** is an FAO-like grid ensemble that **does** reconcile against a CM model, with **full pooled draws (~1024)** → **probabilistic** reconciliation. The reconciler is already probabilistic-ready (fully vectorized over samples), so the open question is purely C-37's: does that deliverable reconcile grid draws to a country **point total** (well-defined, no alignment needed) or to country **draws** (needs a defined draw-alignment — and today CM models are point-only / independently trained, so no aligned draws exist)? **This decision gates the probabilistic-reconciliation-on-`PredictionFrameEnsembleManager` work** (pipeline-core#200, under epic #193); resolve it once the UN models / CM target are defined.
 
+**Calibration note (review-rr 2026-06-24):** stays **Tier 3 while unwired**, but **escalate to Tier 2 the moment reconciliation is wired into a delivery** — at that point a wrong sample-alignment assumption silently delivers *meaningless uncertainty* (a correctness risk, not maintainability). The wiring (pipeline-core#200) is the escalation trigger.
+
+**Update 2026-06-26 (home change):** the reconciler (`proportional.py`, `grouping.py`, `module.py`) is relocating from this repo to the **`views_frames_reconcile` sibling** in the views-frames distribution (Epic 11, views-platform/views-frames#131) — its correct foundation home (CRP/SDP: a frame operation belongs in the frames family, not bolted onto FAO delivery). **C-37 and C-38 move with it** — track them in views-frames going forward. vpp's copy is deleted in #62 once views-frames v1.7.0 ships (release → repoint views-models#191 → delete).
+
 ---
 
 ### C-38: Reconciliation grouping is O(groups × N) and materializes the whole grid frame — won't scale to global volume
@@ -451,7 +416,7 @@ See also the migration plan (reconciliation slices 2-4) and views-reporting issu
 
 Tier 2: structural fragility under the realistic change of wiring to global, with a clear trigger; not Tier 1 (no silent corruption — parity is exact; this is a runtime/memory failure). See also C-31 (mapper scale), C-32 (enricher memory), C-37 (the algorithm), epic #31 / views-reporting#72.
 
-**Update 2026-06-24 — compute RESOLVED.** The per-group `np.nonzero(inverse == gi)` was replaced with **group-by-sort** (`argsort(inverse)` + contiguous slices from `np.unique` counts, O(N log N), one index array). Parity stays **bit-exact** (`tests/test_reconciliation_grouping.py`, `test_reconciliation_e2e_parity.py` → 0.0) and a scale guard (`tests/test_reconciliation_scale.py`) protects against regression. **Residual (still open):** the module holds the whole pgm frame in memory at once; at global volume the **caller must chunk by time** (reconciliation is independent across months) — the chunk-by-time contract is documented in the CIC (`docs/CICs/ReconciliationModule.md` §5), to be **verified on a global-volume dry-run at S7 (#39)**. This entry stays open until that verification.
+**Update 2026-06-24 — compute RESOLVED.** The per-group `np.nonzero(inverse == gi)` was replaced with **group-by-sort** (`argsort(inverse)` + contiguous slices from `np.unique` counts, O(N log N), one index array). Parity stays **bit-exact** (`tests/test_reconciliation_grouping.py`, `test_reconciliation_e2e_parity.py` → 0.0) and a scale guard (`tests/test_reconciliation_scale.py`) protects against regression. **Residual (relocated with the code):** the module holds the whole pgm frame in memory at once; at global volume the **caller must chunk by time** (reconciliation is independent across months). The reconciler — and this chunk-by-time obligation — **left vpp**: the algorithm now lives in `views_frames_reconcile` and the vpp `ReconciliationModule` CIC was retired (#62 / PR #63, merged to `development` 2026-06-26). The global-volume verification is now a **consumer-side obligation at reconciliation-wiring time** (pipeline-core#200/#221), not a vpp concern. Tracked cross-repo via C-42; no further vpp action.
 
 **Update 2026-06-24 (reframe — residual now near-term):** the memory residual is no longer "verify someday." The upcoming UN-agency deliverable reconciles **frames with ~1024 pooled draws** — squarely in the >100 GB-at-global regime. When pipeline-core's `PredictionFrameEnsembleManager` wires probabilistic reconciliation (pipeline-core#200, under epic #193), the **caller must chunk by time** (reconciliation is independent across months) and **measure peak memory on a global-volume dry-run** as part of that work. The reconciler code itself is unchanged (compute already O(N log N)); this is a consumer-side obligation.
 
@@ -473,43 +438,53 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 
 ---
 
+### C-42: Reconciliation migration is stranded across three repos; production runs the old path and the migration-state was mis-stated
+
+| Field | Value |
+|-------|-------|
+| ID | C-42 |
+| Tier | 3 |
+| Source | `manual` (2026-06-26) — cross-repo verification on `origin/development` |
+| Trigger | When a cross-repo agent next acts on reconciliation (merges pipeline-core PR #217, repoints any consumer, **deletes vpp's copy**, or builds a new reconciliation feature), confirm which copy it targets against `origin/development` first — do **not** assume #217 is merged, the cycle is broken, or vpp's copy is unused (views-models imports it live; deletion is hard-gated on C1) |
+| Location | pipeline-core `origin/development`: `managers/ensemble/ensemble.py:747`, `managers/ensemble/dataframe_ensemble.py:921`, `modules/reconciliation/__init__.py:4` (live `views_reporting.reconciliation` imports); `views-models/reconciliation/reconciler_factory.py:54` (**unguarded live import of `views_postprocessing.reconciliation`** — ADR-014 composition root); `views_postprocessing/reconciliation/` (parity-proven, **consumed by views-models**); the plan file + issue #39 (carried the false "merged" premise) |
+
+Verified 2026-06-26 on `origin/development`: pipeline-core **still imports `views_reporting.reconciliation`** (3 sites above) — the pipeline-core↔views-reporting reconciliation **cycle is live**, and production reconciliation still runs through views-reporting (torch). **PR #217** (the DIP port + adapter that would decouple it, #195) is **OPEN/unmerged** — the port `domain/reconciliation.py` exists on dev but the adapter does not. So **three reconciler copies are in flight**: views-reporting (live via pipeline-core), vpp (parity-proven, PR #30), views-frames (now SHIPPED — v1.7.0 on PyPI 2026-06-26).
+
+**CORRECTION 2026-06-26 (exploration-verified): vpp's `reconciliation/` is NOT "unused/stranded."** `views-models/reconciliation/reconciler_factory.py:54` does an **unguarded** live import `from views_postprocessing.reconciliation import ReconciliationModule` (the ADR-014 composition root, constructed at runtime by reconciling ensembles). The earlier "unused by any production consumer" wording here was wrong — and it was itself an instance of this entry's own hazard (state-drift that could prompt an unsafe action). **Deletion-safety consequence:** deleting vpp's `reconciliation/` **hard-breaks views-models** unless C1 (repoint views-models → `views_frames_reconcile`) lands and goes green **first**. All other importers are guarded (`pytest.importorskip`): views-frames `test_reconcile_head_to_head.py`, views-models `test_reconciliation_factory.py`. pipeline-core / views-reporting do not import vpp. The hazard remains **acting on a false state** (e.g. merging the throwaway #217 port, or deleting a copy that is in fact a live dependency). No silent data corruption (the production path works; it is just the old one) → **Tier 3** (coordination / state-drift / cost-of-change).
+
+**Mitigation:** do **not** merge #217 as a throwaway bridge. The "release" leg is complete (v1.7.0 on PyPI). Cutover order: **repoint** (views-models#191 = C1; pipeline-core#221 = collapse the port, parallel) → **delete** (vpp #62 = C2, only after C1 green) → retire views-reporting reconciliation (vpp #40 / views-reporting#72, after #221).
+
+**Update 2026-06-26 (cutover landed — the mis-stated-state hazard has resolved):** all three legs are done and verified on `origin/development`. **release** — views-frames v1.7.0 on PyPI. **repoint** — views-models **PR #202** merged (`reconciler_factory.py` imports `views_frames_reconcile`); **pipeline-core chose Decision K, not C** — **PR #217 merged** (`6427b9d`): it reconciles via its `Reconciler` DIP port with `views_frames_reconcile.ReconciliationModule` injected (the C-cutover issue #221 was closed unused). **delete** — vpp's copy removed in **#62 / PR #63** (merged to `development`, `c9e38402`). A full cross-repo sweep confirms no unguarded importer of `views_postprocessing.reconciliation` anywhere. The original hazard (acting on a *mis-stated* migration state) is **resolved** — every actor was verified against `origin/development` before acting. **The one residual is split out as C-43:** pipeline-core still imports `views_reporting.statistics.ForecastReconciler`, so the pipeline-core↔views-reporting edge is not fully severed and views-reporting retirement (#40 / views-reporting#72) is still blocked. This entry can move to **Resolved** once C-43 is filed (it is); kept open here only pending a /review-rr relocation.
+
+See also C-37 / C-38 (the reconciler concerns — relocating to views-frames with the code), views-platform/views-frames#131 (the final home), #62 (retire vpp's copy), views-platform/views-models#191 (repoint), pipeline-core PR #217 (the merged DIP port, Decision K).
+
+**Residual tail (verified 2026-06-26 — already tracked cross-repo, no new vpp entry):** pipeline-core still imports `views_reporting.statistics.ForecastReconciler` (`modules/statistics/__init__.py:5`), so the pipeline-core↔views-reporting edge is not yet fully severed and views-reporting's `reconciliation/` + `torch` retirement (#40 / views-reporting#72) is still blocked. But this is **not an untracked hazard**: the re-export is explicitly marked *"remove after downstream consumers update"*; `ForecastReconciler`'s only pipeline-core consumers are the transitional **golden-output equivalence tests** (#119 / #196, "new frames-native == old torch"); and **pipeline-core #198** already owns the removal — its scope note names *"the `reconciliation/` package **and** the `ForecastReconciler` class"* and it triggers vpp **#40** / views-reporting#72. Blocked on pipeline-core #197 (views-postprocessing/views-frames must be "default and stable") first. So C-42 stays open as a thin tracker until #198 lands; no separate vpp entry warranted (would duplicate #198). *(A speculative residual-coupling entry was drafted then withdrawn here after verification showed it was a duplicate of pipeline-core #198.)*
+
+---
+
+### C-43: ADR-011 enrichment swap shipped without its output-equivalence proof — and the proof is now unrecoverable
+
+| Field | Value |
+|-------|-------|
+| ID | C-43 |
+| Tier | 2 |
+| Source | `manual` (2026-06-26) — user-flagged rigor loss on accepting option A; verified against git history (`eba1df8` / PR #42) |
+| Trigger | When the `africa_me_legacy` smoke-test delivery (option A) is accepted as the swap's verification, and — more acutely — when Stage 4 flips the region to `land_gaul` (64,736 cells, views-platform/views-models#127): the go-global run is the first time the lookup enricher's output reaches FAO at scale with **no** equivalence check against the previously-trusted mapper. Also fires if FAO / faoapi reports geographic metadata that looks wrong for specific cells. |
+| Location | `views_postprocessing/unfao/enrichment.py` (`GaulLookupEnricher`); `views_postprocessing/unfao/managers/unfao.py:129` (`_append_metadata`), `:147-172` (`_validate` — the 9-column NULL gate, checks presence not correctness); umbrella #20 / issues #21, #23, #24 (the baseline+diff procedure, now unrunnable); deleted in `eba1df8` (PR #42): `mapping.py` + both ADR-011 diff scripts |
+
+ADR-011 swapped FAO geo-enrichment from the runtime geopandas mapper to the GAUL lookup enricher (commit `65635b6`). The swap's own plan (umbrella #20) required an **output-equivalence proof** before trusting it in production: Stage 0 (#21) run the OLD mapper on real `africa_me_legacy` data to archive a ground-truth baseline; Stage 2 (#23) diff the new enricher against it with *"zero unexplained differences."* That proof was **never produced** — no `baseline_schema.md` or baseline parquet was ever committed — and on 2026-06-24 the old mapper **and both diff scripts** were deleted (`eba1df8`, PR #42, C-39). So the equivalence check is now **unrecoverable** short of `git revert`-ing the mapper back.
+
+The accepted path forward (**option A**) is a single smoke-test delivery: "the run is green and the output looks sane," which proves the path *runs*, not that it produces the *same / correct* values the trusted mapper did. The manager's `_validate` enforces only that the 9 GAUL columns are **non-null** — it does not check value correctness — so a latent bug in the lookup build or the merge-by-gid (wrong join key, stale `lookup_version`, gid misalignment) would ship **wrong-but-non-null** geographic metadata to FAO with **no error signal**.
+
+**Why not Tier 1:** the lookup is built from views-datafactory's authoritative area-majority GAUL parquets — the canonical *producer* source (D-07). The new path sources from the gold standard; the old mapper was the *less*-trusted path being retired (C-31, C-23). So the missing diff is a lost cross-check, not "unverified code," and the Stage-1 enricher unit tests + coverage guards (C-30/C-34) cover part of the build. **Why Tier 2:** the residual silent-wrong-value path is real, the null gate cannot catch it, the one guard that would have is gone for good, and the trigger (go-global to 64k cells) is concrete and imminent.
+
+**Mitigation if assurance is wanted before go-global** (cheaper than reverting the mapper): forward-check a sample of `land_gaul` cell assignments directly against the datafactory GAUL parquet, or add a lightweight value-level assertion into the enricher path (a forward check against the producer source — *not* a resurrection of the deleted old-mapper diff).
+
+See also C-03 (the sibling enrich→validate test-coverage gap), C-22 (no post-delivery correction/recall process — the consequence if wrong values do ship), C-39 / C-31 / C-23 (the resolved mapper-deletion cluster this emerged from), C-30 / C-32 / C-34 (the go-global scale risks where this bites), D-08 (the swap-to-lookup-first decision whose verification debt this is).
+
+---
+
 ## Disagreements
-
-### D-05: Strategic direction — eliminate runtime mapper vs keep area-based algorithm
-
-| Field | Value |
-|-------|-------|
-| ID | D-05 |
-| Source | `manual` (2026-06-02) — external assessment |
-| Perspectives | Path A: area-based is a FAO requirement → precompute lookup table. Path B: centroid-based acceptable → eliminate mapping.py entirely. Both eliminate 774 MB shapefiles, geopandas, and 3,100-line mapper. |
-| Resolution | **Resolved (2026-06-02): Path A confirmed.** FAO-FSFC provided written confirmation (Release Note 02, `summary.tex`) agreeing to area-majority allocation as the locked aggregation rule: "Each PRIO-GRID cell is assigned to a single country using an area-majority rule." The area-based algorithm is a contractual requirement, not a historical accident. Path B (centroid-based) is off the table. Next step: build a one-time precomputed area-based lookup table (~65K rows, Parquet) and replace the 3,100-line runtime mapper with a dictionary lookup. This still eliminates geopandas, the shapefile bundle, and the runtime spatial operations — but preserves the area-majority assignment rule. |
-| Update 2026-06-12 | **Upstream resolution deployed.** views-datafactory shipped area-majority GAUL assignment (issue #115 → PR #127, ADR-039 there, v1.2.28/29). All 7 GAUL parquets (codes + names + iso3) regenerated June 11 as area-majority, 259,200 rows each, mutually consistent (13,105/13,110 africa_me cells fully attributed; 5 pure-ocean cells unassigned). The precomputed lookup table can now be built by joining the factory parquets — no LFS, no shapefiles, no this-repo mapper run needed. The platform-level mapping divergence (centroid in factory vs area-majority here) no longer exists. See `docs/cross_repo_integration_report.md` and ADR-011 assessment §10. |
-
----
-
-### D-07: Historical data route — keep pipeline-core dispatcher vs call datafactory directly
-
-| Field | Value |
-|-------|-------|
-| ID | D-07 |
-| Source | `expert-code-review` (2026-06-12) |
-| Perspectives | Ousterhout/Hickey: the postprocessor uses ~20% of `ViewsDataLoader`'s services (it passes `use_saved=False, validate=False, self_test=False`) while paying 100% of the seven-hop indirection — call `datafactory_query.load_dataset()` directly and own the three renames. Martin/GoF/Feathers: the dispatcher seam absorbed the viewser→datafactory migration with zero consumer changes and will absorb the next one; bypassing it re-couples the postprocessor to the current backend. |
-| Location | `views_postprocessing/unfao/managers/unfao.py:44-59`; views-pipeline-core `modules/dataloaders/dataloaders.py:1088-1224` |
-| Status | Open. Review recommendation: keep the pipeline-core route, but pass explicit `month_first/month_last` instead of partition semantics, consume `get_data()`'s return value (C-29), and re-enable validation once it supports datafactory sources. Decide alongside ADR-011 since both touch the same manager. |
-
----
-
-### D-08: Global delivery path — scale up the runtime mapper vs swap to the precomputed lookup first
-
-| Field | Value |
-|-------|-------|
-| ID | D-08 |
-| Source | `expert-code-review` (2026-06-12) |
-| Perspectives | Feathers' instinct: the mapper is production-proven and the region change is one config line — don't swap components days before a deadline. Kleppmann/Nygard/Ousterhout: the mapper is *unverifiable at global scale before running it* (C-31: unknown null count, runtime, memory; C-08 newly in scope), while the lookup's complete global failure set is exactly 82 named cells, verified locally (C-30). |
-| Location | `views_postprocessing/unfao/managers/unfao.py:154-160`; `mapping.py`; views-datafactory `data/raw/gaul_admin/*.parquet` |
-| Status | Open — user decision pending. Review adjudication: **swap to the lookup first, then go global.** The "don't swap before a deadline" rule assumes the old part is known-good for the new job; here it is known-good only for a job 5× smaller and cannot be tested for the new job until the moment it matters. Enumerable risk beats discoverable risk on a deadline. Prerequisite: shadow diff old-vs-new on africa_me (13,110 cells) on the production machine. |
-
----
 
 ### D-09: Multi-store support — parameterize the manager now vs after the FAO global delivery
 
@@ -523,21 +498,37 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 
 ---
 
-### D-10: The 82 GAUL-uncovered cells — exclude, crash, or negotiate with FAO
+## Resolved Concerns
+
+### C-35: Invalid `-99` country code shipped to FAO for Somaliland cells — RESOLVED
 
 | Field | Value |
 |-------|-------|
-| ID | D-10 |
-| Source | `expert-code-review` (2026-06-12) |
-| Perspectives | Fail-loud purism: let validation crash and force the conversation — never silently drop cells. Pragmatic exclusion: drop with a named, count-asserted, logged exclusion list. Diplomatic: ask FAO before shipping anything. |
-| Location | `views_postprocessing/unfao/managers/unfao.py:188-221`; the 82 gids enumerated in C-30 |
-| Status | **Resolved direction (2026-06-12): fix upstream in views-datafactory.** User decision, superseding the review's exclusion-list adjudication. A new bundled curated region (`land ∩ gaul0_code != -1`, 64,736 cells — e.g. `land_gaul`) is added to `datafactory_query` alongside `land` and `africa_me_legacy`, with generation script, provenance, and a count-pinning test. The postprocessor keeps zero spatial knowledge; its invariant simplifies to "every arriving cell must enrich completely — any null crashes" (the existing `_validate()` gate, unchanged). The `land` region itself is NOT redefined (other consumers depend on its physical-land semantics). Forecast-path residual: unmatched gids null→crash via left merge + validation; pin with one test. FAO disclosure of the 82 excluded sub-Antarctic cells still required in the release note. Closes the postprocessor side of C-30; C-34's coverage test becomes "100% completeness for the configured region." |
+| ID | C-35 |
+| Resolved | 2026-06-24 |
+| Resolution | The mapper that sourced `country_iso_a3` from Natural Earth (emitting the `-99` sentinel for Somaliland, N. Cyprus, Kosovo, …) was deleted (C-39, PR #42). Enrichment now uses the GAUL lookup, which has **zero `-99` codes** across all 64,742 global cells (Somaliland → `SOM`, matching FAO's GAUL). The defect is eliminated as a side effect of the engine swap. |
 
 ---
 
+### C-31: Runtime mapper unverified and unverifiable at global scale — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-31 |
+| Resolved | 2026-06-24 |
+| Resolution | The runtime mapper (`mapping.py`) was deleted (C-39, PR #42), so a global run *via the mapper* can no longer happen — this entry's hazard is moot. The enricher-path global-scale concerns are tracked separately (C-30 coverage, C-32 memory, C-34 coverage contract). D-08 (the swap-to-lookup-first decision this entry argued for) was executed. |
+
 ---
 
-## Resolved Concerns
+### C-23: Algorithmic divergence — area-based vs centroid-based GAUL mapping across VIEWS platform — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-23 |
+| Resolved | 2026-06-24 |
+| Resolution | The platform mapping divergence was resolved upstream (views-datafactory area-majority, 2026-06-12), and the residual ISO-code difference disappeared when ADR-011's GAUL lookup replaced the runtime mapper (C-39, PR #42). The lookup (built from the factory's GAUL parquets) is now the single enrichment source — no second algorithm remains to diverge from. |
+
+---
 
 ### C-41: Vestigial Git LFS config breaks routine git operations (no git-lfs installed) — RESOLVED
 
@@ -710,6 +701,60 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 ---
 
 ## Resolved Disagreements
+
+### D-07: Historical data route — keep pipeline-core dispatcher vs call datafactory directly — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | D-07 |
+| Source | `expert-code-review` (2026-06-12) |
+| Perspectives | Ousterhout/Hickey: the postprocessor uses ~20% of `ViewsDataLoader`'s services (it passes `use_saved=False, validate=False, self_test=False`) while paying 100% of the seven-hop indirection — call `datafactory_query.load_dataset()` directly and own the three renames. Martin/GoF/Feathers: the dispatcher seam absorbed the viewser→datafactory migration with zero consumer changes and will absorb the next one; bypassing it re-couples the postprocessor to the current backend. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:44-59`; views-pipeline-core `modules/dataloaders/dataloaders.py:1088-1224` |
+| Status | Open. Review recommendation: keep the pipeline-core route, but pass explicit `month_first/month_last` instead of partition semantics, consume `get_data()`'s return value (C-29), and re-enable validation once it supports datafactory sources. Decide alongside ADR-011 since both touch the same manager. |
+
+**Resolved (2026-06-26) — maintainer's data-sourcing principle.** *Data-related facts — data, metadata, validity dates, country/admin codes — come from the **producer** (views-datafactory, or viewser until phased out), **not** routed through pipeline-core. pipeline-core is the orchestration framework, not a data pass-through; depending on it for data facts couples the delivery to an unstable, mid-migration hub (SDP) and risks cycles (ADP).*
+
+Concretely: **(1)** producer-published facts (e.g. `last_valid_month_id`, region cell-counts) are read **directly from the producer** — pipeline-core must not be a lossy intermediary that drops them. First instantiated in S2 (#52): `views_postprocessing/unfao/source_metadata.py` reads `last_valid_month_id` straight from datafactory's `.zattrs`, never via the loader that discards it. **(2)** This decides the disagreement toward the Ousterhout/Hickey side **for facts**, but does **not** mandate ripping out the dispatcher wholesale: its source-abstraction (viewser↔datafactory routing) retains value for the **bulk data fetch** during the viewser phase-out. The principle is *'don't route through pipeline-core just for the sake of it / don't depend on it for what it merely passes through or drops'* — not *'never use the dispatcher.'* The earlier review recommendations for the bulk fetch (explicit month range; consume `get_data()`'s return value — C-29) still stand. Net: **the producer is the source of truth for data + facts; pipeline-core orchestrates.**
+
+---
+
+### D-10: The 82 GAUL-uncovered cells — exclude, crash, or negotiate with FAO — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | D-10 |
+| Source | `expert-code-review` (2026-06-12) |
+| Perspectives | Fail-loud purism: let validation crash and force the conversation — never silently drop cells. Pragmatic exclusion: drop with a named, count-asserted, logged exclusion list. Diplomatic: ask FAO before shipping anything. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:188-221`; the 82 gids enumerated in C-30 |
+| Status | **Resolved direction (2026-06-12): fix upstream in views-datafactory.** User decision, superseding the review's exclusion-list adjudication. A new bundled curated region (`land ∩ gaul0_code != -1`, 64,736 cells — e.g. `land_gaul`) is added to `datafactory_query` alongside `land` and `africa_me_legacy`, with generation script, provenance, and a count-pinning test. The postprocessor keeps zero spatial knowledge; its invariant simplifies to "every arriving cell must enrich completely — any null crashes" (the existing `_validate()` gate, unchanged). The `land` region itself is NOT redefined (other consumers depend on its physical-land semantics). Forecast-path residual: unmatched gids null→crash via left merge + validation; pin with one test. FAO disclosure of the 82 excluded sub-Antarctic cells still required in the release note. Closes the postprocessor side of C-30; C-34's coverage test becomes "100% completeness for the configured region." |
+
+---
+
+### D-08: Global delivery path — scale up the runtime mapper vs swap to the precomputed lookup first — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | D-08 |
+| Source | `expert-code-review` (2026-06-12) |
+| Perspectives | Feathers' instinct: the mapper is production-proven and the region change is one config line — don't swap components days before a deadline. Kleppmann/Nygard/Ousterhout: the mapper is *unverifiable at global scale before running it* (C-31: unknown null count, runtime, memory; C-08 newly in scope), while the lookup's complete global failure set is exactly 82 named cells, verified locally (C-30). |
+| Location | `views_postprocessing/unfao/managers/unfao.py:154-160`; `mapping.py`; views-datafactory `data/raw/gaul_admin/*.parquet` |
+| Status | Open — user decision pending. Review adjudication: **swap to the lookup first, then go global.** The "don't swap before a deadline" rule assumes the old part is known-good for the new job; here it is known-good only for a job 5× smaller and cannot be tested for the new job until the moment it matters. Enumerable risk beats discoverable risk on a deadline. Prerequisite: shadow diff old-vs-new on africa_me (13,110 cells) on the production machine. |
+
+**Resolved by events (2026-06-24):** the swap was executed — the runtime mapper was deleted (C-39, PR #42) and `GaulLookupEnricher` is the enrichment path. The review adjudication ('swap to the lookup first, then go global') is now the shipped state.
+
+---
+
+### D-05: Strategic direction — eliminate runtime mapper vs keep area-based algorithm — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | D-05 |
+| Source | `manual` (2026-06-02) — external assessment |
+| Perspectives | Path A: area-based is a FAO requirement → precompute lookup table. Path B: centroid-based acceptable → eliminate mapping.py entirely. Both eliminate 774 MB shapefiles, geopandas, and 3,100-line mapper. |
+| Resolution | **Resolved (2026-06-02): Path A confirmed.** FAO-FSFC provided written confirmation (Release Note 02, `summary.tex`) agreeing to area-majority allocation as the locked aggregation rule: "Each PRIO-GRID cell is assigned to a single country using an area-majority rule." The area-based algorithm is a contractual requirement, not a historical accident. Path B (centroid-based) is off the table. Next step: build a one-time precomputed area-based lookup table (~65K rows, Parquet) and replace the 3,100-line runtime mapper with a dictionary lookup. This still eliminates geopandas, the shapefile bundle, and the runtime spatial operations — but preserves the area-majority assignment rule. |
+| Update 2026-06-12 | **Upstream resolution deployed.** views-datafactory shipped area-majority GAUL assignment (issue #115 → PR #127, ADR-039 there, v1.2.28/29). All 7 GAUL parquets (codes + names + iso3) regenerated June 11 as area-majority, 259,200 rows each, mutually consistent (13,105/13,110 africa_me cells fully attributed; 5 pure-ocean cells unassigned). The precomputed lookup table can now be built by joining the factory parquets — no LFS, no shapefiles, no this-repo mapper run needed. The platform-level mapping divergence (centroid in factory vs area-majority here) no longer exists. See `docs/cross_repo_integration_report.md` and ADR-011 assessment §10. |
+
+---
 
 ### D-01: Cache strategy refactoring — extract now vs. characterize first — RESOLVED
 

@@ -13,11 +13,14 @@ from views_pipeline_core.managers.model import ForecastingModelManager
 from views_pipeline_core.managers.ensemble import EnsemblePathManager
 import pandas as pd
 import io
+import json
 from datetime import datetime
 import os
 from dotenv import load_dotenv
 from views_postprocessing.unfao.enrichment import GaulLookupEnricher
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
+from views_postprocessing.unfao import extraction, source_metadata
+from views_postprocessing.delivery import coverage, identity, observed_range, provenance
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -55,6 +58,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self._historical_dataframe = read_dataframe(
             self._data_loader.cached_data_path
         )
+        self._clip_observed_history()
         self._historical_dataset = PGMDataset(
             source=self._historical_dataframe, targets=self.configs.get("targets")
         )
@@ -95,7 +99,26 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 
         try:
             prediction_store_manager = DatastoreModule(appwrite_file_manager_config=appwrite_config)
-            self._forecast_dataframe = pd.read_parquet(io.BytesIO(prediction_store_manager.download_latest_file(filters={"category": "forecast"}).to_dict().get("data", {}).get("file_bytes", None)))
+
+            # The store is filtered by category alone (newest-wins), so resolve the file,
+            # then verify its identity before delivering it (S3/C-25): a stray upload with
+            # category="forecast" must not be silently shipped as the configured ensemble.
+            file_id = prediction_store_manager.get_latest_file_id(filters={"category": "forecast"})
+            if file_id is None:
+                raise FileNotFoundError(
+                    "No forecast file found in the prediction store (category='forecast')."
+                )
+            selected = extraction.file_metadata(prediction_store_manager.get_file_metadata(file_id))
+            # Identity contract: the producer's FileMetadata `name`/`loa` written on upload
+            # must equal the configured ensemble's model_name/loa. Verified against
+            # pipeline-core's code but NOT a live upload (register C-25) — confirm at the
+            # first real run. The guard fails loud (not silent) if the contract is off, so
+            # a mismatch surfaces immediately rather than shipping the wrong file.
+            expected = {"name": self.ensemble_path_manager.model_name, "loa": loa}
+            logger.info("Selected forecast file identity: %s (expected %s).", selected, expected)
+            identity.assert_forecast_identity(selected, expected)
+
+            self._forecast_dataframe = pd.read_parquet(io.BytesIO(prediction_store_manager.download_prediction(file_id).to_dict().get("data", {}).get("file_bytes", None)))
 
             self._forecast_dataset = PGMDataset(self._forecast_dataframe)
         except Exception as e:
@@ -171,6 +194,94 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 raise ValueError(err_msg)
         logger.info("Forecast dataframe metadata validation passed.")
 
+        self._check_coverage()
+
+    def _clip_observed_history(self) -> None:
+        """Drop fabricated (unobserved) months from the historical delivery (S2/C-26).
+
+        The historical request runs to the current calendar month, but UCDP data ends
+        earlier (reporting lag) at datafactory's ``last_valid_month_id``; the tail months
+        are zero-padding, not observed zeros, and would ship to FAO as "zero conflict".
+
+        The boundary is read straight from the **producer** (views-datafactory) via
+        ``source_metadata`` — never pipeline-core. Only the *historical* (observed) frame
+        is clipped; the forecast frame is future-dated by design and untouched.
+
+        Degrade-open policy: if the boundary cannot be resolved — the store predates the
+        attribute (``None``) or the producer read fails (network) — the clip is skipped
+        with a WARNING rather than blocking delivery. Both unresolved cases are treated
+        identically so a transient datafactory hiccup does not crash the historical read.
+        """
+        try:
+            lv = source_metadata.last_valid_month_id(self.configs.get("zarr_url"))
+        except Exception as e:  # producer unreachable — degrade open, like lv is None
+            logger.warning(
+                "last_valid_month_id could not be read from datafactory (%s); the "
+                "historical delivery was NOT clipped to observed range (C-26 guard "
+                "skipped).",
+                e,
+            )
+            return
+        if lv is None:
+            logger.warning(
+                "last_valid_month_id unavailable from datafactory; the historical "
+                "delivery was NOT clipped to observed range (C-26 guard skipped)."
+            )
+            return
+        fabricated = observed_range.fabricated_months(
+            extraction.months_of(self._historical_dataframe), lv
+        )
+        if len(fabricated):
+            logger.warning(
+                "Clipping %d fabricated (unobserved) month(s) > last_valid_month_id=%d "
+                "from the historical delivery: %s",
+                len(fabricated),
+                lv,
+                fabricated.tolist(),
+            )
+            self._historical_dataframe = extraction.drop_months_above(
+                self._historical_dataframe, lv
+            )
+
+    def _check_coverage(self) -> None:
+        """Log delivered cell counts and enforce the region coverage contract (S1/C-34).
+
+        Orchestration only: extract primitives via ``extraction`` (the pandas seam),
+        then call the representation-free ``delivery.coverage`` invariant — the rule is
+        *called*, not embedded. The count-gate fires only for regions pinned in
+        ``coverage.EXPECTED_CELLS``; an unpinned/unresolved region logs a skipped gate
+        rather than guessing.
+        """
+        region = self.configs.get("region")
+        expected = coverage.expected_for(region)
+        excluded = coverage.excluded_for(region)
+        for label, df in (
+            ("historical", self._historical_dataframe),
+            ("forecast", self._forecast_dataframe),
+        ):
+            cells = extraction.cells_of(df)
+            logger.info(
+                "%s delivery coverage: %d distinct cells, %d rows.",
+                label,
+                len(cells),
+                len(df),
+            )
+            # GAUL-uncovered cells the curated region must drop (S4/C-30) — checked
+            # before the count gate so a leaked island names itself, not "over-coverage
+            # by 1". Empty for unpinned regions (e.g. africa_me_legacy keeps its ocean
+            # cells), so this is a no-op there.
+            if excluded:
+                coverage.assert_no_excluded_cells(cells, excluded, label=label)
+            if expected is not None:
+                coverage.assert_complete_coverage(cells, expected, label=label)
+            else:
+                logger.warning(
+                    "Coverage count-gate skipped for %s: region %r is not pinned in "
+                    "delivery.coverage.EXPECTED_CELLS — verify and pin before relying on it.",
+                    label,
+                    region,
+                )
+
     def _save(self) -> list:
         if self._historical_dataset is None or self._forecast_dataset is None:
             raise ValueError("Datasets could not be initialized properly.")
@@ -199,7 +310,6 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         dsm = DatastoreModule(appwrite_file_manager_config=unfao_appwrite_config)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        enrichment_description = f"Enriched with geographic metadata on {timestamp} using precomputed GAUL lookup (ADR-011, version={self._enricher.lookup_version})."
         historical_file_path = self._model_path.data_generated / f"historical_dataset_{timestamp}.parquet"
         forecast_file_path = self._model_path.data_generated / f"forecast_dataset_{timestamp}.parquet"
 
@@ -211,7 +321,8 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                        name=self._model_path.model_name,
                        loa="pgm",
                        type="model", targets=self.configs.get("targets", []),
-                       description=enrichment_description, category="historical")
+                       description=self._delivery_description(self._historical_dataframe, timestamp),
+                       category="historical")
 
         self._forecast_dataframe.to_parquet(
             forecast_file_path
@@ -221,4 +332,28 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                        name=self.ensemble_path_manager.model_name,
                        loa="pgm",
                        type="model", targets=["pred_ln_sb_best", "pred_ln_ns_best", "pred_ln_os_best", "pred_ln_sb_prob", "pred_ln_ns_prob", "pred_ln_os_prob"],
-                       description=enrichment_description, category="forecast")
+                       description=self._delivery_description(self._forecast_dataframe, timestamp),
+                       category="forecast")
+
+    def _delivery_description(self, df: pd.DataFrame, timestamp: str) -> str:
+        """Human prefix + structured provenance (S5/C-15) for an upload's metadata.
+
+        Sources every provenance field from the actual delivery — the enricher's lookup
+        version, the configured region, the S1 coverage counts, the post-enrich unmapped
+        count — and serializes the representation-free ``delivery.provenance`` dict into
+        the only structured carrier ``upload_data`` exposes today (the ``description``
+        free-text field; a dedicated metadata field is requested upstream, C-15).
+        """
+        region = self.configs.get("region")
+        prov = provenance.build_provenance(
+            lookup_version=self._enricher.lookup_version,
+            region=region,
+            expected_cell_count=coverage.expected_for(region),
+            actual_cell_count=len(extraction.cells_of(df)),
+            unmapped_count=extraction.unmapped_cell_count(df, METADATA_COLS),
+        )
+        return (
+            f"Enriched with geographic metadata on {timestamp} using precomputed GAUL "
+            f"lookup (ADR-011, version={self._enricher.lookup_version}). "
+            f"provenance={json.dumps(prov, separators=(',', ':'))}"
+        )

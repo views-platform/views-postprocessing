@@ -4,7 +4,7 @@ Drop-in replacement for the runtime spatial mapper's
 ``enrich_dataframe_with_pg_info``. Instead of loading 774 MB of shapefiles and
 computing spatial intersections at run time, it merges a precomputed lookup
 table (built by ``scripts/build_gaul_lookup.py`` from the views-datafactory's
-area-majority GAUL parquets) onto the prediction frame by PRIO-GRID cell id.
+area-majority GAUL parquets) onto the input DataFrame by PRIO-GRID cell id.
 
 No geopandas, no shapefiles, no spatial computation. The lookup contains only
 fully-complete cells; an unknown or incomplete cell id left-merges to NaN, so
@@ -34,7 +34,7 @@ _DEFAULT_LOOKUP = Path(__file__).resolve().parent.parent / "data" / "gaul_lookup
 
 
 class GaulLookupEnricher:
-    """Merge precomputed GAUL metadata onto a prediction frame by cell id."""
+    """Merge precomputed GAUL metadata onto an input DataFrame by cell id."""
 
     def __init__(self, lookup_path: str | Path | None = None) -> None:
         self._lookup_path = Path(lookup_path) if lookup_path else _DEFAULT_LOOKUP
