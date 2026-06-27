@@ -156,7 +156,7 @@ The input-integrity guards (S0–S6, epic #51) are representation-free invariant
 - Partner-specific output formats are **evolving** — the UN FAO schema may change (see C-24, D-06 for schema divergence investigation)
 - The source of forecast data (Appwrite bucket/collection) is **evolving** — operational configuration
 - Null validation is **active** (C-01 resolved 2026-06-02)
-- The enrichment source is the **precomputed GAUL lookup table** (`GaulLookupEnricher`, ADR-011), as of the Stage 3 swap; the runtime mapper (`mapping.py`) remains in the repo but is no longer used by this manager and is slated for removal after one verified production cycle
+- The enrichment source is the **precomputed GAUL lookup table** (`GaulLookupEnricher`, ADR-011), as of the Stage 3 swap; the old runtime mapper was **removed** (C-39 / PR #42) — it no longer exists in the repo
 
 ---
 
