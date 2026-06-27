@@ -1,9 +1,18 @@
 
 # ADR-001: Ontology of views-postprocessing
 
-**Status:** Accepted  
+**Status:** Superseded by [ADR-012](012_revised_ontology.md) (2026-06-27)  
 **Date:** 2026-06-02  
 **Deciders:** Project maintainers (PRIO MD&D Team)  
+
+---
+
+> ⚠️ **Superseded.** This ADR's ontology was built around a runtime spatial-mapping
+> engine and bundled shapefiles as the authoritative, stable core. That architecture was
+> removed (ADR-011 / C-39): enrichment is now a precomputed GAUL lookup-join and the repo
+> is a post-forecast delivery + input-integrity layer. The **current** ontology is
+> [ADR-012](012_revised_ontology.md). This document is kept intact as the historical record
+> of the original design.
 
 ---
 

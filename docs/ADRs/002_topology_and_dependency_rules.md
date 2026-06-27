@@ -1,8 +1,17 @@
 # ADR-002: Topology and Dependency Rules
 
-**Status:** Accepted  
+**Status:** Accepted — amended 2026-06-27 (see [Amendment](#amendment-2026-06-27))  
 **Date:** 2026-06-02  
 **Deciders:** Project maintainers (PRIO MD&D Team)  
+
+---
+
+> **Note (2026-06-27):** the *decision* below — dependencies must be acyclic and flow
+> downward — still holds. Its **illustrative internal layering** (Pipeline Managers →
+> Spatial Mapping Engine → Geographic Data Assets) is stale: the Spatial Mapping Engine and
+> Geographic Data Assets layers were removed (ADR-011 / C-39). The current internal structure
+> and the cross-repo topology this ADR originally omitted are in the
+> [Amendment](#amendment-2026-06-27) at the bottom. Original text preserved as the record.
 
 ---
 
@@ -115,3 +124,56 @@ It does not define:
 
 Topology governs structure.  
 Contracts govern interaction.
+
+---
+
+## Amendment (2026-06-27)
+
+This amendment updates the *illustration* of the dependency rule to current reality and adds
+the **cross-repo topology** the original ADR omitted. The rule itself (acyclic, downward) is
+unchanged.
+
+### Cross-repo topology
+
+views-postprocessing is one stage in a one-way platform pipeline. Dependencies flow **down**:
+
+```
+views-datafactory      (produces data)
+        ↓
+views-pipeline-core    (the framework: lifecycle, data loader, dataset, datastore tools)
+        ↓
+views-postprocessing   (THIS REPO — post-forecast delivery + input-integrity)
+        ↓
+views-faoapi           (serves the delivered data; collapses draws)
+```
+
+- This repo **depends on** views-pipeline-core (it subclasses its postprocessor base —
+  Template Method) and views-frames (the frame contract). It **does not** depend on faoapi.
+- **views-pipeline-core does not depend on this repo** (verified: zero imports). The
+  dependency is strictly one-way; a cycle here would be an architectural defect per the rule
+  above.
+- **views-models** is the runner/composition root — it constructs this repo's manager and
+  calls `.execute()`; it is not a dependency *of* this repo.
+
+### Current internal layering (replaces the stale illustration)
+
+```
+Pipeline Manager (UNFAOPostProcessorManager — orchestration; a pipeline-core subclass)
+        ↓ calls
+Delivery Invariants (views_postprocessing/delivery/ — representation-free rules)
+        ↑ fed primitives by
+Representation Seam (unfao/extraction.py — the only pandas-aware module)
+        ↓ alongside
+Enrichment (GaulLookupEnricher + data/gaul_lookup.parquet) · Producer Data-Facts (source_metadata.py)
+```
+
+- The manager **calls** the delivery invariants; it never inherits them. Invariants depend
+  only on primitives (DIP), so a representation change lands in the seam alone (OCP / C-40).
+- Geography is a precomputed asset consumed by the enricher — there is no runtime spatial
+  engine layer anymore.
+
+### See also
+
+- The narrative version of this topology and the internal seams:
+  [`docs/architecture/role_and_seams.md`](../architecture/role_and_seams.md).
+- The revised ontology these categories come from: [ADR-012](012_revised_ontology.md).
