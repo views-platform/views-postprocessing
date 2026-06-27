@@ -36,7 +36,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 - Guarantees that geographic metadata is added via `GaulLookupEnricher.enrich_dataframe_with_pg_info()` (a cell-id merge against the precomputed lookup)
 - Guarantees that required metadata columns are validated before upload
 - Guarantees that both historical and forecast datasets are uploaded to the UN FAO Appwrite bucket with correct metadata (name, loa, type, category)
-- **Partially** logs-and-raises structural failures (ADR-008): the `_validate` gates and the S0–S6 delivery guards comply, but 3 raises in `unfao.py` (missing `ensemble`, missing `loa`, datasets-None in `_save`) still raise without a preceding `logger.error` — tracked by **C-19 / #13**
+- Logs structural failures before raising them (ADR-008): the config/`loa` guards, the `_validate` gates, and the dataset/`_save` guard all `logger.error`-then-raise (#13 / C-19 resolved); the `delivery/` invariants raise representation-free, with the manager logging context at each call site
 
 ---
 

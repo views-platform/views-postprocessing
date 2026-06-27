@@ -67,7 +67,9 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         # Forecast Data
         ensemble_name = self.configs.get("ensemble", None)
         if not ensemble_name:
-            raise ValueError("Ensemble name must be provided in configs with the `ensemble` key for forecasting. Cannot proceed.")
+            err_msg = "Ensemble name must be provided in configs with the `ensemble` key for forecasting. Cannot proceed."
+            logger.error(err_msg)
+            raise ValueError(err_msg)
         
         self.ensemble_path_manager = EnsemblePathManager(ensemble_name_or_path=ensemble_name, validate=False)
         # ensemble_configs = EnsembleManager(
@@ -77,7 +79,9 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         # loa = ensemble_configs.get("level", None)
         loa = "pgm"
         if not loa:
-            raise ValueError("level must be defined in the ensemble configurations (e.g, pgm, cm). Cannot proceed.")
+            err_msg = "level must be defined in the ensemble configurations (e.g, pgm, cm). Cannot proceed."
+            logger.error(err_msg)
+            raise ValueError(err_msg)
         
         # Force it to the correct .env just to be safe
         load_dotenv(dotenv_path=str(self.ensemble_path_manager.dotenv))
@@ -284,7 +288,9 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 
     def _save(self) -> list:
         if self._historical_dataset is None or self._forecast_dataset is None:
-            raise ValueError("Datasets could not be initialized properly.")
+            err_msg = "Datasets could not be initialized properly."
+            logger.error(err_msg)
+            raise ValueError(err_msg)
         
         # self._historical_dataset.dataframe.to_parquet(
         #     self._model_path.data_generated / "historical_dataset.parquet"
