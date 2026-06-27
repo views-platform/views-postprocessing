@@ -22,10 +22,12 @@ These ADRs define system philosophy and governance:
   Establishes the ADR practice itself.
 
 - **ADR-001** — Ontology of views-postprocessing  
-  Defines what concepts exist.
+  ⚠️ **Superseded by ADR-012** (the original shapefile/spatial-engine ontology; kept as the
+  historical record).
 
 - **ADR-002** — Topology and Dependency Rules  
-  Defines structural dependency direction.
+  Defines structural dependency direction. **Amended 2026-06-27** with the cross-repo
+  topology + current internal layering.
 
 - **ADR-003** — Authority of Declarations Over Inference  
   Defines where semantic authority lives.
@@ -58,6 +60,11 @@ These ADRs form the architectural constitution of the repository.
 
 - **ADR-011** — Replace Runtime Mapper with Precomputed Lookup Table  
   Replaces the 3,122-line runtime spatial mapper with a ~65K-row precomputed Parquet lookup table. Area-majority assignment confirmed as FAO contractual requirement.
+
+- **ADR-012** — Revised Ontology (post-lookup migration)  
+  Supersedes ADR-001. Restates the ontology to the current reality: a post-forecast delivery
+  + input-integrity layer (delivery invariants, the representation seam, the lookup
+  enrichment, the thin manager) — no runtime spatial engine.
 
 ADRs numbered 010 and above define:
 
