@@ -84,6 +84,18 @@ echo "--- Checking template status markers ---"
 template_count=$(grep -rl '\-\-template\-\-' --include='*.md' . 2>/dev/null | wc -l)
 echo "  INFO: $template_count files still have --template-- status (expected in template repo)"
 
+# 6. Doc-accuracy guardrail (deleted-symbol scan + internal link resolution).
+#    Implemented as pytest tests so the same check also runs in CI (run_pytest.yml).
+echo "--- Running the doc-accuracy guardrail (tests/test_doc_accuracy.py) ---"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if ( cd "$REPO_ROOT" && PYTHONPATH=. python -m pytest tests/test_doc_accuracy.py -q >/tmp/doc_guardrail.out 2>&1 ); then
+    echo "  OK"
+else
+    echo "  ERROR: doc-accuracy guardrail failed:"
+    sed 's/^/      /' /tmp/doc_guardrail.out
+    errors=$((errors + 1))
+fi
+
 echo ""
 if [ "$errors" -gt 0 ]; then
     echo "=== FAILED: $errors issue(s) found ==="
