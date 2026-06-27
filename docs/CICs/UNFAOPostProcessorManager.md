@@ -36,7 +36,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 - Guarantees that geographic metadata is added via `GaulLookupEnricher.enrich_dataframe_with_pg_info()` (a cell-id merge against the precomputed lookup)
 - Guarantees that required metadata columns are validated before upload
 - Guarantees that both historical and forecast datasets are uploaded to the UN FAO Appwrite bucket with correct metadata (name, loa, type, category)
-- Guarantees that all structural failures are logged and raised (ADR-008)
+- **Partially** logs-and-raises structural failures (ADR-008): the `_validate` gates and the S0–S6 delivery guards comply, but 3 raises in `unfao.py` (missing `ensemble`, missing `loa`, datasets-None in `_save`) still raise without a preceding `logger.error` — tracked by **C-19 / #13**
 
 ---
 
@@ -49,7 +49,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 - Requires the Appwrite production forecasts bucket to contain at least one file with `category="forecast"`
 - Requires the precomputed GAUL lookup parquet to be present so `GaulLookupEnricher` can load it at construction
 
-Assumptions that are not met **must cause failure**, not fallback behavior.
+Assumptions that are not met **must cause failure**, not fallback behavior. **Known gap:** the Appwrite env vars are read via `os.getenv()` without a startup validation — a missing var yields `None`, which is passed to `AppwriteConfig` unchecked rather than failing loud at the boundary (tracked by **C-19-adjacent / #11**; a fail-loud env check is the cheap fix).
 
 ---
 
