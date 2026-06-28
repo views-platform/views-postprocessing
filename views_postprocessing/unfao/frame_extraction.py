@@ -1,0 +1,39 @@
+"""Frame-native representation seam: extract primitives from a views-frames frame.
+
+The **frame counterpart** to ``extraction.py`` (the pandas seam). It returns the *same*
+primitives — sets of ints, numpy month arrays — so the representation-free
+``views_postprocessing.delivery`` invariants consume them unchanged.
+
+Per the migration design (epic #85): pandas and views-frames do **not** coexist at runtime,
+so these are deliberately **siblings** of the pandas readers in ``extraction.py``, not a
+replacement, and there is **no shared ``Extractor`` Protocol** (a polymorphic interface
+nobody dispatches on would be speculative — YAGNI/ISP). When the forecast interior moves to a
+frame (S3 / #88), the manager calls *these*; the pandas readers stay for the still-pandas
+historical path (gated on C-40 / S7).
+
+Scope: the readers the forecast interior needs — distinct cells and months from the frame's
+index. Deliberately **not** here yet (no speculative code):
+- the pandas→``(N, S)`` sample-array unpacker — added when rusty_bucket (#143) declares the
+  layout (the seam will be *told* the layout, never sniff it);
+- a frame-native ``unmapped_cell_count`` — geographic metadata lives on the pandas enriched
+  frame, not the value frame, until the enrichment moves off pandas (S4 / #89);
+- a frame-native ``drop_months_above`` — the observed-range clip is on the *historical*
+  frame, which is gated on the inbound retirement (S7 / #92).
+"""
+
+from __future__ import annotations
+
+import numpy as np
+from numpy.typing import NDArray
+
+from views_frames import PredictionFrame
+
+
+def cells_of(frame: PredictionFrame) -> set[int]:
+    """The set of PRIO-GRID cell ids present in the frame (its index ``unit`` axis)."""
+    return {int(x) for x in np.unique(frame.index.unit)}
+
+
+def months_of(frame: PredictionFrame) -> NDArray[np.int64]:
+    """The distinct month ids present in the frame, ascending (its index ``time`` axis)."""
+    return np.unique(np.asarray(frame.index.time, dtype=np.int64))
