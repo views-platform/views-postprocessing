@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-06-26                           |
-| Total Concerns    | 44                                   |
-| Open Concerns     | 24                                   |
+| Total Concerns    | 46                                   |
+| Open Concerns     | 26                                   |
 | Resolved Concerns | 20                                   |
 
 ---
@@ -183,14 +183,16 @@ See also C-14 (stale cache without version tracking), C-22 (no post-delivery cor
 | ID | C-19 |
 | Tier | 3 |
 | Source | `falsification-audit` (2026-06-02) |
-| Trigger | When a structural failure occurs in `PriogridCountryMapper` and the operator searches logs for context, verify that the exception was preceded by a `logger.error` — currently 20 of 24 raises in mapping.py and 3 in unfao.py have no preceding log |
-| Location | `views_postprocessing/unfao/mapping/mapping.py` (20 raises), `views_postprocessing/unfao/managers/unfao.py:70,80,230` |
+| Trigger | When a structural failure occurs in `GaulLookupEnricher` (lookup missing/incomplete, or an absent gid column) or in the `extraction` seam and the operator searches logs for context, verify the exception was preceded by a `logger.error` — these raises currently have none |
+| Location | `views_postprocessing/unfao/enrichment.py:42,50,103`; `views_postprocessing/unfao/extraction.py:39` |
 
 ADR-008 requires structural failures to be both logged persistently AND raised explicitly. Three validation methods in mapping.py and the C-01 fix in unfao.py were fixed with log-before-raise. 20 raises in mapping.py and 3 in unfao.py remain unfixed.
 
 Part of Cluster B (expanded scope).
 
 **Update 2026-06-24:** the mapper portion (20 of the 23 raises, in `mapping.py`) is gone with the deleted runtime mapper (C-39); the **3 raises in `unfao.py`** remain (tracked by issue #13). Narrowed to the manager.
+
+**Update 2026-06-28 (re-scoped after `review-base-docs`):** the `unfao.py` residual is **resolved** — the 3 manager raises got log-before-raise in #13 (`unfao.py:72,84,293`), and the `FileNotFoundError` at `:112` is logged by its enclosing `_read_forecast_data` try/except. So both historical locations (mapper, manager) are now clear. **The live ADR-008 residual moved to two modules the original audit never covered:** `enrichment.py` (`:42` lookup-missing, `:50` lookup-missing-columns, `:103` absent gid column) and `extraction.py:39` (the seam's index/column `KeyError`) — these raise without a preceding `logger.error`. Practical risk is low (the raises are loud, not swallowed — the messages are descriptive); the gap is uniform log-before-raise convention in live code. Stays **Tier 3** (observability/maintainability, no silent corruption). The manager CIC §3 already notes the enricher's call-site raises are not individually logged.
 
 ---
 
@@ -506,6 +508,38 @@ See also C-03 (the sibling enrich→validate test-coverage gap), C-22 (no post-d
 That change was deliberately **not** landed on `development` (2026-06-26), for three reasons: (a) sourcing from a **moving git branch** makes builds **non-reproducible** (the branch advances under us); (b) it is a **major-version switch** (2.x→3.x) whose breaking changes were never exercised against the just-merged sprint code; (c) it would require a **full re-lock** resolving 3.x + its transitive tree, rippling through `poetry.lock`. The maintainer's standing constraint: **the platform must run smoothly on `development` across all repos before taking the major dependency bump.** Until then the bump is premature.
 
 No silent corruption and no current breakage (development is green on 2.3.0) → **Tier 3** (coordination / release-sequencing / reproducibility). The deferred work is preserved (backup branch) and becomes a trivial, reproducible one-line pin once 3.0.0 ships and the cross-repo gate clears. Cross-refs C-40 (the underlying pipeline-core inheritance coupling that makes major bumps high-blast-radius), C-07 (the transitive-via-pipeline-core dependency surface), C-09 (publish-workflow version handling).
+
+---
+
+### C-45: `unfao/frames.py` is an unused views-frames conformance adapter carried on no live path
+
+| Field | Value |
+|-------|-------|
+| ID | C-45 |
+| Tier | 4 |
+| Source | `repo-assimilation` (2026-06-27) |
+| Trigger | When the C-40 representation migration (pandas → views-frames) begins — confirm whether `frames.py` becomes the live conversion seam or should be removed; or when a contributor assumes it is on the delivery path (its own docstring says it is not) |
+| Location | `views_postprocessing/unfao/frames.py` (the only `views_frames` importer); exercised solely by `tests/test_views_frames_conformance.py` |
+
+`unfao/frames.py` (`to_prediction_frame` / `to_target_frame`) converts the repo's pandas tables into views-frames `PredictionFrame`/`TargetFrame` `(N, 1)` value objects to prove they satisfy the published views-frames contract. It is the **only** module importing `views_frames`, and **no live path calls it** — its sole consumer is the conformance test (the module's own docstring states "nothing in the live delivery path calls it yet"). It is forward-looking scaffolding for the C-40 frame migration: harmless, but a maintenance/confusion surface (a reader can mistake it for an active code path, and it hardcodes `S=1`, i.e. point-only, which will need revisiting for the draws/uncertainty work). No correctness or reliability impact → **Tier 4**.
+
+See also C-40 (the pandas gate this adapter anticipates), #45 (the draws carrier that will need the `S>1` version).
+
+---
+
+### C-46: `test_datafactory_deploy_readiness` is hardcoded to a local path — CI-skipped, and currently failing on the one machine that runs it
+
+| Field | Value |
+|-------|-------|
+| ID | C-46 |
+| Tier | 4 |
+| Source | `repo-assimilation` (2026-06-27) |
+| Trigger | When treating `test_datafactory_deploy_readiness` as a release gate (it never runs in CI), or when a contributor's local `pytest` fails on it — re-promote / re-pin the strict-xfail now that views-datafactory has advanced to `1.5.0`-dev past its `v1.4.0` tag |
+| Location | `tests/test_datafactory_deploy_readiness.py` (`_DF = Path("/home/simon/.../views-datafactory")`, `skipif(not _DF.exists())`) |
+
+The cross-repo deploy-readiness gates introduced under C-36 are guarded by `skipif` on a **hardcoded local datafactory checkout path**, so they are **skipped in CI** and only ever execute on one developer's machine. There, `test_version_bumped_past_latest_tag` is currently **failing**: it is an `xfail(strict)` that flipped to XPASS because datafactory moved to `1.5.0`-dev past its `v1.4.0` tag — exactly the auto-flip C-36's resolution anticipated, but because of the hardcoded path the flip surfaces as a **local red** rather than a CI signal, and breaks local `pytest` runs (the suite is run with this test deselected). No correctness/reliability impact on the delivery → **Tier 4** (test hygiene). C-36 (resolved) converted these gates to strict-xfail but did not capture the local-path / CI-skip dimension.
+
+See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the datafactory version-state coupling).
 
 ---
 
