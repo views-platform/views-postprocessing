@@ -549,6 +549,25 @@ See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the dat
 
 ## Disagreements
 
+### D-11: Pandas→frames seam — concrete siblings + delete vs a polymorphic abstraction
+
+| Field | Value |
+|-------|-------|
+| ID | D-11 |
+| Source | `expert-code-review` (2026-06-28) — review of pandas-migration epic #85 |
+| Location | epic #85 / stories #86 (`unfao/frames.py`), #87 (`unfao/extraction.py` + new frame module), #88/#91 (`unfao/managers/unfao.py` source/sink seams) |
+
+The pandas→views-frames migration (epic #85) deliberately swaps each seam by adding a **concrete** frame-native sibling next to the pandas one and later **deleting** the pandas path — rather than introducing a polymorphic abstraction (an `Extractor` Protocol / a representation port) that both implementations satisfy.
+
+- **Position A — concrete siblings + delete (the plan's choice; Martin/Beck-pragmatic, WET-before-DRY).** pandas and frames do **not** coexist at runtime — it is a migration, not a permanent dual representation — so a polymorphic interface would be speculative (YAGNI/ISP: don't force an interface nobody dispatches on). The seam stays readable, each representation is one-concept-per-file, and retirement is a clean file-delete. The invariants already depend on **primitives** (the real abstraction, DIP-satisfied at that boundary), so no port is needed above them.
+- **Position B — abstraction/port (Hickey/strict-OCP).** Depending on a representation port would make the swap "extend, not modify," and would let the two paths coexist cleanly during cutover.
+
+**Decision: A**, consistent with the maintainer's WET-before-DRY rule and the "migration not coexistence" reality. **Re-open trigger (the one acute case):** S6 (#91) introduces a temporary **dual-write** (legacy parquet + arrow sample-frame) for parity during the faoapi cutover — *if that coexistence proves long-lived* (rather than a brief cutover window), a small abstraction may then earn its place; revisit only then. Until then, concrete-and-delete stands.
+
+See also C-40 (the inheritance/representation coupling this migration unwinds), #85 (the migration epic), #45 (the faoapi wire / S6 dual-write).
+
+---
+
 ### D-09: Multi-store support — parameterize the manager now vs after the FAO global delivery
 
 | Field | Value |
