@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-06-26                           |
 | Total Concerns    | 46                                   |
-| Open Concerns     | 26                                   |
-| Resolved Concerns | 20                                   |
+| Open Concerns     | 25                                   |
+| Resolved Concerns | 21                                   |
 
 ---
 
@@ -176,11 +176,13 @@ See also C-14 (stale cache without version tracking), C-22 (no post-delivery cor
 
 ---
 
-### C-19: Systematic ADR-008 non-compliance — 23 of 24 raises lack preceding log
+### C-19: Systematic ADR-008 non-compliance — 23 of 24 raises lack preceding log — RESOLVED
 
 | Field | Value |
 |-------|-------|
 | ID | C-19 |
+| Resolved | 2026-06-28 |
+| Resolution | Every live-path structural raise now logs-before-raise. The mapper portion (20 raises) went with the deleted runtime mapper (C-39); the 3 `unfao.py` manager raises were fixed in #13; and the residual `enrichment.py` (`:42,:50,:103`) + `extraction.py` (`:39`, a module logger was added) raises got `logger.error`-then-raise in the tech-debt-cleanup pass (2026-06-28). The only raises now lacking a preceding log are in `unfao/frames.py` (the views-frames conformance adapter), which is **not on the live delivery path** and is tracked separately by **C-45**. ADR-008 compliance holds across the live path. |
 | Tier | 3 |
 | Source | `falsification-audit` (2026-06-02) |
 | Trigger | When a structural failure occurs in `GaulLookupEnricher` (lookup missing/incomplete, or an absent gid column) or in the `extraction` seam and the operator searches logs for context, verify the exception was preceded by a `logger.error` — these raises currently have none |
@@ -192,7 +194,7 @@ Part of Cluster B (expanded scope).
 
 **Update 2026-06-24:** the mapper portion (20 of the 23 raises, in `mapping.py`) is gone with the deleted runtime mapper (C-39); the **3 raises in `unfao.py`** remain (tracked by issue #13). Narrowed to the manager.
 
-**Update 2026-06-28 (re-scoped after `review-base-docs`):** the `unfao.py` residual is **resolved** — the 3 manager raises got log-before-raise in #13 (`unfao.py:72,84,293`), and the `FileNotFoundError` at `:112` is logged by its enclosing `_read_forecast_data` try/except. So both historical locations (mapper, manager) are now clear. **The live ADR-008 residual moved to two modules the original audit never covered:** `enrichment.py` (`:42` lookup-missing, `:50` lookup-missing-columns, `:103` absent gid column) and `extraction.py:39` (the seam's index/column `KeyError`) — these raise without a preceding `logger.error`. Practical risk is low (the raises are loud, not swallowed — the messages are descriptive); the gap is uniform log-before-raise convention in live code. Stays **Tier 3** (observability/maintainability, no silent corruption). The manager CIC §3 already notes the enricher's call-site raises are not individually logged.
+**Update 2026-06-28 (re-scoped after `review-base-docs`):** the `unfao.py` residual is **resolved** — the 3 manager raises got log-before-raise in #13 (`unfao.py:72,84,293`), and the `FileNotFoundError` at `:112` is logged by its enclosing `_read_forecast_data` try/except. So both historical locations (mapper, manager) are now clear. **The live ADR-008 residual moved to two modules the original audit never covered:** `enrichment.py` (`:42` lookup-missing, `:50` lookup-missing-columns, `:103` absent gid column) and `extraction.py:39` (the seam's index/column `KeyError`) — these raise without a preceding `logger.error`. Practical risk is low (the raises are loud, not swallowed — the messages are descriptive); the gap is uniform log-before-raise convention in live code. Tier 3 (observability/maintainability, no silent corruption). *(This residual was then fixed the same day — see the Resolution field above.)*
 
 ---
 

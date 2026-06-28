@@ -147,27 +147,10 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         
         raw_result = raw_result[filter_cols].set_index([dataset._time_id, dataset._entity_id])
         return dataset.dataframe.join(raw_result)
-        
-
-    # def _append_lat_lon(self):
-    #     self._historical_dataframe = self._historical_dataframe.join(self._historical_dataset.get_lat_lon())
-    #     self._forecast_dataframe = self._forecast_dataframe.join(self._forecast_dataset.get_lat_lon())
-
-    # def _append_isoa3(self):
-    #     self._historical_dataframe = self._historical_dataframe.join(self._historical_dataset.get_isoab())
-    #     self._forecast_dataframe = self._forecast_dataframe.join(self._forecast_dataset.get_isoab())
-
-    # def _append_name(self):
-    #     self._historical_dataframe = self._historical_dataframe.join(self._historical_dataset.get_name())
-    #     self._forecast_dataframe = self._forecast_dataframe.join(self._forecast_dataset.get_name())
 
     def _transform(
         self,
     ) -> list:
-        # self._append_m49()
-        # self._append_lat_lon()
-        # self._append_isoa3()
-        # self._append_name()
         self._historical_dataframe = self._append_metadata(self._historical_dataset)
         self._forecast_dataframe = self._append_metadata(self._forecast_dataset)
 
@@ -291,13 +274,6 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             err_msg = "Datasets could not be initialized properly."
             logger.error(err_msg)
             raise ValueError(err_msg)
-        
-        # self._historical_dataset.dataframe.to_parquet(
-        #     self._model_path.data_generated / "historical_dataset.parquet"
-        # )
-        # self._forecast_dataset.dataframe.to_parquet(
-        #     self._model_path.data_generated / "forecast_dataset.parquet"
-        # )
 
         unfao_appwrite_config = AppwriteConfig(
             path_manager=self._model_path,

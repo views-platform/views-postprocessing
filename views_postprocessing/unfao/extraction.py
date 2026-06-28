@@ -19,11 +19,14 @@ migration), so a polymorphic interface would be speculative (YAGNI/ISP).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
+
+logger = logging.getLogger(__name__)
 
 # VIEWS PRIO-GRID-month identifier conventions (index levels or flat columns).
 _PG_ID = "priogrid_gid"
@@ -36,10 +39,12 @@ def _level_or_column(df: pd.DataFrame, name: str) -> NDArray:
         return np.asarray(df.index.get_level_values(name))
     if name in df.columns:
         return np.asarray(df[name])
-    raise KeyError(
+    err_msg = (
         f"'{name}' is neither an index level nor a column "
         f"(have index={list(df.index.names or [])}, columns={list(df.columns)[:8]}...)"
     )
+    logger.error(err_msg)
+    raise KeyError(err_msg)
 
 
 def cells_of(df: pd.DataFrame, pg_id: str = _PG_ID) -> set[int]:

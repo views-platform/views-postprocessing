@@ -39,17 +39,19 @@ class GaulLookupEnricher:
     def __init__(self, lookup_path: str | Path | None = None) -> None:
         self._lookup_path = Path(lookup_path) if lookup_path else _DEFAULT_LOOKUP
         if not self._lookup_path.exists():
-            raise FileNotFoundError(
+            err_msg = (
                 f"GAUL lookup table not found at {self._lookup_path}. "
                 f"Build it with scripts/build_gaul_lookup.py."
             )
+            logger.error(err_msg)
+            raise FileNotFoundError(err_msg)
         self._lookup = pd.read_parquet(self._lookup_path)
         # Index is priogrid_gid; columns are the 9 metadata columns.
         missing = [c for c in METADATA_COLS if c not in self._lookup.columns]
         if missing:
-            raise ValueError(
-                f"Lookup table is missing contract columns: {missing}"
-            )
+            err_msg = f"Lookup table is missing contract columns: {missing}"
+            logger.error(err_msg)
+            raise ValueError(err_msg)
         self.lookup_version = self._read_version(self._lookup_path)
         logger.info(
             "Loaded GAUL lookup: %d cells from %s (version=%s)",
@@ -100,7 +102,9 @@ class GaulLookupEnricher:
                 sorted(ignored_mapper_kwargs),
             )
         if pg_id_col not in df.columns:
-            raise ValueError(f"Column '{pg_id_col}' not found in DataFrame")
+            err_msg = f"Column '{pg_id_col}' not found in DataFrame"
+            logger.error(err_msg)
+            raise ValueError(err_msg)
 
         if only_metadata:
             keep = [pg_id_col]
