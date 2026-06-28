@@ -1,96 +1,93 @@
-"""Conformance proof: this repo's data satisfies the views-frames contract.
+"""Conformance + parity tests for the views-frames constructors (`unfao/frames.py`).
 
-Phase 1 of the numpy/views-frames migration. Builds the repo's two kinds of
-data as views-frames value objects via the ``unfao.frames`` adapters and runs
-the published ``assert_frame_contract`` against each:
+`build_prediction_frame` / `build_target_frame` take **declared primitives** — a 2-D
+`(N, S)` value array + `(time, unit)` arrays — and build a views-frames value object. These
+tests prove (1) the constructors carry the declared values faithfully (the parity oracle:
+build primitives → construct → assert arrays equal), (2) the result satisfies the published
+`assert_frame_contract`, and (3) the constructors **fail loud** rather than infer/reshape
+when the declared shape is wrong.
 
-    forecasts (pred_ln_*) -> PredictionFrame  (N, 1)
-    actuals   (ged_*)     -> TargetFrame       (N, 1)
-
-This makes views-postprocessing the first live cross-repo consumer of the
-frozen views-frames 1.0 contract. Offline and synthetic — no zarr, no Appwrite,
-no network. ``assert_frame_contract`` checks the structural invariants
-(float32, explicit trailing axis, integer identifiers of length N) and a
-save/load round-trip; it raises on any violation.
+No pandas: the pandas→primitives unpacking lives in the extraction seam (a separate story);
+this module only exercises the primitives→frame boundary.
 """
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from views_frames import PredictionFrame, TargetFrame
 from views_frames.conformance import assert_frame_contract
 
-from views_postprocessing.unfao.frames import to_prediction_frame, to_target_frame
+from views_postprocessing.unfao.frames import build_prediction_frame, build_target_frame
 
-_TIME_ID = "month_id"
-_PG_ID = "priogrid_gid"
-
-
-def _frame(months=(100, 101), gids=(1, 2, 3)):
-    """Synthetic (month_id, priogrid_gid)-indexed frame with a pred and a ged column."""
-    rows = [(m, g) for m in months for g in gids]
-    idx = pd.MultiIndex.from_tuples(rows, names=[_TIME_ID, _PG_ID])
-    rng = np.random.default_rng(0)
-    return pd.DataFrame(
-        {
-            "pred_ln_sb_best": rng.gamma(2.0, 1.0, size=len(rows)),
-            "lr_ged_sb": rng.integers(0, 50, size=len(rows)),
-        },
-        index=idx,
-    )
+# Declared identifiers for a small PGM block: 3 cells across 2 months (N = 6).
+_TIME = np.array([100, 100, 100, 101, 101, 101], dtype=np.int64)
+_UNIT = np.array([1, 2, 3, 1, 2, 3], dtype=np.int64)
+_N = _TIME.shape[0]
 
 
-class TestPredictionFrameConformance:
-    def test_satisfies_frame_contract(self):
-        pf = to_prediction_frame(_frame(), "pred_ln_sb_best")
-        assert_frame_contract(pf)  # raises on any violation (incl. round-trip)
-
-    def test_shape_and_sample_axis(self):
-        df = _frame()
-        pf = to_prediction_frame(df, "pred_ln_sb_best")
+class TestPredictionFramePoint:
+    def test_point_is_single_sample(self):
+        values = np.arange(_N, dtype=np.float32).reshape(_N, 1)  # declared (N, 1)
+        pf = build_prediction_frame(values, _TIME, _UNIT)
         assert isinstance(pf, PredictionFrame)
-        assert pf.n_rows == len(df)
-        assert pf.sample_count == 1  # scalar point predictions -> explicit S=1
+        assert pf.sample_count == 1
         assert pf.is_sample is False
-        assert pf.values.dtype == np.float32
+        assert_frame_contract(pf)
 
-    def test_identifiers_match_our_index_flat_columns(self):
-        df = _frame().reset_index()  # also exercise the reset_index() column path
-        pf = to_prediction_frame(df, "pred_ln_sb_best")
-        np.testing.assert_array_equal(pf.index.time, df[_TIME_ID].to_numpy())
-        np.testing.assert_array_equal(pf.index.unit, df[_PG_ID].to_numpy())
-
-    def test_values_come_from_the_named_column(self):
-        # Guards against wiring the wrong column: values must equal the source.
-        df = _frame()
-        pf = to_prediction_frame(df, "pred_ln_sb_best")
-        np.testing.assert_array_equal(
-            pf.values[:, 0], df["pred_ln_sb_best"].to_numpy().astype(np.float32)
-        )
+    def test_point_values_carried_faithfully(self):
+        values = np.array([[0.0], [1.5], [2.5], [3.5], [4.5], [5.5]], dtype=np.float32)
+        pf = build_prediction_frame(values, _TIME, _UNIT)
+        np.testing.assert_array_equal(pf.values, values)
 
 
-class TestTargetFrameConformance:
-    def test_satisfies_frame_contract(self):
-        tf = to_target_frame(_frame(), "lr_ged_sb")
+class TestPredictionFrameSamples:
+    def test_samples_carry_the_full_NxS_array(self):
+        S = 5
+        rng = np.random.default_rng(0)
+        values = rng.gamma(2.0, size=(_N, S)).astype(np.float32)  # declared (N, S)
+        pf = build_prediction_frame(values, _TIME, _UNIT)
+        assert pf.sample_count == S
+        assert pf.is_sample is True
+        np.testing.assert_array_equal(pf.values, values)  # parity: no collapse, no reshape
+        assert_frame_contract(pf)
+
+    def test_identifiers_match_declared_arrays(self):
+        values = np.zeros((_N, 3), dtype=np.float32)
+        pf = build_prediction_frame(values, _TIME, _UNIT)
+        np.testing.assert_array_equal(pf.index.time, _TIME)
+        np.testing.assert_array_equal(pf.index.unit, _UNIT)
+
+
+class TestTargetFrame:
+    def test_target_is_single_valued(self):
+        values = np.arange(_N, dtype=np.float32).reshape(_N, 1)
+        tf = build_target_frame(values, _TIME, _UNIT)
+        assert isinstance(tf, TargetFrame)
+        assert tf.sample_count == 1
+        np.testing.assert_array_equal(tf.values, values)
         assert_frame_contract(tf)
 
-    def test_observed_actuals_shape(self):
-        df = _frame()
-        tf = to_target_frame(df, "lr_ged_sb")
-        assert isinstance(tf, TargetFrame)
-        assert tf.n_rows == len(df)
-        assert tf.values.shape == (len(df), 1)
-        assert tf.sample_count == 1
-        assert tf.is_sample is False
 
+class TestFailLoudNotInfer:
+    """The constructors declare-and-assert; they never reshape/stack/guess."""
 
-class TestAdapterGuards:
-    def test_missing_value_column_raises(self):
-        with pytest.raises(ValueError, match="not found"):
-            to_prediction_frame(_frame(), "does_not_exist")
+    def test_1d_values_raise_not_reshaped(self):
+        with pytest.raises(ValueError):
+            build_prediction_frame(np.arange(_N, dtype=np.float32), _TIME, _UNIT)
 
-    def test_missing_identifiers_raise(self):
-        df = pd.DataFrame({"pred_ln_sb_best": [1.0, 2.0]})  # no month_id/priogrid_gid
-        with pytest.raises(ValueError, match="month_id"):
-            to_prediction_frame(df, "pred_ln_sb_best")
+    def test_object_dtype_cells_raise_not_stacked(self):
+        # an object-dtype column of per-cell arrays is NOT silently stacked into (N, S)
+        cells = np.empty(_N, dtype=object)
+        for i in range(_N):
+            cells[i] = np.array([float(i), float(i)], dtype=np.float32)
+        with pytest.raises((ValueError, TypeError)):
+            build_prediction_frame(cells, _TIME, _UNIT)
+
+    def test_target_with_sample_axis_raises(self):
+        with pytest.raises(ValueError):
+            build_target_frame(np.zeros((_N, 2), dtype=np.float32), _TIME, _UNIT)
+
+    def test_row_count_mismatch_raises(self):
+        values = np.zeros((_N + 1, 1), dtype=np.float32)
+        with pytest.raises(ValueError):
+            build_prediction_frame(values, _TIME, _UNIT)
