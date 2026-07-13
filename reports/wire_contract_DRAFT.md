@@ -1,13 +1,21 @@
-# Sampled-Forecast Wire Contract — v1.2 DRAFT
+# Sampled-Forecast Wire Contract — v1.3 DRAFT
 
 | | |
 |---|---|
-| **Status** | **DRAFT v1.2 — for maintainer sign-off. NOT posted, NOT adopted.** Both seat reviews are on record as sign-off-ready at v1.1; v1.2 folds their deltas. Iterations are commits to this file (renamed version-neutral at v1.2) so review deltas stay git-diffable. |
-| **Supersedes** | v1.1 (previous commit of this file, `d5bc71f`) and the v1 proposal comment on views-models#149 (2026-07-02; demoted to pending-review 2026-07-06) |
-| **Inputs folded in** | Producer seat: `views-pipeline-core/reports/wire_contract_v1.1_producer_seat_response.md` (2026-07-13). Consumer seat: `views-faoapi/reports/expert_reviews/2026-07-13_wire_contract_v1.1_consumer_response.md` (2026-07-13). Cross-seat: `views-postprocessing/reports/wire_contract_v1.1_seat_reconciliation.md` (2026-07-13, incl. the verified R1 finding). |
+| **Status** | **DRAFT v1.3 — for maintainer sign-off. NOT posted, NOT adopted.** Both seat reviews are on record as sign-off-ready at v1.1; v1.2 folded their deltas; v1.3 folds the author's post-reconciliation verification finding (F1). Iterations are commits to this file so review deltas stay git-diffable. |
+| **Supersedes** | v1.2 (previous commit of this file, `7e207ee`), v1.1 (`d5bc71f`), and the v1 proposal comment on views-models#149 (2026-07-02; demoted to pending-review 2026-07-06) |
+| **Inputs folded in** | Producer seat: `views-pipeline-core/reports/wire_contract_v1.1_producer_seat_response.md` (2026-07-13). Consumer seat: `views-faoapi/reports/expert_reviews/2026-07-13_wire_contract_v1.1_consumer_response.md` (2026-07-13). Cross-seat: `views-postprocessing/reports/wire_contract_v1.1_seat_reconciliation.md` (2026-07-13, incl. the verified R1 finding). v1.3: the author's F1 verification (2026-07-13, both repos + faoapi `origin/main`). |
 | **Adoption mechanics** | explicit maintainer sign-off on views-models#149, **enacted by landing the durable ADR** in views-postprocessing (§0.2). No adoption-by-silence. |
 
 ---
+
+## Changelog v1.2 → v1.3 (author's post-reconciliation verification — finding F1)
+
+| # | Change | Source finding |
+|---|--------|----------------|
+| 1 | **§4.1a gains the explicit producer obligation the name-pinning implied but never stated:** views-postprocessing **currently uploads the forecast document as `name=<ensemble name>`** (`unfao.py:314` — `rusty_bucket` today; only the historical complies, `:303`). Under the pinned schema, **all** Hop-B contract documents upload as the pinned consumer name — an explicit views-postprocessing change, owned by the #91 sink-adapter leg. | **F1** — author's verification of v1.2 against this repo's code (2026-07-13) |
+| 2 | **§4.1a also records the discovered latent inconsistency in the CURRENT wire:** faoapi's `name` injection exists on **deployed `main` too** (`origin/main prediction.py:167-168`; the forecast fetch composes `{"category": ...}` then the search injects `name` — verified), so `rusty_bucket`-named forecast documents are latently **invisible** to faoapi *today*. Cannot be resolved from code alone (it may mean no forecast has ever been served via this path); **ground-truth against live Appwrite at run 0**. | F1 (verified on faoapi `origin/main` + `development`) |
+| 3 | **§11.4 Hop-B rationale strengthened:** pinning `name="un_fao"` makes contract artifacts *visible* to the deployed legacy selector where legacy `rusty_bucket`-named forecasts were not — the D3 sequencing constraint (consumer guard before first upload) is therefore **more** acute under the contract, not less. | F1 |
 
 ## Changelog v1.1 → v1.2 (every change traceable to a named review finding)
 
@@ -67,7 +75,7 @@ Carried as `metadata.json` inside the Hop-A archive, and inside the arrow file's
 
 ```json
 {
-  "contract_version": "1.2",
+  "contract_version": "1.3",
   "frame_type": "prediction",
   "representation": "samples",
   "sample_count": 1024,
@@ -124,6 +132,10 @@ Carried as `metadata.json` inside the Hop-A archive, and inside the arrow file's
 | `targets` | shard: `[<target>]`; manifest/sidecar: the run's full target list |
 
 Upload metadata must also remain compatible with faoapi's C-71 quarantine/approval filtering (approval fields present).
+
+**Explicit producer obligation (new in v1.3).** views-postprocessing **currently uploads the forecast document as `name=<ensemble name>`** (`unfao.py:314` — `rusty_bucket` today); only the historical artifact already complies (`unfao.py:303`). Under this schema, **all Hop-B contract documents upload under the pinned consumer name** — this rename is an explicit views-postprocessing change, owned by its **#91 sink-adapter leg**.
+
+**Discovered latent inconsistency in the CURRENT wire (recorded in v1.3, verified 2026-07-13).** faoapi's `name` injection is not new: it exists on deployed **`main`** as well (`prediction.py:167-168` there; the forecast fetch composes `{"category": ...}` and the search layer injects `name`). Consequently today's `rusty_bucket`-named forecast documents are latently **invisible** to faoapi on both branches. This cannot be resolved from code alone — it may mean no forecast has ever been served end-to-end via this path — and MUST be ground-truthed against live Appwrite at run 0 (which documents exist in `unfao_bucket`, under which names, and what deployed faoapi actually resolves).
 
 **§4.2 Run manifest — cardinality: ONE per run, spanning all targets (changed in v1.2).** views-postprocessing emits **a single manifest per run** to `unfao_bucket`: the full Hop-B shard list **across all (target, month)** with content hashes, the expected month set, expected cell count, the run's target list, and the sidecar hash. `type="sampled_forecast_manifest"`, **uploaded last — after every target's shards = the run's single commit marker.** This closes the torn-run hole across the target axis: with per-target manifests a consumer refreshing between targets could assemble a run with one target present and others missing; with one run manifest that state is structurally invisible.
 
@@ -204,7 +216,7 @@ One canonical **small-S fixture** — a Track-A shard archive + its Hop-B arrow 
 
 **§11.4 Transition rule — BOTH hops (strengthened in v1.2).** A contract artifact is identified by the `views_frames` KV header (Hop B) / `metadata.json` (Hop A) — never by filename. Once a manifested run exists in a store, legacy artifacts there are ignored. **Sequencing constraint (consumer D3 + reconciliation R1):** at **each** store, the type-aware consumer — or at minimum a `type`-guard in the deployed legacy reader — must be **live before the first contract artifact is uploaded there**:
 
-- **Hop B:** deployed faoapi selects newest-`category="forecast"` with no `type` awareness; the first Hop-B wave would otherwise be grabbed as "the forecast" by the legacy selector.
+- **Hop B:** deployed faoapi selects newest-`category="forecast"` with no `type` awareness — and (v1.3) since it *name-filters* on the pinned consumer name, the contract wave's `name="un_fao"` documents become **visible to the legacy selector** precisely where legacy `rusty_bucket`-named forecasts were not. The first Hop-B upload would be grabbed as "the forecast" by the deployed code — the sequencing constraint is *more* acute under the contract, not less.
 - **Hop A (verified 2026-07-13):** the legacy views-postprocessing reader has the same selection shape (`unfao.py:110`, `get_latest_file_id(filters={"category": "forecast"})`). Its identity assertion (`unfao.py:123`) makes the failure **loud, not silent** — an outage, not corruption — but the constraint stands: views-postprocessing's type-aware source adapter (its #85 S3+), or a one-line `type` filter in the legacy reader, lands **before pipeline-core#269's first live upload**.
 
 Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
