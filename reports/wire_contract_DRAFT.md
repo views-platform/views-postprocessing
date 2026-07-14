@@ -1,20 +1,29 @@
-# Sampled-Forecast Wire Contract — v1.3 DRAFT
+# Sampled-Forecast Wire Contract — v1.4 DRAFT
 
 | | |
 |---|---|
-| **Status** | **DRAFT v1.3 — for maintainer sign-off. NOT posted, NOT adopted.** Both seat reviews are on record as sign-off-ready at v1.1; v1.2 folded their deltas; v1.3 folds the author's post-reconciliation verification finding (F1). Iterations are commits to this file so review deltas stay git-diffable. |
-| **Supersedes** | v1.2 (previous commit of this file, `7e207ee`), v1.1 (`d5bc71f`), and the v1 proposal comment on views-models#149 (2026-07-02; demoted to pending-review 2026-07-06) |
-| **Inputs folded in** | Producer seat: `views-pipeline-core/reports/wire_contract_v1.1_producer_seat_response.md` (2026-07-13). Consumer seat: `views-faoapi/reports/expert_reviews/2026-07-13_wire_contract_v1.1_consumer_response.md` (2026-07-13). Cross-seat: `views-postprocessing/reports/wire_contract_v1.1_seat_reconciliation.md` (2026-07-13, incl. the verified R1 finding). v1.3: the author's F1 verification (2026-07-13, both repos + faoapi `origin/main`). |
+| **Status** | **DRAFT v1.4 — for maintainer sign-off. NOT posted, NOT adopted.** Both seat reviews are on record as sign-off-ready at v1.1; v1.2 folded their deltas; v1.3 folded the author's F1 verification; v1.4 folds the producer seat's v1.3 review deltas (F1 independently verified, both claims). Iterations are commits to this file so review deltas stay git-diffable. |
+| **Supersedes** | v1.3 (`087a0ea`), v1.2 (`7e207ee`), v1.1 (`d5bc71f`), and the v1 proposal comment on views-models#149 (2026-07-02; demoted to pending-review 2026-07-06) |
+| **Inputs folded in** | Producer seat: `views-pipeline-core/reports/wire_contract_v1.1_producer_seat_response.md` (2026-07-13). Consumer seat: `views-faoapi/reports/expert_reviews/2026-07-13_wire_contract_v1.1_consumer_response.md` (2026-07-13). Cross-seat: `views-postprocessing/reports/wire_contract_v1.1_seat_reconciliation.md` (2026-07-13, incl. verified R1). v1.3: the author's F1 verification (2026-07-13). v1.4: the producer seat's v1.3 review (2026-07-14 — **both F1 claims independently verified** against `unfao.py` and faoapi `origin/main`; legacy/contract `type` disjointness verified on **both** hops). |
 | **Adoption mechanics** | explicit maintainer sign-off on views-models#149, **enacted by landing the durable ADR** in views-postprocessing (§0.2). No adoption-by-silence. |
 
 ---
+
+## Changelog v1.3 → v1.4 (producer seat's v1.3 review)
+
+| # | Change | Source finding |
+|---|--------|----------------|
+| 1 | **Run-0 ground-truthing promoted to the checklist (§11.2)** — the live-Appwrite audit (which documents exist in `unfao_bucket`, under which names/types, what deployed faoapi actually resolves) was buried in §4.1a prose; it is now an explicit run-0 item so it cannot be skipped. | producer v1.3 review, delta 1 |
+| 2 | **Minimal legacy guard made concrete — legacy/contract `type` vocabularies verified DISJOINT on both hops (§11.4)** — Hop-B legacy uploads stamp `type="model"` (`unfao.py:303/:314`); Hop-A legacy uploads stamp `type=<model_path.target>` ∈ {`"model"`, `"ensemble"`} (pipeline-core `managers/prediction/io.py:138`; `DatastoreModule` default `"model"`). The one-line legacy guard is therefore: pin the legacy type(s) in each deployed selector's filters — zero knowledge of the new types required. | producer v1.3 review, delta 2 (Hop-B verified at review; Hop-A verified at v1.4 drafting) |
+| 3 | **F1 ratification is an explicit sign-off precondition (§0.2)** — F1 makes claims about faoapi's deployed `main`; symmetric with R1's treatment, the owning seat (views-faoapi) ratifies them before sign-off, so every cross-repo claim in the contract is confirmed by the seat that owns it. (The producer seat has already verified both F1 claims independently — ratification is the owning seat's confirmation, not a re-litigation.) | producer v1.3 review, delta 4 |
+| 4 | **Housekeeping** — drifting version-stamped labels neutralized (§4.1 "unchanged in v1.2" → unchanged; §8 heading de-versioned; footer no longer names the next version number); `contract_version` example → `"1.4"`. Birth-stamps ("new in v1.2/v1.3") are kept — they are accurate forever and preserve traceability. | producer v1.3 review, delta 3 |
 
 ## Changelog v1.2 → v1.3 (author's post-reconciliation verification — finding F1)
 
 | # | Change | Source finding |
 |---|--------|----------------|
 | 1 | **§4.1a gains the explicit producer obligation the name-pinning implied but never stated:** views-postprocessing **currently uploads the forecast document as `name=<ensemble name>`** (`unfao.py:314` — `rusty_bucket` today; only the historical complies, `:303`). Under the pinned schema, **all** Hop-B contract documents upload as the pinned consumer name — an explicit views-postprocessing change, owned by the #91 sink-adapter leg. | **F1** — author's verification of v1.2 against this repo's code (2026-07-13) |
-| 2 | **§4.1a also records the discovered latent inconsistency in the CURRENT wire:** faoapi's `name` injection exists on **deployed `main` too** (`origin/main prediction.py:167-168`; the forecast fetch composes `{"category": ...}` then the search injects `name` — verified), so `rusty_bucket`-named forecast documents are latently **invisible** to faoapi *today*. Cannot be resolved from code alone (it may mean no forecast has ever been served via this path); **ground-truth against live Appwrite at run 0**. | F1 (verified on faoapi `origin/main` + `development`) |
+| 2 | **§4.1a also records the discovered latent inconsistency in the CURRENT wire:** faoapi's `name` injection exists on **deployed `main` too** (`origin/main prediction.py:167-168`; the forecast fetch composes `{"category": ...}` then the search injects `name` — verified), so `rusty_bucket`-named forecast documents are latently **invisible** to faoapi *today*. Cannot be resolved from code alone (it may mean no forecast has ever been served via this path); **ground-truth against live Appwrite at run 0**. | F1 (verified on faoapi `origin/main` + `development`; independently re-verified by the producer seat, 2026-07-14) |
 | 3 | **§11.4 Hop-B rationale strengthened:** pinning `name="un_fao"` makes contract artifacts *visible* to the deployed legacy selector where legacy `rusty_bucket`-named forecasts were not — the D3 sequencing constraint (consumer guard before first upload) is therefore **more** acute under the contract, not less. | F1 |
 
 ## Changelog v1.1 → v1.2 (every change traceable to a named review finding)
@@ -29,7 +38,7 @@
 | 6 | **Manifest = the run's operational control point (§4.4)** — quarantining (C-71 blocklist) or deleting the single run manifest atomically rolls the consumer back to the previous manifested run; operators act on manifests, never on shards. | producer Δ3-2 ≡ consumer §3.2 — independent convergence (reconciliation §2.2) |
 | 7 | **Emission-assert mechanics pinned (§3.4)** — the runtime assert inspects the **staged files pre-zip**; the zip step itself is covered by the CI round-trip identity test (pipeline-core#269 acceptance). | producer Δ3-1 |
 | 8 | **Intentional redundancy marked (§6)** — the policy gate re-validates payload S == header `sample_count` even though §4.5(a) checks it at ingest; deliberate (the policy gate vouches for its own input) and MUST NOT be "simplified" away. | producer Δ3-3 |
-| 9 | Housekeeping: `contract_version` example → `"1.2"`; §2.1 gains version semantics (MINOR = clarifying/additive, MAJOR = breaking); file renamed version-neutral (`wire_contract_DRAFT.md`) so the commit-per-iteration convention survives. | both seats' convention notes |
+| 9 | Housekeeping: `contract_version` example bumped; §2.1 gains version semantics (MINOR = clarifying/additive, MAJOR = breaking); file renamed version-neutral (`wire_contract_DRAFT.md`) so the commit-per-iteration convention survives. | both seats' convention notes |
 
 ---
 
@@ -38,6 +47,8 @@
 **§0.1** The "platform ADR-046" cited across issues as declaring the FAO handoff format **does not exist** — a grep of every platform repo finds only dangling references, never a document. This contract replaces the phantom. Until adoption, the contract of record is *nothing*; on adoption it is the durable views-postprocessing ADR (§0.2) plus the ratifying comment on views-models#149.
 
 **§0.2 Adoption mechanics.** Adoption = the maintainer's explicit sign-off on views-models#149, **enacted by landing the durable ADR in views-postprocessing** in the same motion. The ADR is not a follow-up; it is the adoption act. Implementation in any repo before that is out of contract. (views-pipeline-core#269 should state this precondition visibly.)
+
+**Sign-off preconditions (v1.4):** every cross-repo claim in this contract is confirmed by the seat that owns it. Outstanding: **the views-faoapi seat ratifies F1's claims about deployed `main`** (§4.1a — the `name`-injection on `main` and the latent invisibility of `rusty_bucket`-named forecasts). R1 (Hop-A legacy selection shape) is already owner-verified; the producer seat has independently verified both F1 claims (2026-07-14), so ratification is the owning seat's confirmation, not a re-litigation.
 
 **§0.3 Ownership table.**
 
@@ -75,7 +86,7 @@ Carried as `metadata.json` inside the Hop-A archive, and inside the arrow file's
 
 ```json
 {
-  "contract_version": "1.3",
+  "contract_version": "1.4",
   "frame_type": "prediction",
   "representation": "samples",
   "sample_count": 1024,
@@ -119,7 +130,7 @@ Carried as `metadata.json` inside the Hop-A archive, and inside the arrow file's
 
 ## §4 Hop B: arrow delivery (views-postprocessing → `unfao_bucket` → views-faoapi)
 
-**§4.1 Shard.** One `views_frames.io.arrow` file per **(target, month)**, §2 header embedded. The **historical actuals+geo artifact is explicitly unchanged** (pandas parquet) in v1.2.
+**§4.1 Shard.** One `views_frames.io.arrow` file per **(target, month)**, §2 header embedded. The **historical actuals+geo artifact is explicitly unchanged** (pandas parquet).
 
 **§4.1a Store-document schema (pinned in v1.2).** faoapi's metadata schema makes all five fields **required at upload**, and its production query layer **unconditionally injects a `name` filter** (its model path always carries a model name) — a document with the wrong `name` is *invisible to the consumer*, not degraded. Therefore:
 
@@ -135,7 +146,7 @@ Upload metadata must also remain compatible with faoapi's C-71 quarantine/approv
 
 **Explicit producer obligation (new in v1.3).** views-postprocessing **currently uploads the forecast document as `name=<ensemble name>`** (`unfao.py:314` — `rusty_bucket` today); only the historical artifact already complies (`unfao.py:303`). Under this schema, **all Hop-B contract documents upload under the pinned consumer name** — this rename is an explicit views-postprocessing change, owned by its **#91 sink-adapter leg**.
 
-**Discovered latent inconsistency in the CURRENT wire (recorded in v1.3, verified 2026-07-13).** faoapi's `name` injection is not new: it exists on deployed **`main`** as well (`prediction.py:167-168` there; the forecast fetch composes `{"category": ...}` and the search layer injects `name`). Consequently today's `rusty_bucket`-named forecast documents are latently **invisible** to faoapi on both branches. This cannot be resolved from code alone — it may mean no forecast has ever been served end-to-end via this path — and MUST be ground-truthed against live Appwrite at run 0 (which documents exist in `unfao_bucket`, under which names, and what deployed faoapi actually resolves).
+**Discovered latent inconsistency in the CURRENT wire (recorded in v1.3; independently verified by the producer seat 2026-07-14).** faoapi's `name` injection is not new: it exists on deployed **`main`** as well (`prediction.py:167-168` there; the forecast fetch composes `{"category": ...}` and the search layer injects `name`). Consequently today's `rusty_bucket`-named forecast documents are latently **invisible** to faoapi on both branches. This cannot be resolved from code alone — it may mean no forecast has ever been served end-to-end via this path — and MUST be ground-truthed against live Appwrite at run 0 (§11.2 checklist).
 
 **§4.2 Run manifest — cardinality: ONE per run, spanning all targets (changed in v1.2).** views-postprocessing emits **a single manifest per run** to `unfao_bucket`: the full Hop-B shard list **across all (target, month)** with content hashes, the expected month set, expected cell count, the run's target list, and the sidecar hash. `type="sampled_forecast_manifest"`, **uploaded last — after every target's shards = the run's single commit marker.** This closes the torn-run hole across the target axis: with per-target manifests a consumer refreshing between targets could assemble a run with one target present and others missing; with one run manifest that state is structurally invisible.
 
@@ -180,7 +191,7 @@ Runs before every FAO-facing forecast upload. This is the single **policy** gate
 
 ---
 
-## §8 Non-goals v1.2 (with recorded deferred intents)
+## §8 Non-goals (with recorded deferred intents)
 
 - **cm level & the second store** (views-postprocessing#97): inherit later via `spatial_level`; reconciliation already runs upstream in PFE, draws-aware.
 - **Historical artifact format**: unchanged pandas parquet.
@@ -210,17 +221,22 @@ One canonical **small-S fixture** — a Track-A shard archive + its Hop-B arrow 
 
 **§11.1 Small-S first.** Because `sample_count` is header data, a placeholder low-S ensemble is contract-conformant — the walking skeleton (views-models#230) runs end-to-end **at S=8 with synthetic constituents** as the contract's verification vehicle (the plumbing proof; only the *scale* proof waits on views-models#143/#146 tuning).
 
-**§11.2 Run-0 allowance.** The Hop-B run manifest is adopted **in text now**; run-0 of the skeleton may precede its implementation (manual verification for run 0 only) — the D-x1 resolution.
+**§11.2 Run-0 checklist (expanded in v1.4).** Run 0 of the skeleton carries these manual verification duties:
+- **(a) Hop-B run-manifest verification (D-x1 allowance):** the run manifest is adopted in text; run 0 may precede its implementation — verify manually that the shard set is complete and consistent for run 0 only.
+- **(b) Live-Appwrite ground-truth (F1):** enumerate what actually exists in `unfao_bucket` **before** run 0 — document names, `type` values, categories — and record **what the deployed faoapi resolves today** (it may be nothing via this path, per the F1 latent inconsistency). Record the findings in the run-0 report; this is the empirical baseline the transition rule (§11.4) is judged against.
+- **(c) Post-run:** confirm the run-0 artifacts resolve as intended for the *new* consumer path and remain invisible (or harmlessly visible) to any still-deployed legacy selector, per §11.4.
 
 **§11.3 Parallelism.** The only serial edge (naming) is decided (§7a). views-postprocessing's legs (`draws.py`, source adapter, sink adapter, sidecar, manifests) ∥ pipeline-core's publish leg (#269) ∥ faoapi's ingest (#100, recommended re-scoped as an epic: skeleton-ingest → assembly + sidecar join → cache re-key → transition guard (§11.4) → dual-format window, with the §4.5 asserts).
 
-**§11.4 Transition rule — BOTH hops (strengthened in v1.2).** A contract artifact is identified by the `views_frames` KV header (Hop B) / `metadata.json` (Hop A) — never by filename. Once a manifested run exists in a store, legacy artifacts there are ignored. **Sequencing constraint (consumer D3 + reconciliation R1):** at **each** store, the type-aware consumer — or at minimum a `type`-guard in the deployed legacy reader — must be **live before the first contract artifact is uploaded there**:
+**§11.4 Transition rule — BOTH hops (strengthened in v1.2/v1.3).** A contract artifact is identified by the `views_frames` KV header (Hop B) / `metadata.json` (Hop A) — never by filename. Once a manifested run exists in a store, legacy artifacts there are ignored. **Sequencing constraint (consumer D3 + reconciliation R1):** at **each** store, the type-aware consumer — or at minimum a `type`-guard in the deployed legacy reader — must be **live before the first contract artifact is uploaded there**:
 
 - **Hop B:** deployed faoapi selects newest-`category="forecast"` with no `type` awareness — and (v1.3) since it *name-filters* on the pinned consumer name, the contract wave's `name="un_fao"` documents become **visible to the legacy selector** precisely where legacy `rusty_bucket`-named forecasts were not. The first Hop-B upload would be grabbed as "the forecast" by the deployed code — the sequencing constraint is *more* acute under the contract, not less.
 - **Hop A (verified 2026-07-13):** the legacy views-postprocessing reader has the same selection shape (`unfao.py:110`, `get_latest_file_id(filters={"category": "forecast"})`). Its identity assertion (`unfao.py:123`) makes the failure **loud, not silent** — an outage, not corruption — but the constraint stands: views-postprocessing's type-aware source adapter (its #85 S3+), or a one-line `type` filter in the legacy reader, lands **before pipeline-core#269's first live upload**.
+
+**Minimal-guard note (verified in v1.4, both hops):** every legacy document in both stores carries the legacy `type` vocabulary — Hop-B legacy uploads stamp `type="model"` (`unfao.py:303/:314`); Hop-A legacy uploads stamp `type=<model_path.target>` ∈ {`"model"`, `"ensemble"`} (pipeline-core `managers/prediction/io.py:138`; `DatastoreModule` defaults likewise) — **fully disjoint from `sampled_forecast_*`**. The minimal legacy guard is therefore literally one line at each deployed selector: pin the legacy type(s) into its filters. It requires zero knowledge of the new types and can ship immediately, independent of the full consumer legs.
 
 Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
 
 ---
 
-*Draft ends. Both seats are on record sign-off-ready (v1.1 responses + reconciliation); v1.2 folds all their deltas. Next step: the §0.2 adoption act. Review deltas → v1.3 as new commits to this file.*
+*Draft ends. Both seats are on record sign-off-ready; v1.4 folds the producer seat's v1.3 review (F1 independently verified). Outstanding before the §0.2 adoption act: the faoapi seat's F1 ratification. Review deltas → the next version as new commits to this file.*
