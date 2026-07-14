@@ -1,13 +1,20 @@
-# Sampled-Forecast Wire Contract — v1.4 DRAFT
+# Sampled-Forecast Wire Contract — v1.5 DRAFT
 
 | | |
 |---|---|
-| **Status** | **DRAFT v1.4 — for maintainer sign-off. NOT posted, NOT adopted.** Both seat reviews are on record as sign-off-ready at v1.1; v1.2 folded their deltas; v1.3 folded the author's F1 verification; v1.4 folds the producer seat's v1.3 review deltas (F1 independently verified, both claims). Iterations are commits to this file so review deltas stay git-diffable. |
-| **Supersedes** | v1.3 (`087a0ea`), v1.2 (`7e207ee`), v1.1 (`d5bc71f`), and the v1 proposal comment on views-models#149 (2026-07-02; demoted to pending-review 2026-07-06) |
+| **Status** | **DRAFT v1.5 — for maintainer sign-off. NOT posted, NOT adopted.** All seat preconditions are now met: both seats sign-off-ready (v1.1), all review deltas folded (v1.2–v1.4), and **F1 is owner-ratified** (v1.5). The remaining step is the §0.2 adoption act itself. |
+| **Supersedes** | v1.4 (`57550fa`), v1.3 (`087a0ea`), v1.2 (`7e207ee`), v1.1 (`d5bc71f`), and the v1 proposal comment on views-models#149 (2026-07-02; demoted to pending-review 2026-07-06) |
 | **Inputs folded in** | Producer seat: `views-pipeline-core/reports/wire_contract_v1.1_producer_seat_response.md` (2026-07-13). Consumer seat: `views-faoapi/reports/expert_reviews/2026-07-13_wire_contract_v1.1_consumer_response.md` (2026-07-13). Cross-seat: `views-postprocessing/reports/wire_contract_v1.1_seat_reconciliation.md` (2026-07-13, incl. verified R1). v1.3: the author's F1 verification (2026-07-13). v1.4: the producer seat's v1.3 review (2026-07-14 — **both F1 claims independently verified** against `unfao.py` and faoapi `origin/main`; legacy/contract `type` disjointness verified on **both** hops). |
 | **Adoption mechanics** | explicit maintainer sign-off on views-models#149, **enacted by landing the durable ADR** in views-postprocessing (§0.2). No adoption-by-silence. |
 
 ---
+
+## Changelog v1.4 → v1.5 (F1 owner-ratification — status only, no contract-content change)
+
+| # | Change | Source finding |
+|---|--------|----------------|
+| 1 | **§0.2 precondition CLEARED: F1 ratified by the owning seat.** views-faoapi verified both claims on `origin/main` (`fab4694`): the `name` injection (`prediction.py:167-168`; forecast fetch `api.py:488-489`; always-resolving `APIPathManager("un_fao")`, `model.py:250`) and the latent invisibility of `rusty_bucket`-named forecasts. The "never served end-to-end" inference is **corroborated, not proven** (their 2026-06-29 operational record: 11 bucket files, all historical; forecast endpoints empty) — the definitive by-name bucket listing remains a §11.2(b) run-0 duty. Ratification report: `views-faoapi/reports/expert_reviews/2026-07-14_wire_contract_F1_ratification.md`. Bonus: the Hop-B half of v1.4's type-disjointness row independently corroborated (`type="model"` on legacy uploads). | faoapi seat ratification (2026-07-14) |
+| 2 | **Citation-integrity duty recorded (§0.2):** several seat artifacts this contract cites by path are uncommitted or unpushed in their home repos (faoapi's v1 review / v1.1 response / v1.3 confirmation + the F1 ratification; the producer seat's v1.3 review has **no artifact at all**). All cited artifacts must be committed and pushed in their home repos **before adoption** — this contract exists because of a dangling citation (ADR-046) and must not adopt with dangling citations of its own. | author + faoapi seat housekeeping note (2026-07-14) |
 
 ## Changelog v1.3 → v1.4 (producer seat's v1.3 review)
 
@@ -48,7 +55,7 @@
 
 **§0.2 Adoption mechanics.** Adoption = the maintainer's explicit sign-off on views-models#149, **enacted by landing the durable ADR in views-postprocessing** in the same motion. The ADR is not a follow-up; it is the adoption act. Implementation in any repo before that is out of contract. (views-pipeline-core#269 should state this precondition visibly.)
 
-**Sign-off preconditions (v1.4):** every cross-repo claim in this contract is confirmed by the seat that owns it. Outstanding: **the views-faoapi seat ratifies F1's claims about deployed `main`** (§4.1a — the `name`-injection on `main` and the latent invisibility of `rusty_bucket`-named forecasts). R1 (Hop-A legacy selection shape) is already owner-verified; the producer seat has independently verified both F1 claims (2026-07-14), so ratification is the owning seat's confirmation, not a re-litigation.
+**Sign-off preconditions (updated v1.5):** every cross-repo claim in this contract is confirmed by the seat that owns it — **all now met**: R1 owner-verified (Hop A); **F1 owner-RATIFIED** by views-faoapi (2026-07-14, both claims, on `origin/main` `fab4694`; report: `views-faoapi/reports/expert_reviews/2026-07-14_wire_contract_F1_ratification.md`). **One adoption-hygiene duty remains:** every seat artifact cited in this contract's provenance must be committed **and pushed** in its home repo before the adoption act (currently: faoapi's seat reports are local/uncommitted; the producer seat's v1.3 review lacks an artifact — commit one or amend the v1.4 changelog citation to "in-session review").
 
 **§0.3 Ownership table.**
 
@@ -86,7 +93,7 @@ Carried as `metadata.json` inside the Hop-A archive, and inside the arrow file's
 
 ```json
 {
-  "contract_version": "1.4",
+  "contract_version": "1.5",
   "frame_type": "prediction",
   "representation": "samples",
   "sample_count": 1024,
