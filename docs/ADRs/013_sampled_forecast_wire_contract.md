@@ -289,3 +289,10 @@ Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
   `b1f3878df9ef74b25dce53a070e1711db39dfdf1c6ca3e1f5a716875ceb32f44`. Deterministic
   generator: `scripts/build_wire_fixture.py` (pyarrow 23.0.1 / views_frames 1.0.0 pinned
   in the fixture README). Consumers vendor + pinned-hash test per §10.1.
+- **2026-07-16 — C-161 resolution route DECIDED (maintainer): proper deploy only, no hotfix.**
+  The Hop-B guard reaches production exclusively via faoapi's deployment epic (#184: service
+  account + tag-based deploy gate), bringing production up to date with development as one
+  planned, verified release. Cherry-picks / manual placement rejected on principle. No clock
+  pressure: nothing may upload to `unfao_bucket` before the guard is live (§11.4), and the
+  upload leg (views-postprocessing #91) is not yet built — the constraint orders the finish,
+  it does not stall the work. Run 0 follows the proper deploy.
