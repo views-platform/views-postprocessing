@@ -66,6 +66,12 @@ These ADRs form the architectural constitution of the repository.
   + input-integrity layer (delivery invariants, the representation seam, the lookup
   enrichment, the thin manager) — no runtime spatial engine.
 
+- **ADR-013** — The Sampled-Forecast Wire Contract (v1.5)  
+  The adopted cross-repo contract for sampled (N,S) forecasts: two hops (Track-A archive →
+  prediction store; per-month arrow → unfao_bucket), manifests as commit markers, the GAUL
+  sidecar, and the no-collapse boundary (delivery/draws.py). Supersedes the phantom
+  "platform ADR-046". Adopted 2026-07-15 via views-models#149.
+
 ADRs numbered 010 and above define:
 
 - Domain-specific decisions

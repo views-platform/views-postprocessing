@@ -1,13 +1,19 @@
-# Sampled-Forecast Wire Contract — v1.5 DRAFT
+# ADR-013: The Sampled-Forecast Wire Contract (v1.5)
 
-> **ADOPTED 2026-07-15 as [ADR-013](../docs/ADRs/013_sampled_forecast_wire_contract.md)** (maintainer sign-off on views-models#149). This file is the iteration history; the ADR is normative.
+**Status:** Accepted
+**Date:** 2026-07-15
+**Deciders:** Project maintainer (PRIO MD&D Team) — explicit sign-off, views-models#149
+**Supersedes:** the phantom "platform ADR-046" (never existed; this ADR is the format authority it was assumed to be), and the v1 proposal comment on views-models#149 (2026-07-02)
 
-| | |
-|---|---|
-| **Status** | **DRAFT v1.5 — for maintainer sign-off. NOT posted, NOT adopted.** All seat preconditions are now met: both seats sign-off-ready (v1.1), all review deltas folded (v1.2–v1.4), and **F1 is owner-ratified** (v1.5). The remaining step is the §0.2 adoption act itself. |
-| **Supersedes** | v1.4 (`57550fa`), v1.3 (`087a0ea`), v1.2 (`7e207ee`), v1.1 (`d5bc71f`), and the v1 proposal comment on views-models#149 (2026-07-02; demoted to pending-review 2026-07-06) |
-| **Inputs folded in** | Producer seat: `views-pipeline-core/reports/wire_contract_v1.1_producer_seat_response.md` (2026-07-13). Consumer seat: `views-faoapi/reports/expert_reviews/2026-07-13_wire_contract_v1.1_consumer_response.md` (2026-07-13). Cross-seat: `views-postprocessing/reports/wire_contract_v1.1_seat_reconciliation.md` (2026-07-13, incl. verified R1). v1.3: the author's F1 verification (2026-07-13). v1.4: the producer seat's v1.3 review (2026-07-14 — **both F1 claims independently verified** against `unfao.py` and faoapi `origin/main`; legacy/contract `type` disjointness verified on **both** hops). |
-| **Adoption mechanics** | explicit maintainer sign-off on views-models#149, **enacted by landing the durable ADR** in views-postprocessing (§0.2). No adoption-by-silence. |
+---
+
+## Context
+
+Sampled `(N, S≈1024)` forecasts must travel producer → prediction store → views-postprocessing → `unfao_bucket` → views-faoapi without ever being collapsed to a point. No contract governed that wire: the cited authority ("platform ADR-046") was never written, the producer publish leg did not exist, and three repos were circularly blocked on each other. This ADR is the contract of record, produced through five reviewed iterations (v1 proposal → v1.5; two independent seat reviews, a cross-seat reconciliation, and owner-ratification of every cross-repo claim — the full trail is `reports/wire_contract_DRAFT.md` in this repo plus the seat artifacts it cites, all committed in their home repos).
+
+## Decision
+
+The contract text below (v1.5, verbatim) is **adopted**. The iteration draft `reports/wire_contract_DRAFT.md` is retained as history; this ADR is the normative document.
 
 ---
 
