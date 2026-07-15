@@ -255,3 +255,19 @@ Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
 ---
 
 *Draft ends. Both seats are on record sign-off-ready; v1.4 folds the producer seat's v1.3 review (F1 independently verified). Outstanding before the §0.2 adoption act: the faoapi seat's F1 ratification. Review deltas → the next version as new commits to this file.*
+
+---
+
+## Post-adoption record (facts confirmed after adoption; no clause altered)
+
+- **2026-07-15 — F1 invisibility CONFIRMED live (was: corroborated inference).** During the
+  Hop-B legacy-guard work (faoapi PR #200), a read-only audit of the live `unfao_bucket`
+  collection found **six `orange_ensemble`-named forecast documents** stranded by the `name`
+  filter — §4.1a's latent inconsistency has been *firing all along* and is the actual reason
+  forecast serving is empty. Recorded as an addendum to the F1 ratification (faoapi repo).
+  Consequence: §11.2(b)'s run-0 ground-truth duty is substantially pre-executed; the remaining
+  run-0 check is confirming the *new* artifacts resolve, per §11.2(c).
+- **2026-07-15 — both §11.4 legacy guards merged on `development`:** Hop A (vpp PR #99,
+  `type="ensemble"` pin) and Hop B (faoapi PR #200, `type="model"` pin, live-ground-truthed).
+  **Standing constraint (faoapi C-161):** the Hop-B guard must reach *production* before
+  views-postprocessing's first contract upload to `unfao_bucket`.
