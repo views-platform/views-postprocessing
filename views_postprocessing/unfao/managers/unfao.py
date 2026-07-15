@@ -25,6 +25,13 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Hop-A legacy selection filters (ADR-013 §11.4 transition guard). Declared, not
+# inferred: the legacy production forecast is uploaded by pipeline-core's ensemble run
+# with type="ensemble"; the contract's sampled_forecast_* types are disjoint by design,
+# so pinning the legacy type here makes contract artifacts unselectable by this reader.
+# Golden-string-tested (tests/test_selection_guard.py); change only with ADR-013.
+LEGACY_FORECAST_FILTERS = {"category": "forecast", "type": "ensemble"}
+
 
 class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
     def __init__(
@@ -104,13 +111,17 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         try:
             prediction_store_manager = DatastoreModule(appwrite_file_manager_config=appwrite_config)
 
-            # The store is filtered by category alone (newest-wins), so resolve the file,
-            # then verify its identity before delivering it (S3/C-25): a stray upload with
-            # category="forecast" must not be silently shipped as the configured ensemble.
-            file_id = prediction_store_manager.get_latest_file_id(filters={"category": "forecast"})
+            # Resolve the newest legacy forecast, then verify its identity before
+            # delivering it (S3/C-25): a stray upload must not be silently shipped as
+            # the configured ensemble. The `type` pin is the Hop-A legacy transition
+            # guard (ADR-013 §11.4): legacy ensemble forecasts carry type="ensemble"
+            # (pipeline-core EnsemblePathManager._target), disjoint from the contract's
+            # sampled_forecast_* vocabulary — so pipeline-core#269's shard/manifest
+            # uploads can never be selected by this legacy reader.
+            file_id = prediction_store_manager.get_latest_file_id(filters=LEGACY_FORECAST_FILTERS)
             if file_id is None:
                 raise FileNotFoundError(
-                    "No forecast file found in the prediction store (category='forecast')."
+                    f"No forecast file found in the prediction store (filters={LEGACY_FORECAST_FILTERS})."
                 )
             selected = extraction.file_metadata(prediction_store_manager.get_file_metadata(file_id))
             # Identity contract: the producer's FileMetadata `name`/`loa` written on upload
