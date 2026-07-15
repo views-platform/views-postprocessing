@@ -133,7 +133,7 @@ Carried as `metadata.json` inside the Hop-A archive, and inside the arrow file's
 
 **§3.1 Shard.** One object per **(run, target, month)**: a zip of exactly what PFE already writes — `y_pred.npy` shape `(N, S)` float32 + `identifiers.npz` (time/unit aligned to axis 0) — plus `metadata.json` (§2). Store document: `type="sampled_forecast_shard"`, `category="forecast"`, `loa`, `targets=[<target>]`, `name` per §3.3. ~265 MB/shard/target at S=1024 (64,742 cells).
 
-**§3.2 Manifest — cardinality: one per (run, target).** `type="sampled_forecast_manifest"`: the shard list (store file-ids + content hashes), expected month set, expected cell count, and the sidecar hash (§5). **Uploaded last = the commit marker for that target's leg.** Consumers MUST ignore unmanifested shards; a killed producer leaves no manifest and therefore no visible (run, target). *Hop A deliberately keeps per-target cardinality:* the producer's targets complete independently, and the Hop-A consumer (views-postprocessing) — unlike faoapi — can trivially await all targets before acting (§4.2a). **Hash verification:** views-postprocessing verifies the shard content hashes against this manifest on read (it owns the integrity invariants).
+**§3.2 Manifest — cardinality: one per (run, target).** `type="sampled_forecast_manifest"`: the shard list (store file-ids + content hashes), expected month set, and expected cell count. **Uploaded last = the commit marker for that target's leg.** *(Erratum E1, 2026-07-15: the sidecar hash is NOT a Hop-A manifest field — the sidecar is produced downstream by views-postprocessing; the producer has nothing to hash. `sidecar_sha256` at Hop A is absent/null; the §5.2 hash pin lives in the Hop-B run manifest only. Flagged by the pipeline-core seat during #269 implementation.)* Consumers MUST ignore unmanifested shards; a killed producer leaves no manifest and therefore no visible (run, target). *Hop A deliberately keeps per-target cardinality:* the producer's targets complete independently, and the Hop-A consumer (views-postprocessing) — unlike faoapi — can trivially await all targets before acting (§4.2a). **Hash verification:** views-postprocessing verifies the shard content hashes against this manifest on read (it owns the integrity invariants).
 
 **§3.3 Naming.** Shard `name`: `{run_id}__{target}__m{time_id:06d}.tap.zip`; manifest `name`: `{run_id}__{target}__manifest.json`. Both templates live as **shared constants with golden-string tests** in the producing repo. **The name is a locator only — identity is the manifest content + the embedded header.** Consumers MUST NOT parse identity out of filenames (the C-59/C-94 lesson).
 
@@ -181,7 +181,7 @@ Upload metadata must also remain compatible with faoapi's C-71 quarantine/approv
 
 **§5.1 Schema.** One gid-keyed sidecar artifact per run (~64,742 rows), `type="sampled_forecast_sidecar"` (store-document fields per §4.1a), keyed by `priogrid_id`, with **exactly these 9 columns**: `pg_xcoord` (float64), `pg_ycoord` (float64), `country_iso_a3` (string), `admin1_gaul1_code`, `admin1_gaul1_name`, `admin1_gaul0_code`, `admin1_gaul0_name`, `admin2_gaul2_code`, `admin2_gaul2_name` — `*_name`/`country_iso_a3` as **plain strings** (not categorical; verified the consumer does no categorical coercion), `*_code` numeric (int64 when complete; float64 where NaN is present). **Rows with missing GAUL codes are PRESERVED with NaN, never pre-dropped** — the consumer drops them at aggregation under its own legacy-parity rule (their C-146 machinery, verified). Silent pre-dropping would silently mislabel geography.
 
-**§5.2 Consistency.** Sidecar gid-set == forecast gid-set (enforced by views-postprocessing's existing coverage/identity invariants, extended to the sidecar); the sidecar hash is pinned in **each Hop-A (run, target) manifest (§3.2) and in the Hop-B run manifest (§4.2)**. Delivered once per run, not per shard — the whole point is not replicating static strings ×S×36.
+**§5.2 Consistency.** Sidecar gid-set == forecast gid-set (enforced by views-postprocessing's existing coverage/identity invariants, extended to the sidecar); the sidecar hash is pinned in **the Hop-B run manifest (§4.2)** *(Erratum E1, 2026-07-15: formerly "both manifests" — impossible at Hop A, where the sidecar does not yet exist)*. Delivered once per run, not per shard — the whole point is not replicating static strings ×S×36.
 
 ---
 
@@ -258,7 +258,7 @@ Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
 
 ---
 
-## Post-adoption record (facts confirmed after adoption; no clause altered)
+## Post-adoption record
 
 - **2026-07-15 — F1 invisibility CONFIRMED live (was: corroborated inference).** During the
   Hop-B legacy-guard work (faoapi PR #200), a read-only audit of the live `unfao_bucket`
@@ -271,3 +271,14 @@ Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
   `type="ensemble"` pin) and Hop B (faoapi PR #200, `type="model"` pin, live-ground-truthed).
   **Standing constraint (faoapi C-161):** the Hop-B guard must reach *production* before
   views-postprocessing's first contract upload to `unfao_bucket`.
+
+- **2026-07-15 — Erratum E1 (MINOR clarification, §2.1; contract_version stays 1.5):**
+  §3.2/§5.2 required the Hop-A manifest to pin the sidecar hash — impossible, since the
+  sidecar is produced downstream by views-postprocessing. Corrected in place (dated
+  markers above): the sidecar hash is a Hop-B-run-manifest field only; `sidecar_sha256`
+  at Hop A is absent/null. Caught by the pipeline-core seat implementing #269 (their
+  PR #276 ships it as null — already conformant with the erratum).
+- **2026-07-15 — Hop-A publish leg SHIPPED:** pipeline-core #269 closed via their PR #276
+  (`66328be`, 12 tests): Track A archives + manifest-last + torn-run abort + §3.4 emission
+  assert + §3.3 golden-string names + §7a wire mapping (fail-loud on unmapped) + §10.2
+  injectable provenance. The wire now exists end-to-end in code from PFE to the store.
