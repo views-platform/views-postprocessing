@@ -282,3 +282,10 @@ Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
   (`66328be`, 12 tests): Track A archives + manifest-last + torn-run abort + §3.4 emission
   assert + §3.3 golden-string names + §7a wire mapping (fail-loud on unmapped) + §10.2
   injectable provenance. The wire now exists end-to-end in code from PFE to the store.
+- **2026-07-15 — §10 golden fixture PUBLISHED (canonical source):**
+  `tests/fixtures/wire_contract/` in this repo — 1 run × 1 target × 1 month × 6 cells ×
+  S=4; Track-A shard + Hop-A manifest (E1: null sidecar hash) + arrow shard + sidecar
+  (NaN row pinned) + Hop-B run manifest. Root hash (SHA-256 of `SHA256SUMS`):
+  `b1f3878df9ef74b25dce53a070e1711db39dfdf1c6ca3e1f5a716875ceb32f44`. Deterministic
+  generator: `scripts/build_wire_fixture.py` (pyarrow 23.0.1 / views_frames 1.0.0 pinned
+  in the fixture README). Consumers vendor + pinned-hash test per §10.1.
