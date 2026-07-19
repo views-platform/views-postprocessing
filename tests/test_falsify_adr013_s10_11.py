@@ -29,3 +29,8 @@ def test_s11_two_vehicles_distinguished():
 def test_s11_guards_shipped_tense():
     s11 = _sec("## §11 Sequencing", "## Post-adoption record")
     assert re.search(r"merged 2026-07-15", s11)
+
+
+def test_s11_upload_interlock_committed():
+    s11 = _sec("## §11 Sequencing", "## Post-adoption record")
+    assert re.search(r"upload[- ]disabled by default|explicit[^.]{0,80}enable", s11, re.I)

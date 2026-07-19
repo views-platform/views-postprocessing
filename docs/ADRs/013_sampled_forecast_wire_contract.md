@@ -832,6 +832,13 @@ independent of the full consumer legs — **and did: both guards merged 2026-07-
 
 Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
 
+**Upload interlock (design commitment, 2026-07-19 — proceed-safety audit):** the
+C-161 constraint above is prose until code enforces it, so the #91 sink adapter
+**ships upload-disabled by default** — sending bytes to `unfao_bucket` requires an
+explicit, declared enable (config/flag, never a default), and its first enablement
+is gated on the C-161 closure notice from the faoapi seat. Tests and development
+runs can therefore never touch the live bucket by accident.
+
 ---
 
 ## Post-adoption record
