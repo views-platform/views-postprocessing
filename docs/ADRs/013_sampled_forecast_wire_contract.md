@@ -140,7 +140,13 @@ means, and cleanup of the internal store has no owner yet.*)
    *setting* (not code) lists which targets a finished run must contain; the
    middle leg refuses to ship until everything on that list has arrived (§4.2a).
    The list is declared by a human decision and never inferred from what happens
-   to show up. **Per partner.**
+   to show up. **Per partner.** Do not confuse this *delivery definition* with
+   views-models' *delivery pointer* (table row 1): the pointer says **which
+   source supplies which partner** (the supplier contract, repointed when
+   modeling strategy changes); the definition says **what that partner's
+   shipment must contain to ship at all** (the order specification, tightened
+   when the partner relationship changes). Either can change without touching
+   the other.
 
 4. **Serving the partner — the partner's API repo.** For FAO: views-faoapi (#100)
    reads `unfao_bucket` and answers FAO's requests, computing point estimates and
