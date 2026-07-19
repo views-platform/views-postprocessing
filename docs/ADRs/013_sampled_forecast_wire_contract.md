@@ -166,7 +166,7 @@ changes — a repo's code, a maintained configuration, or (if OPEN) nobody yet.
 
 | Role                            | Scope       | FAO instance                     | Owner                    |
 |---------------------------------|-------------|----------------------------------|--------------------------|
-| Delivery pointer (source → partner) | per partner | `postprocessors/un_fao` config → `rusty_bucket` | views-models (ADR-017) |
+| Delivery pointer (source → partner) | per partner | `postprocessors/un_fao` config (names the ensemble) | views-models (ADR-017) |
 | Hop A producer                  | shared      | PFE → internal store             | views-pipeline-core #269 |
 | Anti-corruption layer + §6 gate | per partner | internal store → `unfao_bucket`  | **views-postprocessing** |
 | Delivery definition (§4.2a)     | per partner | FAO delivery config              | **views-postprocessing config** |
@@ -397,13 +397,14 @@ takes the newest fully-manifested run on the shared shelf matching that
 declaration, and verifies the fetched artifacts' identity against it — a mismatch
 fails loud, never falls back. Future partners (e.g. UN CRAFD, UN OCHA) each get
 their own such declaration; nothing is routed or inferred. *Where the launch-side
-declaration lives is views-models' domain: today it is the `postprocessors/un_fao`
-launch config (`"ensemble": "rusty_bucket"`); views-models ADR-017 (Proposed,
+declaration lives is views-models' domain: as of adoption it is the
+`postprocessors/un_fao` launch config's `"ensemble"` field; views-models ADR-017 (Proposed,
 2026-07-02) would make it a first-class delivery declaration — source → consumer —
 with "deployed" derived from it. This contract requires only that such a
 declaration exists and is verified at fetch; the split is deliberate: views-models
 owns the pointer (changes with modeling strategy), this repo owns the partner
-product definition (changes with the partner relationship).*
+product definition (changes with the partner relationship). The ensemble the
+pointer names is a snapshot, not a constant: `rusty_bucket` as of 2026-07-19.*
 views-postprocessing translates a run only when **all configured targets' Hop-A
 manifests** are present, and emits the §4.2 run manifest only after all targets'
 Hop-B shards are uploaded. The run manifest carries the resolved target list, so
