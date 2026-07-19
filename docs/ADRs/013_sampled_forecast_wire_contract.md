@@ -444,6 +444,16 @@ record.)*
 unchanged** (pandas parquet; it takes neither hop — noted here only to prevent
 confusion, §8).
 
+**§4.1b Naming (Hop B).** Shard file name:
+`{run_id}__{target}__m{time_id:06d}.arrow.parquet`; run manifest:
+`{run_id}__manifest.json`; sidecar: `{run_id}__sidecar.parquet`. The templates live
+as shared constants with golden-string tests in this repo's #91 sink leg, mirroring
+§3.3 — file names are locators only, never identity. **Two different "names" exist
+at this hop** *(clarified 2026-07-19)*: the store-*document* `name` field (§4.1a
+below — always the pinned consumer name, it is what routes faoapi's queries) and
+the artifact's *file* name (these templates). They are unrelated and never
+interchange.
+
 **§4.1a Store-document schema (pinned).** faoapi's metadata schema makes all five
 fields **required at upload**, and its production query layer **unconditionally adds
 a `name` filter** to every search (its model path always carries a model name;
@@ -459,8 +469,15 @@ merely degraded. Therefore every Hop-B contract document uploads with:
 | `loa` | `"pgm"` |
 | `targets` | shard: `[<target>]`; manifest/sidecar: the run's full target list |
 
-Upload metadata must also remain compatible with faoapi's C-71 quarantine/approval
-filtering (approval fields present).
+*(Corrected 2026-07-19 — a phantom obligation removed.)* Earlier text required
+upload metadata to carry "approval fields" for faoapi's C-71 quarantine/approval
+filtering. Ground-truthing against faoapi's code shows C-71 is **consumer-side and
+file-id-keyed**: an operator-set quarantine blocklist
+(`APPWRITE_UNFAO_QUARANTINED_FILE_IDS`) and approval allowlist
+(`APPWRITE_UNFAO_APPROVED_FILE_IDS`) — comma-separated bucket file-ids read from
+faoapi's environment (`prediction.py:17-38`). **No upload-metadata approval fields
+exist, and the uploader has no C-71 duty.** The mechanism composes with §4.4:
+operators quarantine or approve the run manifest's file-id.
 
 **Explicit producer obligation.** views-postprocessing currently uploads its
 forecast document under the *ensemble's* name (e.g. `rusty_bucket`), not the pinned
@@ -477,11 +494,23 @@ and MUST be ground-truthed against live Appwrite at run 0 (§11.2). *(Post-adopt
 confirmed live — see the Post-adoption record, 2026-07-15.)*
 
 **§4.2 Run manifest — ONE per run, spanning all targets.** views-postprocessing
-emits **a single manifest per run** to `unfao_bucket`: the full Hop-B shard list
-across all (target, month) with content hashes, the expected month set, expected
-cell count, the run's target list, and the sidecar hash.
-`type="sampled_forecast_manifest"`, **uploaded last — after every target's shards —
-as the run's single commit marker.** This closes the torn-run hole across the
+emits **a single manifest per run** to `unfao_bucket` — the run's packing list.
+Its fields, exactly as the §10 fixture pins them:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `contract_version` | string | per §2 |
+| `run_id` | string | the run this manifest commits |
+| `targets` | array of string | the run's resolved target list (§4.2a) |
+| `shards` | array | one entry per (target, month) shard: `name` (file name per §4.1b), `target`, `time_id`, and `sha256` (SHA-256 hex digest of the complete file bytes) |
+| `expected_months` | array of int | every month-id each target must cover, ascending |
+| `expected_cell_count` | int | per-shard N — each month's cell count; §3.2's scope ruling applies verbatim (uniform across the run, ragged run malformed) |
+| `sidecar` | object | `name` and `sha256` of the §5 sidecar file — the Erratum-E1 home of the sidecar hash |
+
+`type="sampled_forecast_manifest"`, **uploaded last — after every target's shards
+and the sidecar** *(ordering clarified 2026-07-19: the sidecar is inside the
+commit — the manifest may only be uploaded once everything it references, sidecar
+included, is present)* — **as the run's single commit marker.** This closes the torn-run hole across the
 *target* axis: with per-target manifests, a consumer refreshing between targets
 could assemble a run with one target present and the others missing; with one run
 manifest that state is structurally invisible.
@@ -539,7 +568,9 @@ ingest the consumer asserts:
   Rationale: the arrow writer emits that exact column, but the loader never reads it
   — it reconstructs the (N, S) array purely by position — so a reordered or
   truncated table would yield plausible floats in the wrong sample slots, invisible
-  downstream (code locations: Appendix B);
+  downstream (code locations: Appendix B). Operationally: since `arrow.load`
+  discards the column, this check reads the raw parquet table separately (e.g.
+  `pyarrow.parquet.read_table`) before trusting the load;
 - **(c) hashes** — faoapi SHOULD verify shard content hashes against the run
   manifest at ingest (cheap; once per cache fill).
 
@@ -910,6 +941,20 @@ record execution progress against it.
   (`time.npy`/`unit.npy`, int64), SHA-256-of-whole-zip hash coverage, the
   manifest's store-document fields, `.tap` = Track A Package. Guards:
   `tests/test_falsify_adr013_s3.py`. Register: C-50.
+- **2026-07-19 — §4 falsification audit (4 hard, 2 soft); all fixed same day; one
+  phantom obligation removed; one protocol clarification adopted.** Hard: the
+  run-manifest fields were unpinned and the prose understated the canonical bytes
+  (now a field table, §4.2); Hop-B file-name templates were absent and the
+  document-`name`-vs-file-name duality unexplained (now §4.1b); **the sidecar sat
+  outside the commit-marker ordering — clarified (MINOR): the manifest uploads
+  only after every shard AND the sidecar**, restoring §4.2's structurally-invisible
+  guarantee for torn runs; **the "C-71 approval fields" upload obligation was
+  ground-truthed as nonexistent and removed** — faoapi's C-71 is consumer-side,
+  file-id-keyed env lists (`prediction.py:17-38`), composing with §4.4's
+  manifest-as-control-point. Soft fixed: §3.2's cell-count ruling inherited
+  explicitly; §4.5(b) mechanics note (separate raw-table read). §4.3 selection and
+  §4.6 capacity math survived the audit. Guards: `tests/test_falsify_adr013_s4.py`.
+  Register: C-51.
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner

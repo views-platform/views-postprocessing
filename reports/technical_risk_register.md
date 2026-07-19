@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-19                           |
-| Total Concerns    | 50                                   |
+| Total Concerns    | 51                                   |
 | Open Concerns     | 26                                   |
-| Resolved Concerns | 24                                   |
+| Resolved Concerns | 25                                   |
 
 ---
 
@@ -619,6 +619,24 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-51: ADR-013 §4 — unpinned run-manifest, sidecar outside the commit ordering, and a phantom C-71 upload obligation — RESOLVED same day
+
+| Field | Value |
+|-------|-------|
+| ID | C-51 |
+| Tier | 3 (at finding) — one protocol gap (sidecar outside the manifest-last commit ordering contradicted §4.2's torn-runs-invisible guarantee — an outage-shaped hole, loud not silent) and one factually wrong obligation ("C-71 approval fields" that do not exist in faoapi's mechanism) sat directly in the path of the #91 sink-adapter implementation. Not Tier 2: the hash-verification chain made every failure mode loud, and no implementation had yet built on the wrong text. |
+| Source | `falsify` (2026-07-19) — maintainer-commissioned audit of "§4 is sufficient and unambiguous"; verdict FALSIFIED (4 hard, 2 soft) |
+| Trigger | (historical) Building the #91 sink adapter from §4 prose — uploading the sidecar after the manifest, or hunting for nonexistent approval fields |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §4.1–§4.5 |
+
+Hard: (P1) run-manifest fields unpinned; prose understated the canonical bytes (sidecar *object* with name+sha256, per-shard `target`/`time_id`); (P3) Hop-B file-name templates absent + document-`name`-vs-file-name duality unexplained; (P8) **sidecar outside the commit-marker ordering**; (P6) **"C-71 approval fields present" ground-truthed as nonexistent** — faoapi's C-71 is consumer-side env file-id lists (`APPWRITE_UNFAO_QUARANTINED_FILE_IDS` / `APPWRITE_UNFAO_APPROVED_FILE_IDS`, `prediction.py:17-38`); the clause imposed a phantom uploader duty. Soft: cell-count ruling not inherited (P2); §4.5(b) raw-table-read mechanics unstated (P5). §4.3 selection and §4.6 capacity math survived.
+
+**RESOLVED 2026-07-19 (same day):** §4.2 rewritten around a field table matching the fixture bytes; §4.1b added (three Hop-B name templates + the two-names clarification); **ordering clarified (MINOR): manifest uploads only after every shard AND the sidecar**; **the C-71 upload obligation deleted with a dated correction** (mechanism documented as it actually is, composing with §4.4's manifest-as-control-point); §3.2's cell-count ruling inherited verbatim; §4.5(b) mechanics note added. faoapi seat notified on #100. Enforcement: `tests/test_falsify_adr013_s4.py` (6 guards, green). Recorded in the Post-adoption record.
+
+Cross-refs: C-48/C-49/C-50 (the audit series — same fixture-carries-the-spec root cause), C-161 (the deploy gate the #91 leg still waits on).
+
+---
 
 ### C-50: ADR-013 §3 mis-described the Hop-A manifest and left the cell-count scope ambiguous across the producer/consumer boundary — RESOLVED same day
 
