@@ -389,7 +389,14 @@ Which forecasts a partner receives is decided the same way: the delivery is
 takes the newest fully-manifested run on the shared shelf matching that
 declaration, and verifies the fetched artifacts' identity against it — a mismatch
 fails loud, never falls back. Future partners (e.g. UN CRAFD, UN OCHA) each get
-their own such declaration; nothing is routed or inferred.
+their own such declaration; nothing is routed or inferred. *Where the launch-side
+declaration lives is views-models' domain: today it is the `postprocessors/un_fao`
+launch config (`"ensemble": "rusty_bucket"`); views-models ADR-017 (Proposed,
+2026-07-02) would make it a first-class delivery declaration — source → consumer —
+with "deployed" derived from it. This contract requires only that such a
+declaration exists and is verified at fetch; the split is deliberate: views-models
+owns the pointer (changes with modeling strategy), this repo owns the partner
+product definition (changes with the partner relationship).*
 views-postprocessing translates a run only when **all configured targets' Hop-A
 manifests** are present, and emits the §4.2 run manifest only after all targets'
 Hop-B shards are uploaded. The run manifest carries the resolved target list, so
