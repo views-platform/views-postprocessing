@@ -13,8 +13,10 @@ VIEWS forecasts are moving from one predicted number per map cell per month (a *
 estimate*) to roughly a thousand plausible numbers per cell (*samples*, also called
 *draws* — independent possible outcomes drawn from the model's predictive
 distribution). Those samples must travel from the model pipeline that produces them
-all the way to FAO's API **without ever being collapsed back to a single number**
-along the way.
+to every downstream consumer **without ever being collapsed back to a single number**
+along the way. The FAO delivery is the *first* consumer and the scoping case for this
+contract (§8): the header's `spatial_level` field exists precisely so later stores
+and levels inherit the same pattern rather than negotiating a new one.
 
 That journey crosses four repositories and two storage transfers, and before this
 document no written agreement governed it: the "ADR-046" everyone cited contained no
@@ -35,22 +37,33 @@ Plain definitions of every term of art used below, in one place:
 
 - **Wire** — any transfer of data between two systems. A *wire format* is the agreed
   shape of the bytes on such a transfer.
-- **Hop** — one of the two storage transfers the forecast makes: **Hop A** = pipeline
-  → the Appwrite `production_forecasts` store (internal warehouse); **Hop B** =
-  views-postprocessing → the Appwrite `unfao_bucket` store (what views-faoapi serves
-  FAO from). *Appwrite* is the cloud storage service both live on.
+- **Hop** — one of the two storage transfers **the forecast** makes: **Hop A** =
+  pipeline → the Appwrite `production_forecasts` store (internal warehouse); **Hop B**
+  = views-postprocessing → the Appwrite `unfao_bucket` store (what views-faoapi serves
+  FAO from). *Appwrite* is the cloud storage service both live on. The *historical*
+  (observed actuals) artifact takes neither hop: it goes directly from
+  views-postprocessing to `unfao_bucket` and is explicitly out of this contract's
+  scope (§4.1, §8).
 - **PFE** — the *PredictionFrameEnsemble*, pipeline-core's ensemble manager: the
   producer whose output this contract packages.
-- **Run / target / month** — one production forecast generation (a *run*) predicts
-  each *target* variable (state-based, non-state, one-sided violence deaths) for each
-  of 36 future *months*, over ~64,742 PGM cells (*PGM* = PRIO-GRID monthly: one row
-  per 0.5°×0.5° land grid cell per month; a cell's id is its `priogrid_id`, a month's
-  id is the VIEWS `month_id` integer).
+- **Run / target / month** — one production forecast generation (a *run*) predicts a
+  configured set of *target* variables (currently state-based, non-state, and
+  one-sided violence deaths — **the set is configuration, not contract**: §4.2a, and
+  new targets join per §7a) for a horizon of future *months* (currently 36 — carried
+  as data in the header's `sharding.count`, not fixed here), over the PGM cells the
+  run covers (*PGM* = PRIO-GRID monthly: one row per 0.5°×0.5° land grid cell per
+  month; a cell's id is its `priogrid_id`, a month's id is the VIEWS `month_id`
+  integer). **The cell count is declared data, never assumed**: each shipment states
+  its own count in its manifest and identifier arrays, so a regional run (e.g.
+  Africa + Middle East) and a global run conform equally. The ~64,742 figure used in
+  size estimates below is the *global land-cell reference*, an upper bound for
+  capacity math only.
 - **N and S** — a payload is a 2-D table of values with `N` rows (one per cell) and
   `S` columns (one per sample). Production aims at S≈1024.
-- **Shard** — one piece of a run's data, cut per month, stored as one file. Sharding
-  exists because a whole run (~9.5 GB per target at full S) is too big to move as one
-  object.
+- **Shard** — one piece of a run's data, cut per month, stored as one file.
+  ("Shard" is a general data-engineering term for splitting one logical dataset into
+  pieces — it has no tie to any particular file format.) Sharding exists because a
+  whole run (~9.5 GB per target at full S) is too big to move as one object.
 - **Manifest** — a small JSON file listing every shard of a run with a SHA-256
   *content hash* (a fingerprint of the exact bytes) plus what the run is expected to
   contain. It is uploaded **last**, so its presence means "everything before me is
@@ -386,7 +399,13 @@ a "simplification."
   vocabulary is `lr_ged_sb` / `lr_ged_ns` / `lr_ged_os`; producers rename their
   internal names at publish (no `_best` suffixes on a samples wire). The
   internal→wire mapping lives in **one shared constant** in the producing repo,
-  cited by the golden fixture.
+  cited by the golden fixture. **Adding a new target (Amendment A1, maintainer,
+  2026-07-19 — MINOR per §2.1):** a new target joins the wire by (1) the maintainer
+  deciding its canonical wire name, (2) adding that name to the shared mapping
+  constant, and (3) adding it to views-postprocessing's expected-target-set
+  configuration (§4.2a). No other contract change is required — the target list
+  travels as data in manifests and headers. The current three-name list is the
+  *current vocabulary*, not a closed set.
 - **(b)** The `APPWRITE_PROD_FORECASTS_COLLECTION_ID` config fix (views-models#230-A)
   — the documented `forecasts_metadata` collection does not exist in live Appwrite.
 - **(c) ADR numbering:** views-faoapi's consumer-side ADR is **ADR-031** (verified:
@@ -573,6 +592,19 @@ record execution progress against it.
   numbering unchanged; version changelogs and file:line verification evidence moved
   to Appendices A/B. Every MUST, pinned value, and obligation preserved in meaning;
   the normative-drift checklist was reviewed at commit.
+- **2026-07-19 — maintainer read-through: four clarifications + Amendment A1
+  (MINOR, additive; `contract_version` stays 1.5 — no wire bytes change).**
+  Prompted by the maintainer's own reading of the rewritten text: (1) Context now
+  states FAO is the *first* consumer and scoping case, not the only one (§8 already
+  said so); (2) the Vocabulary now states the two hops describe the forecast path
+  only — the historical artifact goes directly to `unfao_bucket` and is out of
+  scope; (3) the Vocabulary no longer presents the target count, month horizon, or
+  cell count as constants — target set is configuration (§4.2a), months and cell
+  counts are declared data, ~64,742 is the global reference for capacity math only;
+  (4) "shard" clarified as a format-agnostic term. **Amendment A1 (§7a)** makes
+  explicit what adding a new target requires: maintainer names it, the shared
+  mapping constant and the §4.2a configuration gain one entry each — nothing else
+  changes. Producer and consumer seats to be notified with a one-line notice.
 
 ---
 
