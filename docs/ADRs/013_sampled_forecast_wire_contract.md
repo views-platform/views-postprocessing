@@ -299,14 +299,21 @@ schema metadata (readable on load as `state["metadata"]`).
 }
 ```
 
-**§2.1 Clauses.** Readers MUST ignore header keys they do not know (the header is
-open to additions; the keys defined here have fixed meaning). `contract_version`
-works like software versions: a **MINOR** bump (1.1 → 1.2) is clarifying or additive
-— an older reader still accepts the artifact; a **MAJOR** bump (1.x → 2.0) is
-breaking and consumers MUST reject it. `sample_count` and `dtype` are **parameters,
-not schema**: a run with few samples is still contract-conformant by construction —
-consumers reject it only when `sample_count < S_min` (§6), never by renegotiating the
-contract.
+**§2.1 Clauses.** Three rules govern the header:
+
+1. **Unknown fields are skipped; known fields are sacred.** A reader that meets a
+   header key it does not recognize MUST ignore it — that is what lets fields be
+   added later without breaking anyone. The keys defined here, however, keep their
+   meaning forever: the header is open to *additions*, closed to *reinterpretation*.
+2. **Version numbers work like software versions.** A **MINOR** bump of
+   `contract_version` (1.1 → 1.2) marks a clarifying or purely additive change — a
+   reader built for 1.1 still accepts a 1.2 artifact. A **MAJOR** bump (1.x → 2.0)
+   marks a breaking change — consumers MUST reject the artifact rather than guess.
+3. **The sample count and number format are settings on the label, not part of the
+   format.** `sample_count` and `dtype` are **parameters, not schema**: a run with
+   S=8 is exactly as contract-conformant as one with S=1024, and changing them
+   renegotiates nothing. The only refusal rule is §6's floor — reject when
+   `sample_count < S_min`.
 
 **§2.2 Identity and provenance.** `id_semantics` states explicitly what the
 identifier arrays mean (`time` is the VIEWS month-id; `unit` is the `priogrid_id`) —
@@ -314,7 +321,9 @@ this platform has already paid once for leaving id vocabulary implicit (the gid/
 epic). `provenance` is exactly the three keys shown (strings/bool). **Caveat:**
 `pipeline_core_version` is self-reported and will be unreliable until pipeline-core's
 release train (their #261) cuts real releases (status at adoption, 2026-07-15: none
-yet) — consumers must not treat it as authoritative before then.
+yet) — consumers must not treat it as authoritative before then. The lift of this
+caveat is tracked as a reminder in pipeline-core: their issue #279 (filed
+2026-07-19) fires when the first real release ships.
 
 **§2.3 Governance hook.** Changing `sample_count` (wire thinning) or `dtype` on the
 **FAO delivery** changes the published HDI/MAP numbers, and is therefore a
