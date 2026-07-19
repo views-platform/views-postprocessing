@@ -45,7 +45,7 @@ def test_s2_points_at_its_companions():
 
 @pytest.mark.xfail(reason="P6: 'the gid/id epic' is unexplained insider jargon", strict=False)
 def test_s2_has_no_unexplained_gid_epic():
-    s2 = _s2()
+    s2 = re.sub(r"\s+", " ", _s2())  # markdown hard-wraps; compare on one line
     if "gid/id epic" in s2:
         # keeping the phrase requires an inline explanation of what that episode was
         assert re.search(r"gid/id epic[^.]{0,200}(identifier|meant|ambigu)", s2)
