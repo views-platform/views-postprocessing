@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-19                           |
-| Total Concerns    | 48                                   |
+| Total Concerns    | 49                                   |
 | Open Concerns     | 26                                   |
-| Resolved Concerns | 22                                   |
+| Resolved Concerns | 23                                   |
 
 ---
 
@@ -619,6 +619,24 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-49: ADR-013 §2 under-specified its own header fields; key order load-bearing but ungoverned — RESOLVED same day
+
+| Field | Value |
+|-------|-------|
+| ID | C-49 |
+| Tier | 3 (at finding) — the header spec every implementing repo writes/validates against left run_id/generated_at/sharding/time_id semantics and enum values to guesswork, and omitted the key-order rule that §10's byte-pinned fixture makes load-bearing: two independent implementers could both believe themselves conformant and disagree (spec-level declare-don't-infer violation across repos). Not Tier 2: the golden fixture existed as executable ground truth, bounding the divergence in practice. |
+| Source | `falsify` (2026-07-19) — maintainer-commissioned audit of "§2 is sufficient and unambiguous"; verdict FALSIFIED (2 hard, 3 soft) |
+| Trigger | (historical) A seat in pipeline-core or faoapi writing a header writer/reader from §2 prose alone, without diffing against the fixture bytes |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §2 |
+
+Hard: (P1) field semantics underdefined — `run_id` minting/uniqueness, `generated_at` format, `sharding` scheme/index/count, `time_id`-to-shard relation, `frame_type`/`representation` enums; (P2) key order ungoverned while §10 pins the header byte-for-byte. Soft: (P3) §2.1 "open to additions" vs §2.2 "provenance exactly three keys" collision for nested keys; (P5) §2 named neither §7a nor §10 — its formats were silently outsourced to an unnamed fixture; (P6) "gid/id epic" insider jargon. Root cause: §2 specified rules-*about*-the-header well but not the fields themselves.
+
+**RESOLVED 2026-07-19 (same day):** per-field table added to §2 (type, format, minting, closed-object markers); key-order note (writers emit the pinned order, readers MUST NOT depend on it, §10 is why); "fixture governs" note; **clarification adopted (MINOR, §2.1): rule-1 openness is top-level only — `id_semantics`/`provenance`/`sharding` sub-objects are closed**; §7a/§10 cross-referenced; gid/id epic glossed. Enforcement: `tests/test_falsify_adr013_s2.py` (5 audit stubs → permanent guards, green). Recorded in the ADR's Post-adoption record.
+
+Cross-refs: C-48 (same disease class in §0, same audit day), C-42/C-47 (prior doc-vs-reality drift).
+
+---
 
 ### C-48: ADR-013 §0 misled on operational status and omitted core flow semantics — RESOLVED same day
 

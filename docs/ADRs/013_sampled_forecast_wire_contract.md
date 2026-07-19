@@ -299,12 +299,44 @@ schema metadata (readable on load as `state["metadata"]`).
 }
 ```
 
+Field by field — what each key is, and who sets it:
+
+| Key | Type | Meaning / format |
+|---|---|---|
+| `contract_version` | string | `"MAJOR.MINOR"` of this contract — rule 2 below |
+| `frame_type` | string | `"prediction"` is the only value on this wire (the historical artifact is out of scope, §4.1); new frame types would be MINOR additions |
+| `representation` | string | `"samples"` is the only value defined — even an S=1 run declares `"samples"` |
+| `sample_count` | int ≥ 1 | S, the number of samples per cell — a parameter, rule 3 below |
+| `dtype` | string | numpy dtype name of the payload values; `"float32"` on this wire (§3.1); changing it is governed by §2.3 |
+| `spatial_level` | string | `"pgm"` for this delivery; other levels inherit later (§8) |
+| `target` | string | a name from the pinned §7a wire vocabulary — never an internal model name |
+| `time_id` | int | the VIEWS month-id; per-month sharding makes this **the shard's month** — every identifier row's time value equals it |
+| `run_id` | string | minted once by the producer at run start, unique per production run platform-wide; every artifact of that run, on both hops, carries the same value |
+| `generated_at` | string | ISO-8601 UTC instant (e.g. `"2026-07-15T00:00:00Z"`); injectable in test mode (§10.2) |
+| `id_semantics` | object (closed) | what the identifier arrays mean — §2.2 |
+| `provenance` | object (closed) | exactly the three keys shown — §2.2 |
+| `sharding` | object (closed) | `scheme`: only `"per_month"` is defined in v1; `index`: zero-based position of this shard among the (run, target)'s months in ascending month order; `count`: total shards for that (run, target) |
+
+Two notes that bind the table:
+
+- **Key order.** Writers emit keys in exactly the order shown above (readers MUST
+  NOT depend on it): the order exists only so that §10's golden fixture can pin the
+  header byte-for-byte — two independent hand-written header writers can only
+  byte-match if order is fixed.
+- **The executable spec.** The §10 golden fixture pins this header byte-for-byte;
+  where prose and fixture bytes could ever be read differently, **the fixture
+  governs** (and changing it is changing the contract, §10).
+
 **§2.1 Clauses.** Three rules govern the header:
 
 1. **Unknown fields are skipped; known fields are sacred.** A reader that meets a
    header key it does not recognize MUST ignore it — that is what lets fields be
    added later without breaking anyone. The keys defined here, however, keep their
-   meaning forever: the header is open to *additions*, closed to *reinterpretation*.
+   meaning forever: the header is open to *additions*, closed to
+   *reinterpretation*. **This openness applies to top-level keys only** *(clarified
+   2026-07-19, MINOR)*: the `id_semantics`, `provenance`, and `sharding`
+   sub-objects are **closed** — adding a key inside one of them is a contract
+   amendment, not a free addition.
 2. **Version numbers work like software versions.** A **MINOR** bump of
    `contract_version` (1.1 → 1.2) marks a clarifying or purely additive change — a
    reader built for 1.1 still accepts a 1.2 artifact. A **MAJOR** bump (1.x → 2.0)
@@ -318,7 +350,8 @@ schema metadata (readable on load as `state["metadata"]`).
 **§2.2 Identity and provenance.** `id_semantics` states explicitly what the
 identifier arrays mean (`time` is the VIEWS month-id; `unit` is the `priogrid_id`) —
 this platform has already paid once for leaving id vocabulary implicit (the gid/id
-epic). `provenance` is exactly the three keys shown (strings/bool). **Caveat:**
+epic: a past platform-wide cleanup needed just to disambiguate what its integer
+identifier columns meant). `provenance` is exactly the three keys shown (strings/bool). **Caveat:**
 `pipeline_core_version` is self-reported and will be unreliable until pipeline-core's
 release train (their #261) cuts real releases (status at adoption, 2026-07-15: none
 yet) — consumers must not treat it as authoritative before then. The lift of this
@@ -837,6 +870,17 @@ record execution progress against it.
   name the consumer's filter resolves — a stronger statement than "stalled").
   Review artifact:
   `views-models/reports/expert_reviews/2026-07-19_adr013_wire_contract_review_views_models_seat.md`.
+- **2026-07-19 — §0 and §2 readability falsification audits (maintainer-commissioned);
+  all findings fixed same day; one MINOR clarification adopted.** Two audits of the
+  claims "§0 / §2 alone suffice and are unambiguous": both FALSIFIED (§0: 2 hard /
+  5 soft — no execution status, commit-marker semantics absent, jargon unanchored;
+  §2: 2 hard / 3 soft — field formats underdefined, key-order rule missing,
+  open-vs-closed sub-object conflict). All fixed in place: §0.2a execution-status
+  block; §2 field table + key-order and fixture-governs notes. **Clarification
+  adopted (MINOR, §2.1; no wire bytes change): rule 1's openness applies to
+  top-level keys only — the `id_semantics`/`provenance`/`sharding` sub-objects are
+  closed.** Enforcement: `tests/test_falsify_adr013_s0.py` and `_s2.py` (audit
+  stubs converted to permanent guards). Register: C-48, C-49.
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner
