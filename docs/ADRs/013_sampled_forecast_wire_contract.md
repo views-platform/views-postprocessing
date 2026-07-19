@@ -18,8 +18,11 @@ along the way. The FAO delivery is the *first* consumer and the scoping case for
 contract (§8): the header's `spatial_level` field exists precisely so later stores
 and levels inherit the same pattern rather than negotiating a new one.
 
-That journey crosses four repositories and two storage transfers, and before this
-document no written agreement governed it: the "ADR-046" everyone cited contained no
+That journey crosses four repositories — views-models and views-pipeline-core on the
+producing side, views-postprocessing in the middle, views-faoapi at the serving end
+(all but views-models implement a wire leg, hence "three implementing repos" in §10)
+— and two storage transfers, and before this document no written agreement governed
+it: the "ADR-046" everyone cited contained no
 format decision, the pipeline had no code path that published samples at all, and
 three repos were each waiting on another to move first. This ADR is that missing
 agreement — the contract of record. It was produced through five reviewed iterations
@@ -37,7 +40,8 @@ Plain definitions of every term of art used below, in one place:
 
 - **Wire** — any transfer of data between two systems. A *wire format* is the agreed
   shape of the bytes on such a transfer.
-- **Hop** — one of the two storage transfers **the forecast** makes: **Hop A** =
+- **Hop** — one of the two storage transfers **the forecast** makes in this
+  contract's delivery (later stores repeat the same two-hop shape — §8): **Hop A** =
   pipeline → the Appwrite `production_forecasts` store (internal warehouse); **Hop B**
   = views-postprocessing → the Appwrite `unfao_bucket` store (what views-faoapi serves
   FAO from). *Appwrite* is the cloud storage service both live on. The *historical*
@@ -53,27 +57,32 @@ Plain definitions of every term of art used below, in one place:
   as data in the header's `sharding.count`, not fixed here), over the PGM cells the
   run covers (*PGM* = PRIO-GRID monthly: one row per 0.5°×0.5° land grid cell per
   month; a cell's id is its `priogrid_id`, a month's id is the VIEWS `month_id`
-  integer). **The cell count is declared data, never assumed**: each shipment states
+  integer; PGM is *this delivery's* level — the header's `spatial_level` field keeps
+  the pattern level-neutral, §8). **The cell count is declared data, never
+  assumed**: each shipment states
   its own count in its manifest and identifier arrays, so a regional run (e.g.
   Africa + Middle East) and a global run conform equally. The ~64,742 figure used in
   size estimates below is the *global land-cell reference*, an upper bound for
   capacity math only.
 - **N and S** — a payload is a 2-D table of values with `N` rows (one per cell) and
   `S` columns (one per sample). Production aims at S≈1024.
-- **Shard** — one piece of a run's data, cut per month, stored as one file.
-  ("Shard" is a general data-engineering term for splitting one logical dataset into
-  pieces — it has no tie to any particular file format.) Sharding exists because a
-  whole run (~9.5 GB per target at full S) is too big to move as one object.
-- **Manifest** — a small JSON file listing every shard of a run with a SHA-256
-  *content hash* (a fingerprint of the exact bytes) plus what the run is expected to
-  contain. It is uploaded **last**, so its presence means "everything before me is
+- **Shard** — one piece of a run's data, cut per (target, month), stored as one
+  file. ("Shard" is a general data-engineering term for splitting one logical
+  dataset into pieces — it has no tie to any particular file format.) Sharding
+  exists because a whole run (~9.5 GB per target at full S and the global reference
+  parameters) is too big to move as one object.
+- **Manifest** — a small JSON file listing every shard in its scope — one manifest
+  per (run, target) at Hop A (§3.2), one per whole run at Hop B (§4.2) — with a
+  SHA-256 *content hash* (a fingerprint of the exact bytes) per shard, plus what
+  that scope is expected to contain. It is uploaded **last**, so its presence means "everything before me is
   complete" — we call that the *commit marker*. A run whose upload died halfway (a
   *torn run*) has no manifest and is therefore invisible to consumers.
 - **Sidecar** — a separate small file carrying the static geography lookup (country,
   admin regions) per cell, shipped once per run instead of being copied into every
   row of every shard.
-- **S_min** — the minimum sample count a consumer will accept before refusing to
-  serve (protects FAO from accidentally-collapsed forecasts).
+- **S_min** — the minimum sample count the delivery will pass on: the floor
+  enforced by the §6 gate *before* upload (consumers may re-check it). It protects
+  downstream consumers from accidentally-collapsed forecasts.
 - **Anti-corruption layer** — the one component (views-postprocessing) that speaks
   both end formats so that neither end's format leaks into the other's code.
 
@@ -105,7 +114,7 @@ before adoption (the verification trail is in Appendix A).
 | Hop A consumer + Hop B producer + **the no-collapse policy boundary (§6)** | **views-postprocessing** |
 | Expected-target-set / run-completeness knowledge (§4.2a) | **views-postprocessing configuration** |
 | Hop B consumer (`unfao_bucket` → serving) | views-faoapi (#100) |
-| `production_forecasts` retention (§3.5) | named at sign-off (infrastructure owner) |
+| `production_forecasts` retention (§3.5) | **OPEN — no owner was actually named at sign-off** (gap surfaced 2026-07-19; see Post-adoption record) |
 
 ---
 
@@ -134,7 +143,7 @@ time — the *edge* — so samples are never collapsed in transit.
 views-postprocessing is the anti-corruption layer: neither end format leaks past it.
 Hop A deliberately wraps what PFE already writes — zero new serialization code in
 pipeline-core, compatible with their #207 on-disk-format deferral and orthogonal to
-their #139 Track-B retirement. Hop B is the format views-postprocessing#91 and
+their #139 Track-B retirement (as characterized at adoption). Hop B is the format views-postprocessing#91 and
 views-faoapi#100 had already ratified.
 
 ---
@@ -181,8 +190,8 @@ identifier arrays mean (`time` is the VIEWS month-id; `unit` is the `priogrid_id
 this platform has already paid once for leaving id vocabulary implicit (the gid/id
 epic). `provenance` is exactly the three keys shown (strings/bool). **Caveat:**
 `pipeline_core_version` is self-reported and will be unreliable until pipeline-core's
-release train (their #261) cuts real releases — consumers must not treat it as
-authoritative before then.
+release train (their #261) cuts real releases (status at adoption, 2026-07-15: none
+yet) — consumers must not treat it as authoritative before then.
 
 **§2.3 Governance hook.** Changing `sample_count` (wire thinning) or `dtype` on the
 **FAO delivery** changes the published HDI/MAP numbers, and is therefore a
@@ -233,25 +242,30 @@ round-trip test (archive → unzip → reload reconstructs the identical frame;
 pipeline-core#269 acceptance), so the runtime assert stays cheap and runs on every
 publish. Feasibility was verified at the attach point in pipeline-core's code
 (Appendix B). This is a *mechanism* guard — each hop vouches for its own emission;
-the FAO *policy* lives only at §6.
+the no-collapse *policy* lives only at §6.
 
-**§3.5 Retention.** A full-S run ≈ 28.6 GB (3 targets × 36 months × ~265 MB) lands
-in `production_forecasts` and accumulates with every run. Verified: no
-retention/TTL/quota mechanism exists anywhere in the store code today. **A retention
-owner and policy (quota, TTL, or cleanup cadence) must be named at sign-off, before
-the first full-S production run.**
+**§3.5 Retention.** At the reference parameters (3 targets × 36 months × ~265 MB —
+a figure that *grows* with new targets and wider coverage) a full-S run ≈ 28.6 GB
+lands in `production_forecasts` and accumulates with every run. Verified at adoption
+(2026-07-15): no retention/TTL/quota mechanism existed anywhere in the store code.
+**A retention owner and policy (quota, TTL, or cleanup cadence) must be named at
+sign-off, before the first full-S production run.** *(Gap surfaced 2026-07-19: no
+owner was in fact named at sign-off — this duty is OPEN; see the Post-adoption
+record.)*
 
 ---
 
 ## §4 Hop B: arrow delivery (views-postprocessing → `unfao_bucket` → views-faoapi)
 
 **§4.1 Shard.** One `views_frames.io.arrow` file per **(target, month)**, with the
-§2 header embedded. The **historical actuals+geography artifact is explicitly
-unchanged** (pandas parquet, as today).
+§2 header embedded. The **historical actuals+geography artifact is out of scope and
+unchanged** (pandas parquet; it takes neither hop — noted here only to prevent
+confusion, §8).
 
 **§4.1a Store-document schema (pinned).** faoapi's metadata schema makes all five
 fields **required at upload**, and its production query layer **unconditionally adds
-a `name` filter** to every search (its model path always carries a model name) — so
+a `name` filter** to every search (its model path always carries a model name;
+verified 2026-07-13/14, evidence in Appendix B) — so
 a document uploaded under the wrong `name` is *invisible to the consumer*, not
 merely degraded. Therefore every Hop-B contract document uploads with:
 
@@ -310,7 +324,8 @@ validation). A new manifest ⇒ a new run ⇒ cache invalidation; no per-shard c
 bookkeeping. **The manifest is also the run's operational control point:**
 quarantining the manifest's file-id (the C-71 blocklist) — or deleting the manifest
 — atomically rolls the consumer back to the previous manifested run, without
-touching the 100+ shard objects. Operators act on manifests, never on shards. (A
+touching the run's full shard set (100+ objects at current parameters). Operators
+act on manifests, never on shards. (A
 runbook line to land with faoapi#100.)
 
 **§4.5 Ingest asserts (consumer-side mechanism guards, defense-in-depth).** At
@@ -329,14 +344,15 @@ ingest the consumer asserts:
 These are mechanism guards; the §6 policy is not duplicated here.
 
 **§4.6 Capacity and the intended consumer model.** At the reference parameters a
-fully assembled run is ≈ 28.6 GB in memory — larger than the serving host. **Before
+fully assembled run is ≈ 28.6 GB in memory — larger than the current serving host's
+RAM (as of adoption). **Before
 a production S is chosen, the capacity inequality
 `assembled-run size × safety factor ≤ consumer serving RAM` must be owned** —
 either by choosing wire parameters that satisfy it, or (the intended direction) by
 **lazy per-month consumption**: the per-(target, month) sharding exists precisely so
 the consumer can load shards on demand with a month-keyed cache, which dissolves the
 memory wall without memory-mapping. Documented caveat: `arrow.load` reads a whole
-file into RAM (no mmap today; ~1.6 GB transient per full-S shard); per-month
+file into RAM (no mmap as of adoption; ~1.6 GB transient per full-S shard); per-month
 sharding is the mitigation, and mmap/partitioned arrow remains future views-frames
 work, not a contract dependency.
 
@@ -347,7 +363,9 @@ work, not a contract dependency.
 (*GAUL* is FAO's Global Administrative Unit Layers — the standard country/admin
 region coding the delivery labels cells with.)
 
-**§5.1 Schema.** One sidecar per run (~64,742 rows), `type="sampled_forecast_sidecar"`
+**§5.1 Schema.** One sidecar per run — one row per covered cell; the count is
+declared data and must equal the forecast's cell set (§5.2), ~64,742 rows at the
+global reference — `type="sampled_forecast_sidecar"`
 (store-document fields per §4.1a), keyed by `priogrid_id`, with **exactly these 9
 columns**: `pg_xcoord` (float64), `pg_ycoord` (float64), `country_iso_a3` (string),
 `admin1_gaul1_code`, `admin1_gaul1_name`, `admin1_gaul0_code`, `admin1_gaul0_name`,
@@ -363,7 +381,7 @@ set (enforced by views-postprocessing's existing coverage/identity invariants,
 extended to the sidecar). The sidecar hash is pinned in **the Hop-B run manifest
 (§4.2)** *(Erratum E1: formerly "both manifests" — impossible at Hop A, where the
 sidecar does not yet exist)*. Delivered once per run, not per shard — the whole
-point is not replicating static strings ×S×36.
+point is not replicating static strings ×S×months.
 
 ---
 
@@ -377,14 +395,16 @@ coverage/identity/observed-range/provenance invariants), raises
 
 1. values are 2-D `(N, S)`;
 2. payload S equals the header's `sample_count`;
-3. `sample_count >= S_min` (config: 2 for the walking skeleton; region-pinned for
-   production);
+3. `sample_count >= S_min` (config: 2 for the walking skeleton; "region-pinned" for
+   production — *the precise production pinning mechanism is ambiguous as written;
+   flagged for maintainer definition 2026-07-19, see the Post-adoption record*);
 4. **globally**, at least one row has more than one distinct sample value.
    *Explicit non-rule: a single row with zero variance is legal — zero-conflict
    cells dominate PGM, so many rows are legitimately all-zeros; the degeneracy check
    is global-across-rows, never per-row.*
 
-It runs before every FAO-facing forecast upload. This is the single **policy** gate;
+It runs before every consumer-facing forecast upload (in this contract's scope: the
+FAO delivery). This is the single **policy** gate;
 the §3.4 and §4.5 asserts are per-hop **mechanism** guards that localize faults
 without duplicating the policy (bulkheads plus one gate). **Note:** rule 2
 deliberately re-validates what §4.5(a) already checked at ingest — the policy gate
@@ -408,8 +428,8 @@ a "simplification."
   *current vocabulary*, not a closed set.
 - **(b)** The `APPWRITE_PROD_FORECASTS_COLLECTION_ID` config fix (views-models#230-A)
   — the documented `forecasts_metadata` collection does not exist in live Appwrite.
-- **(c) ADR numbering:** views-faoapi's consumer-side ADR is **ADR-031** (verified:
-  000–030 taken). faoapi#100 to be retitled off "ADR-046".
+- **(c) ADR numbering:** views-faoapi's consumer-side ADR is **ADR-031** (verified
+  2026-07-06: 000–030 taken at that date). faoapi#100 to be retitled off "ADR-046".
 
 ---
 
@@ -503,13 +523,16 @@ type-aware consumer — or at minimum a one-line `type` guard in the deployed le
 reader — must be **live before the first contract artifact is uploaded there**.
 Why, per hop:
 
-- **Hop B:** deployed faoapi selects the newest `category="forecast"` document with
+- **Hop B (deployed state as verified 2026-07-13; the guard has since merged and
+  awaits production deploy — C-161, Post-adoption record):** deployed faoapi selects
+  the newest `category="forecast"` document with
   no `type` awareness — and since it name-filters on the pinned consumer name, the
   contract wave's `name="un_fao"` documents become **visible to the legacy
   selector** precisely where the old ensemble-named forecasts were not. Without the
   guard, the first Hop-B upload would be grabbed as "the forecast" by deployed code.
   The constraint is *more* acute under the contract, not less.
-- **Hop A:** the legacy views-postprocessing reader has the same selection shape
+- **Hop A (verified 2026-07-13; the guard has since merged — Post-adoption
+  record):** the legacy views-postprocessing reader has the same selection shape
   (newest `category="forecast"`, no `type` filter). Its existing identity assertion
   makes the failure **loud, not silent** — an outage, not corruption — but the
   constraint stands: the type-aware source adapter, or a one-line `type` filter in
@@ -605,6 +628,23 @@ record execution progress against it.
   explicit what adding a new target requires: maintainer names it, the shared
   mapping constant and the §4.2a configuration gain one entry each — nothing else
   changes. Producer and consumer seats to be notified with a one-line notice.
+- **2026-07-19 — adversarial fresh-eyes sweep (21 findings; prose and dating fixes;
+  TWO OPEN maintainer items surfaced).** After the maintainer's own read caught
+  FAO-centrality slips, an independent reviewer swept the full text for
+  instance-facts presented as intrinsic, internal contradictions, and undated
+  snapshots of other repos' state. All findings fixed in place, except two surfaced
+  as genuinely open:
+  **(1) Retention owner (§0.3/§3.5): the contract required an owner to be named at
+  sign-off; none ever was.** The ownership-table cell silently read as resolved.
+  Now marked OPEN; must close before the first full-S production run.
+  **(2) §6 "region-pinned" production S_min: the term was never defined** —
+  carried verbatim from the draft; the maintainer will define the production
+  pinning mechanism.
+  Dominant fixed residue: the capacity arithmetic (28.6 GB, 9.5 GB, 100+ shards,
+  ×36, the 64,742-row sidecar) still presented current parameters as constants
+  after the Vocabulary had disclaimed them; all figures are now labelled reference
+  parameters. Undated present-tense claims about other repos' deployed state
+  (§2.2, §3.5, §4.1a, §4.6, §7c, §11.4) are now dated.
 
 ---
 
