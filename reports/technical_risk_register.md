@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-19                           |
-| Total Concerns    | 54                                   |
+| Total Concerns    | 55                                   |
 | Open Concerns     | 26                                   |
-| Resolved Concerns | 28                                   |
+| Resolved Concerns | 29                                   |
 
 ---
 
@@ -619,6 +619,22 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-55: ADR-013 §10/§11 — vendoring mechanism leaned on the README; two verification vehicles conflatable; stale guard tense — RESOLVED same day; AUDIT SERIES COMPLETE
+
+| Field | Value |
+|-------|-------|
+| ID | C-55 |
+| Tier | 4 — doc-only: §10.1 commanded cross-repo vendoring without defining the root-hash mechanism or naming the fixture path (both lived in the README/Post-adoption record); §11.1's skeleton S=8 and the fixture's S=4 invited conflation; §11.4 said the legacy guards "can ship" when both had already merged. No correctness impact. |
+| Source | `falsify` (2026-07-19) — audits of "§10 / §11 are sufficient and unambiguous"; both **CONTESTED (0 hard, 2 soft each)** |
+| Trigger | (historical) A vendoring implementer reconstructing the root-hash mechanism from the README instead of the contract; a reader taking S=8 vs S=4 as a contradiction |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §10.1, §11.1, §11.4 |
+
+**RESOLVED 2026-07-19 (same day):** §10.1 self-contains the mechanism (path, per-file `SHA256SUMS`, root hash = SHA-256 of `SHA256SUMS`); §11.1 distinguishes the two vehicles; §11.4 re-tensed (both guards merged 2026-07-15; Hop-B production deploy rides C-161). Enforcement: `tests/test_falsify_adr013_s10_11.py`.
+
+**Series closure:** with this entry, every section of ADR-013 (§0–§11) has been independently falsification-audited (C-48–C-55): 5 FALSIFIED, 3 CONTESTED, 2 sections SURVIVED outright (§1, §9); every finding fixed same-day; 40 permanent guards enforce the fixes. Recurring root cause across the series: the golden fixture silently carried spec the prose drifted from — now everywhere the prose names the fixture as its executable pin.
+
+---
 
 ### C-54: ADR-013 §7/§8 — stale cross-repo status claims and a dangling hardening intent (§1/§9 survived audit) — RESOLVED same day
 

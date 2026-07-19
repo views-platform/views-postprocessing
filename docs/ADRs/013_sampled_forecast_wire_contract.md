@@ -751,10 +751,13 @@ consumer proves it ingests them. The fixture **pins the header JSON byte-for-byt
 — that is what makes two independently hand-written header writers safe without a
 shared constructor. **A change to the fixture is a change to the contract.**
 
-**§10.1 Distribution.** The fixture bytes live in **this repo** (beside the ADR).
-The other two repos **vendor a copy** (commit their own copy of the files) and carry
-a **pinned content-hash equality test**: the hash, recorded next to the fixture, is
-the cross-repo contract; a mismatch fails loud with "re-vendor the fixture from
+**§10.1 Distribution.** The fixture bytes live in **this repo** at
+`tests/fixtures/wire_contract/`. Integrity mechanism *(spelled out 2026-07-19)*:
+`SHA256SUMS` in that directory lists each fixture file's SHA-256; the **root hash**
+— the SHA-256 of `SHA256SUMS` itself — is the single cross-repo pin, recorded in
+the fixture README (and this document's Post-adoption record). The other two repos
+**vendor a copy** (commit their own copy of the files) and carry a **pinned
+root-hash equality test**; a mismatch fails loud with "re-vendor the fixture from
 views-postprocessing@\<ref\>". No CI network dependency; no silent drift.
 
 **§10.2 Injectable provenance.** Byte-for-byte parity requires producers to accept
@@ -770,7 +773,9 @@ pipeline-core#269 plans its header writer accordingly.
 low-S placeholder ensemble is contract-conformant — the *walking skeleton*
 (views-models#230; the smallest end-to-end version of the whole path) runs **at S=8
 with synthetic constituents** as the contract's verification vehicle. It proves the
-plumbing; only the *scale* proof waits on views-models#143/#146 tuning.
+plumbing; only the *scale* proof waits on views-models#143/#146 tuning. (Distinct
+from the §10 fixture's S=4 — two different vehicles: the fixture pins canonical
+bytes for test suites; the skeleton proves the live path end to end.)
 
 **§11.2 Run-0 checklist.** The first skeleton run carries three manual duties:
 
@@ -820,8 +825,10 @@ carries the legacy `type` vocabulary — Hop-B legacy uploads stamp `type="model
 Hop-A legacy uploads stamp `type` ∈ {`"model"`, `"ensemble"`} — **fully disjoint
 from the contract's `sampled_forecast_*` values**. So the minimal legacy guard is
 literally one line at each deployed selector: pin the legacy type(s) into its
-filters. It needs zero knowledge of the new types and can ship immediately,
-independent of the full consumer legs. (Code locations: Appendix B.)
+filters. It needs zero knowledge of the new types and could ship immediately,
+independent of the full consumer legs — **and did: both guards merged 2026-07-15**
+(Post-adoption record; the Hop-B guard's *production* deploy rides C-161).
+(Code locations: Appendix B.)
 
 Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
 
@@ -1004,6 +1011,17 @@ record execution progress against it.
   hardening intent is now **filed as views-frames#199**; §9 gains the
   since-shipped marker on #269. Guards: `tests/test_falsify_adr013_s789.py`.
   Register: C-54.
+- **2026-07-19 — §10/§11 falsification audits: both CONTESTED (0 hard, 2 soft
+  each); all fixed same day — SERIES COMPLETE.** §10.1 now defines its own
+  integrity mechanism (path `tests/fixtures/wire_contract/`; per-file `SHA256SUMS`;
+  root hash = SHA-256 of `SHA256SUMS`) instead of leaning on the README; §11.1
+  distinguishes the two verification vehicles (fixture S=4 pins bytes; skeleton
+  S=8 proves the live path); §11.4's minimal-guard note re-tensed — both guards
+  merged 2026-07-15, Hop-B production deploy rides C-161. Guards:
+  `tests/test_falsify_adr013_s10_11.py`. Register: C-55. **Every section of this
+  ADR (§0–§11) has now been independently falsification-audited; every finding
+  fixed same-day; 40 permanent guards enforce the fixes
+  (`tests/test_falsify_adr013_*.py`).**
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner
