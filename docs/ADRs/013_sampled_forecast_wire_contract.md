@@ -171,15 +171,34 @@ changes — a repo's code, a maintained configuration, or (if OPEN) nobody yet.
 ## §1 Topology — two hops, one interior representation
 
 ```
-PFE (per-target y_pred.npy (N,S) float32 + identifiers.npz, local disk)
-  ── Hop A: Track A archive (zip), one per (run, target, month);
-            per-(run, target) manifest uploaded LAST = commit marker ──►  Appwrite `production_forecasts`
-views-postprocessing
-  (interior: per-target 2-D PredictionFrame via from_arrays; the anti-corruption layer;
-   owns the §6 no-collapse policy boundary; awaits ALL targets per §4.2a)
-  ── Hop B: one views_frames.io.arrow file per (target, month) + geo sidecar +
-            ONE run manifest spanning all targets (LAST = commit marker) ──►  Appwrite `unfao_bucket`
-views-faoapi (serve; MAP/HDI at the edge)
+PFE  (producer, in views-pipeline-core)
+  writes per target: y_pred.npy (N,S) float32
+  + identifiers.npz, on local disk
+      |
+      |  HOP A — Track A archive (zip),
+      |  one per (run, target, month);
+      |  per-(run, target) manifest
+      |  uploaded LAST = commit marker
+      v
+Appwrite `production_forecasts`
+  (internal store, shared by all partners)
+      |
+      v
+views-postprocessing  (anti-corruption layer)
+  interior: per-target 2-D PredictionFrame
+  via from_arrays; owns the §6 no-collapse
+  gate; awaits ALL targets (§4.2a)
+      |
+      |  HOP B — one views_frames.io.arrow
+      |  file per (target, month) + geo
+      |  sidecar + ONE run manifest spanning
+      |  all targets, LAST = commit marker
+      v
+Appwrite `unfao_bucket`  (FAO-facing store)
+      |
+      v
+views-faoapi  (serves FAO; MAP/HDI
+  computed at the edge)
 ```
 
 In words: the pipeline zips exactly the files it already writes to local disk and
