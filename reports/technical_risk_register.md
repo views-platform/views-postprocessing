@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-19                           |
-| Total Concerns    | 47                                   |
+| Total Concerns    | 48                                   |
 | Open Concerns     | 26                                   |
-| Resolved Concerns | 21                                   |
+| Resolved Concerns | 22                                   |
 
 ---
 
@@ -619,6 +619,24 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-48: ADR-013 §0 misled on operational status and omitted core flow semantics — RESOLVED same day
+
+| Field | Value |
+|-------|-------|
+| ID | C-48 |
+| Tier | 3 (at finding) — a governance document read by all four repos' seats stated "FAO's exists now" with no execution-status information, inviting cross-repo readers to believe the contract flow was live while the sink leg was unbuilt, the Hop-B guard undeployed (C-161), and FAO serving empty. Misleading a seat into acting on that (e.g. uploading before the guard) was the realistic harm. Not Tier 2: the §11.4 constraint existed elsewhere in the same document. |
+| Source | `falsify` (2026-07-19) — maintainer-commissioned audit of the claim "§0 alone suffices to understand the flow"; verdict FALSIFIED (2 hard, 5 soft) |
+| Trigger | (historical) A cross-repo seat reading §0 as its only source before acting on the wire |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §0 |
+
+Hard: (P4) no current-execution-status anywhere in §0 + "FAO's exists now" misdirection; (P2) complete-or-invisible/commit-marker semantics absent. Soft: PFE/Hop A/Hop B undefined in §0 (P1b); no-collapse gate unexplained (P3); historical bypass absent (P6); undated "today" ×2 (P5b + one more found at fix time); §0.2-vs-row-6 preconditions tension (P7). Root cause: §0 grew as an ownership section, then was asked to be a flow summary.
+
+**RESOLVED 2026-07-19 (same day):** §0.2a "Execution status" block added (dated, points at the Post-adoption record as the running log; states plainly what is built, unbuilt, undeployed, and that FAO serving is currently empty); commit-marker sentence in role 1; no-collapse gloss, legacy-vs-contract clarification, and historical-bypass note in role 2; §0.2/role-5 tension reconciled in place; PFE + hops anchored in the table legend; both undated "today"s dated. Enforcement: `tests/test_falsify_adr013_s0.py` — the 5 audit stubs converted to permanent guards, all green.
+
+Cross-refs: C-161 (the deploy constraint §0.2a now surfaces), C-42/C-47 (prior doc-vs-reality drift instances), D-12 (§0.3 generalization work in the same section).
+
+---
 
 ### C-35: Invalid `-99` country code shipped to FAO for Somaliland cells — RESOLVED
 

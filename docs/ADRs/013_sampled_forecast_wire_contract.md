@@ -115,8 +115,22 @@ the ratifying comment on views-models#149.
 views-models#149, **enacted by landing this ADR in views-postprocessing in the same
 motion** — the ADR is the adoption act, not a follow-up. Implementation in any repo
 before that point is out of contract. Sign-off required every cross-repo claim in
-this contract to be confirmed by the repo that owns it; all preconditions were met
-before adoption (the verification trail is in Appendix A).
+this contract to be confirmed by the repo that owns it; all of those ratification
+preconditions were met before adoption (the verification trail is in Appendix A).
+One sign-off *duty* was nonetheless missed despite that: the §3.5 retention owner
+was never named — see role 5 below; the two statements are not in conflict, one is
+about claim ratification, the other an unmet naming duty.
+
+**§0.2a Execution status (as of 2026-07-19 — the dated Post-adoption record at the
+end of this document is the running log).** Adopted does not mean built. Built and
+merged: the Hop-A publish leg (pipeline-core PR #276), the Hop-A source adapter
+(this repo, PR #101), the golden fixture, and both legacy guards. Not yet built:
+the Hop-B sink leg (this repo, #91). Merged but not yet deployed: the Hop-B legacy
+guard awaits faoapi's production release (C-161; their deploy epic #184). And the
+plain operational truth: FAO forecast serving is currently **empty** — no forecast
+has ever been servable end-to-end on the legacy path (wrong document name; see the
+Post-adoption record, 2026-07-15). Nothing may upload to `unfao_bucket` before the
+guard is live (§11.4).
 
 **§0.3 Ownership.** Five responsibilities, told in the order the data flows. (The
 short version, peer-to-peer: *pipeline-core ships, views-postprocessing checks and
@@ -127,14 +141,22 @@ means, and cleanup of the internal store has no owner yet.*)
    leg (#269) uploads every run's archives to `production_forecasts`. This happens
    once per run and is **shared**: every partner delivery, present and future,
    draws from this same shelf. Adding a partner never touches the producer.
+   Uploads become visible only when whole: the last object uploaded is the packing
+   list (the manifest — the *commit marker*, §3.2/§4.2), so a run whose upload
+   died halfway has no marker and is structurally invisible to every consumer.
 
 2. **Everything in the middle — views-postprocessing.** Take the run off the
-   internal shelf, verify it (hashes, headers), run the **§6 no-collapse gate**,
-   repack it in the partner's format, and place it in the partner's bucket. This
-   middleman role is what the Vocabulary calls the *anti-corruption layer* — the
-   customs-and-translation office between producer and partners. The leg is
-   **per partner**: FAO's exists now; a UN CRAFD or UN OCHA delivery would
-   each get their own copy of it.
+   internal shelf, verify it (hashes, headers), run the **§6 no-collapse gate**
+   (refuse to ship a forecast whose ~1000 samples per cell have been squashed
+   back toward a single number), repack it in the partner's format, and place it
+   in the partner's bucket. This middleman role is what the Vocabulary calls the
+   *anti-corruption layer* — the customs-and-translation office between producer
+   and partners. The leg is **per partner**: FAO's is the one being built (its
+   sink half is open as #91; what runs in production is the legacy point-estimate
+   delivery this replaces — see §0.2a); a UN CRAFD or UN OCHA delivery would each
+   get their own copy. One exception rides no hop: the *historical* (observed
+   actuals) artifact goes straight from views-postprocessing to the partner
+   bucket (Vocabulary; §4.1).
 
 3. **Defining "complete" — views-postprocessing configuration.** A maintained
    *setting* (not code) lists which targets a finished run must contain; the
@@ -163,8 +185,8 @@ means, and cleanup of the internal store has no owner yet.*)
 **driver, not a pipe segment** — but it owns four things the pipe depends on:
 it defines the ensembles and launches the runs that enter the wire (using
 pipeline-core's machinery); it owns the **delivery pointer** — the declaration of
-*which source ships to which partner* (today the `postprocessors/un_fao` launch
-config naming the ensemble; their ADR-017 proposes making it first-class — see
+*which source ships to which partner* (as of adoption, the `postprocessors/un_fao`
+launch config naming the ensemble; their ADR-017 proposes making it first-class — see
 §4.2a for how the pointer meets this contract); it owns the run-0 end-to-end
 verification (views-models#230, §11.1–§11.2); and it hosts the platform's decision
 record (this contract was ratified on views-models#149).
@@ -175,8 +197,10 @@ precedes the data flow. How to read the columns: **Role** = the job
 itself, named so it exists for any partner delivery; **Scope** = whether one
 instance of that job serves all partners (*shared*) or each partner gets its own
 (*per partner*); **FAO instance** = what that job concretely is for the FAO
-delivery, today; **Owner** = who must act (build, fix, or decide) when that job
-changes — a repo's code, a maintained configuration, or (if OPEN) nobody yet.
+delivery as of 2026-07-19; **Owner** = who must act (build, fix, or decide) when
+that job changes — a repo's code, a maintained configuration, or (if OPEN) nobody
+yet. The FAO-instance column uses PFE (the pipeline's forecast-producing ensemble
+component) and the row names use the two hops — Hop A and Hop B, the storage transfers defined in the Vocabulary and drawn in §1.
 
 | Role                            | Scope       | FAO instance                     | Owner                    |
 |---------------------------------|-------------|----------------------------------|--------------------------|
