@@ -63,7 +63,12 @@ Plain definitions of every term of art used below, in one place:
   its own count in its manifest and identifier arrays, so a regional run (e.g.
   Africa + Middle East) and a global run conform equally. The ~64,742 figure used in
   size estimates below is the *global land-cell reference*, an upper bound for
-  capacity math only.
+  capacity math only. ⚠ *Naming collision (historical):* elsewhere in the platform
+  `run_type` means the data-partition regime — *calibration / validation /
+  forecasting* (e.g. pipeline-core `model_path.py`). **In this contract "run" never
+  means that**: it is one production forecast-generation execution, identified by
+  its `run_id`, and is always of the *forecasting* regime — the partition
+  vocabulary plays no role on this wire.
 - **N and S** — a payload is a 2-D table of values with `N` rows (one per cell) and
   `S` columns (one per sample). Production aims at S≈1024.
 - **Shard** — one piece of a run's data, cut per (target, month), stored as one
