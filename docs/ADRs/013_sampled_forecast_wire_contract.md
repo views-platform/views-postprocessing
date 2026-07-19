@@ -145,6 +145,12 @@ means, and cleanup of the internal store has no owner yet.*)
    (gap surfaced 2026-07-19; must close before the first full-S production run;
    see the Post-adoption record). **Shared.**
 
+*Where is views-models?* It owns no stretch of the wire — it is the **driver, not a
+pipe segment**: it defines the ensembles and launches the runs that enter the wire
+(using pipeline-core's machinery), it owns the run-0 end-to-end verification
+(views-models#230, §11.1–§11.2), and it hosts the platform's decision record (this
+contract was ratified on views-models#149).
+
 The same five rows in reference form:
 
 | # | Role | Shared / per partner | FAO instance | Owner |
