@@ -384,6 +384,12 @@ manifest that state is structurally invisible.
 
 **§4.2a Run completeness.** The **expected target set is views-postprocessing
 configuration** (as the anti-corruption layer it owns the FAO product definition).
+Which forecasts a partner receives is decided the same way: the delivery is
+*launched with* a declared product (which ensemble, which targets, which level),
+takes the newest fully-manifested run on the shared shelf matching that
+declaration, and verifies the fetched artifacts' identity against it — a mismatch
+fails loud, never falls back. Future partners (e.g. UN CRAFD, UN OCHA) each get
+their own such declaration; nothing is routed or inferred.
 views-postprocessing translates a run only when **all configured targets' Hop-A
 manifests** are present, and emits the §4.2 run manifest only after all targets'
 Hop-B shards are uploaded. The run manifest carries the resolved target list, so
