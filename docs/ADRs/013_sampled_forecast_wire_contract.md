@@ -151,7 +151,12 @@ pipe segment**: it defines the ensembles and launches the runs that enter the wi
 (views-models#230, §11.1–§11.2), and it hosts the platform's decision record (this
 contract was ratified on views-models#149).
 
-The same five rows in reference form:
+The same five rows in reference form. How to read the columns: **Role** = the job
+itself, named so it exists for any partner delivery; **Scope** = whether one
+instance of that job serves all partners (*shared*) or each partner gets its own
+(*per partner*); **FAO instance** = what that job concretely is for the FAO
+delivery, today; **Owner** = who must act (build, fix, or decide) when that job
+changes — a repo's code, a maintained configuration, or (if OPEN) nobody yet.
 
 | Role                            | Scope       | FAO instance             | Owner                    |
 |---------------------------------|-------------|--------------------------|--------------------------|
