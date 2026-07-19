@@ -676,10 +676,15 @@ a "simplification."
   configuration (§4.2a). No other contract change is required — the target list
   travels as data in manifests and headers. The current three-name list is the
   *current vocabulary*, not a closed set.
-- **(b)** The `APPWRITE_PROD_FORECASTS_COLLECTION_ID` config fix (views-models#230-A)
-  — the documented `forecasts_metadata` collection does not exist in live Appwrite.
+- **(b)** The `APPWRITE_PROD_FORECASTS_*` environment fix (views-models#230-A) —
+  the documented `forecasts_metadata` collection does not exist in live Appwrite.
+  *Status re-verified 2026-07-19 by the views-models seat: the four
+  `APPWRITE_PROD_FORECASTS_{BUCKET,COLLECTION}_{ID,NAME}` values are still absent
+  from the runtime environment, and the correct values are now known (database
+  `file_metadata`, collection `production_forecasts`). A views-models duty.*
 - **(c) ADR numbering:** views-faoapi's consumer-side ADR is **ADR-031** (verified
-  2026-07-06: 000–030 taken at that date). faoapi#100 to be retitled off "ADR-046".
+  2026-07-06: 000–030 taken at that date). faoapi#100 retitled off "ADR-046" —
+  **done** (verified 2026-07-19: its title now cites ADR-013).
 
 ---
 
@@ -689,9 +694,9 @@ a "simplification."
   the header's `spatial_level`; reconciliation already runs upstream in PFE,
   samples-aware.
 - **Historical artifact format**: unchanged pandas parquet.
-- **mmap / partitioned arrow**: future views-frames work (a hardening issue for
-  `io.arrow` — ordering validation on load, plus mmap — should be filed at
-  execution); not a contract dependency.
+- **mmap / partitioned arrow**: future views-frames work — the hardening issue for
+  `io.arrow` (ordering validation on load, plus mmap) is **filed as
+  views-frames#199** (2026-07-19); not a contract dependency.
 - **Concrete S_wire / dtype values**: parameters (§2.1) with a governance gate
   (§2.3).
 - **Deferred intent (recorded, not adopted):** consolidate the §2 header vocabulary
@@ -729,7 +734,8 @@ pipeline-core change**". That claim is **falsified for the publish leg**: at the
 time of writing, no code path existed by which any sampled forecast reached the
 prediction store — the pipeline's store-upload switch was accepted and logged but
 never acted on, the Arrow upload path raised `NotImplementedError`, and the parquet
-fallback was disabled for these models. pipeline-core#269 is the fix. The specific
+fallback was disabled for these models. pipeline-core#269 is the fix *(since
+shipped — see the Post-adoption record, 2026-07-15)*. The specific
 code locations proving each part of this, at verified commits, are in Appendix B.
 
 ---
@@ -990,6 +996,14 @@ record execution progress against it.
   gates' job) now stated in the contract; the gate's wiring status honestly dated
   (module merged/tested PR #98; upload-path wiring lands with #91). Guards:
   `tests/test_falsify_adr013_s6.py`. Register: C-53.
+- **2026-07-19 — §1/§7/§8/§9 batched falsification audit: §1 and §9 SURVIVED (the
+  series' first clean sections); §7 and §8 CONTESTED (3 soft total); all fixed
+  same day.** §7(b) re-dated with the views-models seat's 2026-07-19 forensics
+  (four env values still absent; correct values now known); §7(c) marked done
+  (faoapi#100's title verified to cite ADR-013); §8's dangling mmap/ordering
+  hardening intent is now **filed as views-frames#199**; §9 gains the
+  since-shipped marker on #269. Guards: `tests/test_falsify_adr013_s789.py`.
+  Register: C-54.
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner

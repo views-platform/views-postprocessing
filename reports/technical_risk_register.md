@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-19                           |
-| Total Concerns    | 53                                   |
+| Total Concerns    | 54                                   |
 | Open Concerns     | 26                                   |
-| Resolved Concerns | 27                                   |
+| Resolved Concerns | 28                                   |
 
 ---
 
@@ -619,6 +619,20 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-54: ADR-013 §7/§8 — stale cross-repo status claims and a dangling hardening intent (§1/§9 survived audit) — RESOLVED same day
+
+| Field | Value |
+|-------|-------|
+| ID | C-54 |
+| Tier | 4 — doc-only staleness: a completed duty still commanded (§7c — faoapi#100 was already retitled), an undated env-fix claim superseded by newer seat forensics (§7b), and a "to be filed" hardening intent with no tracking issue (§8). No correctness impact; the drift class is the register's known doc-vs-reality disease (C-42/C-47). |
+| Source | `falsify` (2026-07-19) — batched audit of "§1/§7/§8/§9 are sufficient and unambiguous"; verdicts: §1 SURVIVED, §9 SURVIVED (the series' first clean sections), §7 CONTESTED (2 soft), §8 CONTESTED (1 soft) |
+| Trigger | (historical) Acting on §7's prerequisites list as a to-do — re-doing the completed retitle, or hunting the stale collection-id framing instead of the four known env values |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §7(b), §7(c), §8 |
+
+**RESOLVED 2026-07-19 (same day):** §7(b) re-dated with the views-models seat's 2026-07-19 forensics (four `APPWRITE_PROD_FORECASTS_*` values still absent; correct values known: db `file_metadata`, collection `production_forecasts`); §7(c) marked done with verification; §8's mmap/ordering hardening intent filed as **views-frames#199** and pointed. §9 gained a since-shipped marker on #269 (observation-level). Enforcement: `tests/test_falsify_adr013_s789.py`. Cross-refs: C-48–C-53 (audit series).
+
+---
 
 ### C-53: ADR-013 §6 — NaN semantics and wiring status absent from the contract prose (code already correct) — RESOLVED same day
 
