@@ -155,20 +155,23 @@ config naming the ensemble; their ADR-017 proposes making it first-class — see
 verification (views-models#230, §11.1–§11.2); and it hosts the platform's decision
 record (this contract was ratified on views-models#149).
 
-The same five rows in reference form. How to read the columns: **Role** = the job
+The same responsibilities in reference form — six rows: the five above, plus
+views-models' **delivery pointer** as the first row, since that declaration
+precedes the data flow. How to read the columns: **Role** = the job
 itself, named so it exists for any partner delivery; **Scope** = whether one
 instance of that job serves all partners (*shared*) or each partner gets its own
 (*per partner*); **FAO instance** = what that job concretely is for the FAO
 delivery, today; **Owner** = who must act (build, fix, or decide) when that job
 changes — a repo's code, a maintained configuration, or (if OPEN) nobody yet.
 
-| Role                            | Scope       | FAO instance             | Owner                    |
-|---------------------------------|-------------|--------------------------|--------------------------|
-| Hop A producer                  | shared      | PFE → internal store     | views-pipeline-core #269 |
-| Anti-corruption layer + §6 gate | per partner | FAO leg                  | **views-postprocessing** |
-| Delivery definition (§4.2a)     | per partner | FAO delivery config      | **views-postprocessing config** |
-| Hop B consumer                  | per partner | `unfao_bucket` → serving | views-faoapi #100        |
-| Internal-store retention (§3.5) | shared      | `production_forecasts`   | **OPEN**                 |
+| Role                            | Scope       | FAO instance                     | Owner                    |
+|---------------------------------|-------------|----------------------------------|--------------------------|
+| Delivery pointer (source → partner) | per partner | `postprocessors/un_fao` config → `rusty_bucket` | views-models (ADR-017) |
+| Hop A producer                  | shared      | PFE → internal store             | views-pipeline-core #269 |
+| Anti-corruption layer + §6 gate | per partner | internal store → `unfao_bucket`  | **views-postprocessing** |
+| Delivery definition (§4.2a)     | per partner | FAO delivery config              | **views-postprocessing config** |
+| Hop B consumer                  | per partner | `unfao_bucket` → serving         | views-faoapi #100        |
+| Internal-store retention (§3.5) | shared      | `production_forecasts`           | **OPEN**                 |
 
 ---
 
