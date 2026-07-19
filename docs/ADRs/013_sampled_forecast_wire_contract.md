@@ -124,7 +124,7 @@ side is untouched.
 |---|---|---|
 | Hop A producer — publish archives to the shared internal store (**shared**, once for all partners) | PFE → `production_forecasts` | views-pipeline-core (#269) |
 | Anti-corruption layer — Hop A consumer + Hop B producer + **the no-collapse policy boundary (§6)** (**per partner**: one Hop-B leg each) | FAO leg | **views-postprocessing** |
-| Delivery definition — expected target set / run completeness (§4.2a) (**per partner**) | FAO delivery config | **views-postprocessing configuration** |
+| Delivery definition — expected target set / run completeness (§4.2a) (**per partner**) | FAO delivery config | **views-postprocessing configuration** (a maintained *setting*, not code: the declared list defining "run complete" — changed by decision + config edit, never inferred from what arrives) |
 | Hop B consumer — serve the partner from its bucket (**per partner**) | `unfao_bucket` → serving | views-faoapi (#100) |
 | Internal-store retention (§3.5) (**shared**) | `production_forecasts` | **OPEN — no owner was actually named at sign-off** (gap surfaced 2026-07-19; see Post-adoption record) |
 
