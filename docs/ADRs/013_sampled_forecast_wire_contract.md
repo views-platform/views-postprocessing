@@ -89,8 +89,14 @@ Plain definitions of every term of art used below, in one place:
 - **S_min** — the minimum sample count the delivery will pass on: the floor
   enforced by the §6 gate *before* upload (consumers may re-check it). It protects
   downstream consumers from accidentally-collapsed forecasts.
-- **Anti-corruption layer** — the one component (views-postprocessing) that speaks
-  both end formats so that neither end's format leaks into the other's code.
+- **Anti-corruption layer** — the middleman role views-postprocessing plays,
+  borrowed from software-design vocabulary. Despite the name, it is not about data
+  damage: the "corruption" it prevents is one system's *internal format and
+  assumptions* seeping into another system's code. Think of a customs-and-translation
+  office: everything arriving from the producer is inspected and re-expressed before
+  it travels on, so the producer never needs to know any partner's format, and no
+  partner ever needs to know the producer's. The payoff is independence — either
+  side can change its internals and only the translator must adapt.
 
 ---
 
@@ -125,7 +131,9 @@ means, and cleanup of the internal store has no owner yet.*)
 2. **Everything in the middle — views-postprocessing.** Take the run off the
    internal shelf, verify it (hashes, headers), run the **§6 no-collapse gate**,
    repack it in the partner's format, and place it in the partner's bucket. This
-   leg is **per partner**: FAO's exists now; a UN CRAFD or UN OCHA delivery would
+   middleman role is what the Vocabulary calls the *anti-corruption layer* — the
+   customs-and-translation office between producer and partners. The leg is
+   **per partner**: FAO's exists now; a UN CRAFD or UN OCHA delivery would
    each get their own copy of it.
 
 3. **Defining "complete" — views-postprocessing configuration.** A maintained
