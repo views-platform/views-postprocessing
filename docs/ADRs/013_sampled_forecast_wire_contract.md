@@ -645,6 +645,25 @@ record execution progress against it.
   after the Vocabulary had disclaimed them; all figures are now labelled reference
   parameters. Undated present-tense claims about other repos' deployed state
   (§2.2, §3.5, §4.1a, §4.6, §7c, §11.4) are now dated.
+- **2026-07-19 — §10.1's mechanism has already earned its keep.** The fixture's
+  three binary artifacts were once silently excluded by a blanket
+  `*.zip`/`*.parquet` gitignore rule (they existed on one machine only); the
+  repository's own conformance tests — which can only pass with the true bytes
+  present — caught it, and PR #102 (`7f1914c`) committed the bytes with a scoped
+  un-ignore guard. Strongest live evidence to date for the §10.1
+  pinned-bytes-vendoring design. (Noted independently by the views-models seat
+  review, 2026-07-19.)
+- **2026-07-19 — external verification: views-models seat review.** A
+  maintainer-commissioned review from the views-models seat verified this ADR's
+  claims against all four repos with receipts (fixture root hash reproduced
+  byte-for-byte; both guards confirmed merged; §4.1a invisibility mechanism
+  confirmed in current code). Verdict: "substantially correct and unusually
+  honest." Its material corrections landed on the *reviewing* seat's own
+  world-model, not on this document — most notably: the FAO forecast product has
+  **never been servable end-to-end** (files landed in storage, but never under a
+  name the consumer's filter resolves — a stronger statement than "stalled").
+  Review artifact:
+  `views-models/reports/expert_reviews/2026-07-19_adr013_wire_contract_review_views_models_seat.md`.
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner
@@ -714,6 +733,12 @@ the producer seat's v1.3 review (F1 independently verified). Outstanding before 
 The code locations backing the claims marked "verified" in the main text. Line
 numbers were checked at the commits current when each finding was made; they
 describe evidence, not obligations.
+
+*Refresh note (2026-07-19, prompted by the views-models seat review):* this repo's
+manager module has since moved to `unfao/managers/unfao.py` and its cited lines
+shifted — the legacy selection + identity assertion now sit at `:121`/`:124`
+(behind the PR #99 guard constant, `:33`), the historical upload name at `:314`,
+the forecast upload name at `:325`. The findings themselves are unchanged.
 
 **§2 header mechanism (arrow metadata dict):** `views_frames/io/arrow.py:69` —
 the open `metadata` dict written into the arrow schema metadata; readable via
