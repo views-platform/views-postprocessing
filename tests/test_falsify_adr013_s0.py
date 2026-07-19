@@ -30,7 +30,10 @@ def test_s0_mentions_commit_marker_semantics():
 
 @pytest.mark.xfail(reason="P1b/P3: PFE, Hop A/B, no-collapse used in §0 without definition or explicit Vocabulary pointer", strict=False)
 def test_s0_anchors_its_jargon():
-    assert re.search(r"Vocabulary\b.*(PFE|[Hh]op)", _s0(), re.S)
+    s0 = _s0()
+    pfe_anchored = "PFE (" in s0 or re.search(r"PFE[^.\n]{0,60}Vocabulary", s0)
+    hops_anchored = re.search(r"Hop [AB][^.\n]{0,80}(Vocabulary|defined|§1)", s0)
+    assert pfe_anchored and hops_anchored
 
 
 @pytest.mark.xfail(reason="P6: the historical artifact's bypass of both hops is absent from §0", strict=False)
