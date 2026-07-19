@@ -68,7 +68,8 @@ Plain definitions of every term of art used below, in one place:
   forecasting* (e.g. pipeline-core `model_path.py`). **In this contract "run" never
   means that**: it is one production forecast-generation execution, identified by
   its `run_id`, and is always of the *forecasting* regime — the partition
-  vocabulary plays no role on this wire.
+  vocabulary plays no role on this wire. (Someday rename of `run_type` →
+  `partition` tracked as views-models#262.)
 - **N and S** — a payload is a 2-D table of values with `N` rows (one per cell) and
   `S` columns (one per sample). Production aims at S≈1024.
 - **Shard** — one piece of a run's data, cut per (target, month), stored as one
