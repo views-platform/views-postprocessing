@@ -523,6 +523,27 @@ a "simplification."
   into `views_frames.FrameMetadata` via a MINOR extension once the fixture-pinned
   header has stabilized; extract a shared sharded-run reader into views-frames only
   after both hand-rolled consumers exist (WET-before-DRY).
+- **Deferred intents (maintainer direction, 2026-07-19 — sequenced strictly after
+  Run 0 proves the wire as-is AND the §3.5 retention owner exists):**
+  1. **Rename this repo** to a delivery-screaming name (e.g. `views-delivery`):
+     the repo is already purely delivery code (reconciliation retired to
+     `views_frames_reconcile`; #62 closed), so the name is the only mismatch.
+     GitHub redirects soften the repo rename; the Python package rename
+     (`views_postprocessing` in cross-repo imports/launchers) is the real churn
+     and may trail the repo rename.
+  2. **Move the internal `production_forecasts` store off Appwrite** to
+     self-managed storage (e.g. Hetzner object storage): no external consumer
+     reads it — partners always go through partner-facing stores. §3's payload
+     format and manifest-last semantics are transport-agnostic; only the
+     store-document addressing (§3.1/§3.2 metadata fields) needs a bounded
+     amendment. Gated on infrastructure ownership existing (the same gap as
+     retention).
+  3. **Co-locate the delivery compute with the internal store** so Hop A is
+     physically cheap (no ~29 GB upload-download round-trip) — while **keeping
+     the logical hop**: complete-or-invisible commit marker, hash verification,
+     producer/delivery schedule independence, multi-partner fan-out. Fusing
+     producer and delivery into one machine reading each other's disks is
+     explicitly rejected (it would rebuild the coupling this contract dissolved).
 
 ---
 

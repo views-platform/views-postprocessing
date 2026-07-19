@@ -4,7 +4,7 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-06-26                           |
+| Last Updated      | 2026-07-19                           |
 | Total Concerns    | 46                                   |
 | Open Concerns     | 25                                   |
 | Resolved Concerns | 21                                   |
@@ -552,6 +552,24 @@ See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the dat
 ---
 
 ## Disagreements
+
+### D-12: Post-Run-0 infrastructure & naming intents — repo rename, internal-store transport, compute co-location
+
+| Field | Value |
+|-------|-------|
+| ID | D-12 |
+| Source | Maintainer direction during the ADR-013 read-through (2026-07-19); assessment in-session |
+| Location | Repo-wide (rename); ADR-013 §3/§8 (store transport, co-location); mirrored as dated deferred intents in ADR-013 §8 |
+
+Three maintainer-raised intents, assessed and **deliberately deferred** — all sequenced strictly after (1) Run 0 proves the wire as adopted and (2) a §3.5 retention owner exists (infrastructure ownership must exist before infrastructure multiplies):
+
+1. **Rename this repo** to a delivery-screaming name (e.g. `views-delivery`). The repo is already purely delivery code (reconciliation retired to `views_frames_reconcile`, #62 closed 2026-06-26), so the name is the only mismatch with the screaming-architecture rubric. GitHub redirects soften the repo rename; the `views_postprocessing` *package* rename (cross-repo imports, views-models launchers) is the real churn and may trail.
+2. **Move `production_forecasts` off Appwrite** to self-managed storage (e.g. Hetzner object storage) — no external consumer reads the internal store. Contract-tolerant: §3 payload + manifest-last semantics are transport-agnostic; only the store-document addressing needs a bounded amendment.
+3. **Co-locate delivery compute with the internal store** to kill the ~29 GB/run upload-download round-trip — while **keeping the logical hop** (complete-or-invisible commit marker, hash verification, schedule independence, multi-partner fan-out). Fusing producer and delivery into one machine is **explicitly rejected** — it would rebuild the coupling ADR-013 dissolved.
+
+**Re-open trigger:** Run 0 verified AND retention owner named — then sequence 2→3 (or 2 alone) as an infrastructure epic, and 1 whenever wire churn is calm. See also C-40 (the migration this rides on), ADR-013 §8.
+
+---
 
 ### D-11: Pandas→frames seam — concrete siblings + delete vs a polymorphic abstraction
 
