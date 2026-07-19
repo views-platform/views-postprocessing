@@ -112,15 +112,21 @@ before that point is out of contract. Sign-off required every cross-repo claim i
 this contract to be confirmed by the repo that owns it; all preconditions were met
 before adoption (the verification trail is in Appendix A).
 
-**§0.3 Ownership table.** Who owns which leg of the wire:
+**§0.3 Ownership table.** Who owns which stretch of the wire. The **Role** column
+is the repeating pattern; the **This delivery** column is its FAO instance. When a
+new partner delivery arrives (e.g. UN CRAFD, UN OCHA), everything up to and
+including the internal store is **shared** — one Hop-A upload serves every partner.
+A new partner adds only its own Hop-B leg: its bucket, its serving consumer, and
+its own delivery-definition configuration in views-postprocessing. The producer
+side is untouched.
 
-| Leg | Owner |
-|---|---|
-| Hop A producer (PFE → prediction store) | views-pipeline-core (#269) |
-| Hop A consumer + Hop B producer + **the no-collapse policy boundary (§6)** | **views-postprocessing** |
-| Expected-target-set / run-completeness knowledge (§4.2a) | **views-postprocessing configuration** |
-| Hop B consumer (`unfao_bucket` → serving) | views-faoapi (#100) |
-| `production_forecasts` retention (§3.5) | **OPEN — no owner was actually named at sign-off** (gap surfaced 2026-07-19; see Post-adoption record) |
+| Role (repeats per partner?) | This delivery (FAO) | Owner |
+|---|---|---|
+| Hop A producer — publish archives to the shared internal store (**shared**, once for all partners) | PFE → `production_forecasts` | views-pipeline-core (#269) |
+| Anti-corruption layer — Hop A consumer + Hop B producer + **the no-collapse policy boundary (§6)** (**per partner**: one Hop-B leg each) | FAO leg | **views-postprocessing** |
+| Delivery definition — expected target set / run completeness (§4.2a) (**per partner**) | FAO delivery config | **views-postprocessing configuration** |
+| Hop B consumer — serve the partner from its bucket (**per partner**) | `unfao_bucket` → serving | views-faoapi (#100) |
+| Internal-store retention (§3.5) (**shared**) | `production_forecasts` | **OPEN — no owner was actually named at sign-off** (gap surfaced 2026-07-19; see Post-adoption record) |
 
 ---
 
