@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-19                           |
-| Total Concerns    | 52                                   |
+| Total Concerns    | 53                                   |
 | Open Concerns     | 26                                   |
-| Resolved Concerns | 26                                   |
+| Resolved Concerns | 27                                   |
 
 ---
 
@@ -619,6 +619,20 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-53: ADR-013 §6 — NaN semantics and wiring status absent from the contract prose (code already correct) — RESOLVED same day
+
+| Field | Value |
+|-------|-------|
+| ID | C-53 |
+| Tier | 4 — doc-only: the module (`delivery/draws.py`) was correct, tested, and documented both gaps itself; the contract prose lagged it. A §6-only reader could wrongly assume the gate screens NaN payloads (it deliberately doesn't) or that it is already wired (it isn't). No correctness impact. |
+| Source | `falsify` (2026-07-19) — audit of "§6 is sufficient and unambiguous"; verdict **CONTESTED (0 hard, 2 soft)** — the series' first section with no hard finding: all four rules match the code exactly |
+| Trigger | (historical) Relying on §6 alone to conclude NaN payloads are caught, or that the gate already runs in the delivery |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §6 |
+
+**RESOLVED 2026-07-19 (same day):** NaN note added (NaN rows count as non-degenerate — collapse detection only; null screening belongs to the null gates); wiring status dated (module merged PR #98; upload wiring lands with #91). Enforcement: `tests/test_falsify_adr013_s6.py`. Cross-refs: C-48–C-52 (audit series).
+
+---
 
 ### C-52: ADR-013 §5 — sidecar column count wrong in prose; data-dependent dtype rule — RESOLVED same day
 

@@ -646,8 +646,15 @@ coverage/identity/observed-range/provenance invariants), raises
    cells dominate PGM, so many rows are legitimately all-zeros; the degeneracy check
    is global-across-rows, never per-row.*
 
+**NaN note** *(added 2026-07-19; the module always documented it — the contract now
+does too)*: a NaN draw compares unequal to everything, so a NaN-carrying row counts
+as **non-degenerate** here — deliberately. Garbage/null screening is the delivery
+null gates' job, not this invariant's; this gate detects *collapse*, nothing else.
+
 It runs before every consumer-facing forecast upload (in this contract's scope: the
-FAO delivery). This is the single **policy** gate;
+FAO delivery) — the module is merged and tested (PR #98), and the wiring into the
+upload path lands with the #91 sink leg (not yet built as of 2026-07-19). This is
+the single **policy** gate;
 the §3.4 and §4.5 asserts are per-hop **mechanism** guards that localize faults
 without duplicating the policy (bulkheads plus one gate). **Note:** rule 2
 deliberately re-validates what §4.5(a) already checked at ingest — the policy gate
@@ -975,6 +982,14 @@ record execution progress against it.
   (strings carry null, floats NaN); C-146 glossed; §5.2's sidecar extension
   re-tensed as future #91 work; column and row order declared normative (§10 pins
   both). Guards: `tests/test_falsify_adr013_s5.py`. Register: C-52.
+- **2026-07-19 — §6 falsification audit: CONTESTED (0 hard, 2 soft) — the series'
+  first section with no hard finding.** The four rules, the redundancy note, and
+  the per-row-zero-variance non-rule all match `delivery/draws.py` exactly (the
+  code was the ground truth and held). Soft fixed: the NaN semantics the module
+  always documented (NaN rows count as non-degenerate; null screening is the null
+  gates' job) now stated in the contract; the gate's wiring status honestly dated
+  (module merged/tested PR #98; upload-path wiring lands with #91). Guards:
+  `tests/test_falsify_adr013_s6.py`. Register: C-53.
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner
