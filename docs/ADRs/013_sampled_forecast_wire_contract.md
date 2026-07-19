@@ -598,20 +598,30 @@ region coding the delivery labels cells with.)
 
 **§5.1 Schema.** One sidecar per run — one row per covered cell; the count is
 declared data and must equal the forecast's cell set (§5.2), ~64,742 rows at the
-global reference — `type="sampled_forecast_sidecar"`
-(store-document fields per §4.1a), keyed by `priogrid_id`, with **exactly these 9
-columns**: `pg_xcoord` (float64), `pg_ycoord` (float64), `country_iso_a3` (string),
+global reference — `type="sampled_forecast_sidecar"` (store-document fields per
+§4.1a). It is a **10-column parquet file**: `priogrid_id` (int64) is itself the
+**first column** — a real column, not a file index — followed by exactly these 9:
+`pg_xcoord` (float64), `pg_ycoord` (float64), `country_iso_a3` (string),
 `admin1_gaul1_code`, `admin1_gaul1_name`, `admin1_gaul0_code`, `admin1_gaul0_name`,
 `admin2_gaul2_code`, `admin2_gaul2_name` — the `*_name` and `country_iso_a3` columns
 as **plain strings** (not categorical; verified the consumer applies no categorical
-coercion), the `*_code` columns numeric (int64 when complete; float64 where NaN is
-present). **Rows with missing GAUL codes are PRESERVED with NaN, never pre-dropped**
-— the consumer drops them at aggregation under its own legacy-parity rule (its C-146
-machinery, verified). Pre-dropping here would silently mislabel geography.
+coercion), the `*_code` columns **always float64** *(dtype ruling 2026-07-19,
+MINOR — matches the canonical fixture bytes; the earlier "int64 when complete"
+wording made the schema depend on the data, so identical content could ship two
+ways; one stable schema wins)*. **Column order as listed (`priogrid_id` first) and
+rows ascending by `priogrid_id` are normative — the §10 fixture pins both.**
+**Rows with missing GAUL codes are PRESERVED, never pre-dropped** — missing
+geography is null (None) in the string columns and NaN in the float columns — and
+the consumer drops such rows at aggregation under its own legacy-parity rule (its
+C-146 machinery — faoapi's register rule that aggregation drops missing-geography
+cells with legacy parity; verified). Pre-dropping here would silently mislabel
+geography. **Source:** the sidecar is built from this repo's ADR-011 GAUL lookup
+(`views_postprocessing/data/gaul_lookup.parquet`, area-majority cell→region mapping
+sourced from views-datafactory); the #91 sink leg attaches it per run.
 
 **§5.2 Consistency.** The sidecar's cell-id set must equal the forecast's cell-id
-set (enforced by views-postprocessing's existing coverage/identity invariants,
-extended to the sidecar). The sidecar hash is pinned in **the Hop-B run manifest
+set (views-postprocessing's existing coverage/identity invariants, to be extended
+to the sidecar in the #91 leg — not yet built as of 2026-07-19). The sidecar hash is pinned in **the Hop-B run manifest
 (§4.2)** *(Erratum E1: formerly "both manifests" — impossible at Hop A, where the
 sidecar does not yet exist)*. Delivered once per run, not per shard — the whole
 point is not replicating static strings ×S×months.
@@ -955,6 +965,16 @@ record execution progress against it.
   explicitly; §4.5(b) mechanics note (separate raw-table read). §4.3 selection and
   §4.6 capacity math survived the audit. Guards: `tests/test_falsify_adr013_s4.py`.
   Register: C-51.
+- **2026-07-19 — §5 falsification audit (2 hard, 4 soft); all fixed same day; one
+  dtype ruling adopted.** Hard: the canonical sidecar is a **10-column** file with
+  `priogrid_id` as the first column, while prose said "9 columns, keyed by" —
+  corrected; the code-column dtype rule was data-dependent ("int64 when complete")
+  — **ruling (MINOR): `*_code` columns are always float64**, one stable schema,
+  matching the canonical bytes. Soft fixed: data source named (ADR-011
+  `gaul_lookup.parquet`, datafactory area-majority); null-vs-NaN precision
+  (strings carry null, floats NaN); C-146 glossed; §5.2's sidecar extension
+  re-tensed as future #91 work; column and row order declared normative (§10 pins
+  both). Guards: `tests/test_falsify_adr013_s5.py`. Register: C-52.
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner

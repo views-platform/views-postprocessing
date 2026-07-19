@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-19                           |
-| Total Concerns    | 51                                   |
+| Total Concerns    | 52                                   |
 | Open Concerns     | 26                                   |
-| Resolved Concerns | 25                                   |
+| Resolved Concerns | 26                                   |
 
 ---
 
@@ -619,6 +619,24 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-52: ADR-013 §5 — sidecar column count wrong in prose; data-dependent dtype rule — RESOLVED same day
+
+| Field | Value |
+|-------|-------|
+| ID | C-52 |
+| Tier | 3 (at finding) — a faithful reading of §5.1 produced a nonconformant file (priogrid_id as index instead of first column: the canonical file has 10 columns, prose said 9), and the dtype rule made the schema a function of the data (int64 vs float64 depending on whether a run contains a missing-geography cell) — a consumer type-handling trap at the vpp/faoapi boundary. Not Tier 2: the fixture parity test catches both divergences loudly before anything ships. |
+| Source | `falsify` (2026-07-19) — maintainer-commissioned audit of "§5 is sufficient and unambiguous"; verdict FALSIFIED (2 hard, 4 soft) |
+| Trigger | (historical) Building the #91 sidecar writer or the faoapi sidecar reader from §5 prose without diffing against the fixture bytes |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §5.1–§5.2 |
+
+Hard: (P1) 10-column file with `priogrid_id` as first column vs prose "keyed by …, exactly these 9 columns"; (P2) data-dependent code dtype ("int64 when complete; float64 where NaN"). Soft: data source unnamed (P3); "preserved with NaN" imprecise for string nulls (P4a); C-146 bare insider ref (P4b); "extended to the sidecar" future work in present tense (P5); column/row order pinned only in fixture bytes (P6).
+
+**RESOLVED 2026-07-19 (same day):** §5.1 rewritten — 10-column truth with `priogrid_id` as a real first column; **dtype ruling (MINOR): `*_code` columns always float64** (one stable schema, matches canonical bytes); column order + ascending row order declared normative (§10 pins both); source named (ADR-011 `gaul_lookup.parquet`, datafactory area-majority); null-vs-NaN precision; C-146 glossed; §5.2 re-tensed as future #91 work. Enforcement: `tests/test_falsify_adr013_s5.py` (7 guards, green). Recorded in the Post-adoption record.
+
+Cross-refs: C-48–C-51 (the audit series), C-45 (the #91 wiring these rules land in), D-12.
+
+---
 
 ### C-51: ADR-013 §4 — unpinned run-manifest, sidecar outside the commit ordering, and a phantom C-71 upload obligation — RESOLVED same day
 
