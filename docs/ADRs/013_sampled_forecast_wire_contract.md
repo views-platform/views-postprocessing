@@ -645,6 +645,11 @@ record execution progress against it.
   after the Vocabulary had disclaimed them; all figures are now labelled reference
   parameters. Undated present-tense claims about other repos' deployed state
   (§2.2, §3.5, §4.1a, §4.6, §7c, §11.4) are now dated.
+- **2026-07-19 — retention direction given (maintainer): a configurable retention
+  period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
+  with the owner). This settles the *shape* of the §3.5 policy; the owner
+  assignment and the concrete period remain OPEN and are deliberately deferred —
+  they must close before the first full-S production run, not before.
 
 ---
 
