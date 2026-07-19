@@ -354,7 +354,13 @@ configuration** (as the anti-corruption layer it owns the FAO product definition
 views-postprocessing translates a run only when **all configured targets' Hop-A
 manifests** are present, and emits the §4.2 run manifest only after all targets'
 Hop-B shards are uploaded. The run manifest carries the resolved target list, so
-faoapi needs no target-set knowledge of its own.
+faoapi needs no target-set knowledge of its own. *(Home of this configuration —
+recommended 2026-07-19 on the maintainer's Common-Closure question, to be settled
+at #91 implementation: a small declared config file committed in this repo beside
+the delivery code. Rationale: the list changes only when the delivery product
+changes — this repo's own reason to change — at a slow, decision-driven cadence
+that a reviewed, git-historied, explicitly declared file matches; never runtime
+state, never inferred from arrivals, never owned by the launcher.)*
 
 **§4.3 Selection semantics.** The consumer serves only the **latest manifested
 run**: resolve the newest manifest via
