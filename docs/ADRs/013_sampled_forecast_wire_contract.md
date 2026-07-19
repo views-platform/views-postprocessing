@@ -209,6 +209,13 @@ in the views-frames arrow format to the FAO-facing store (Hop B). views-faoapi r
 those and computes point summaries (MAP) and uncertainty intervals (HDI) at serving
 time — the *edge* — so samples are never collapsed in transit.
 
+To be explicit about what is stored where: **both stores hold full samples; MAP/HDI
+are never stored anywhere.** faoapi's only source is `unfao_bucket` — it never
+touches the internal store — and it computes summaries per request, when FAO's
+systems call its API (FAO fetches; nothing is pushed to them). The collapse to a
+summary is thus a *presentation* choice made at the last possible moment: summary
+types and interval widths can change tomorrow without re-shipping any data.
+
 views-postprocessing is the anti-corruption layer: neither end format leaks past it.
 Hop A deliberately wraps what PFE already writes — zero new serialization code in
 pipeline-core, compatible with their #207 on-disk-format deferral and orthogonal to
