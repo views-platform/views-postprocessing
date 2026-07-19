@@ -153,13 +153,13 @@ contract was ratified on views-models#149).
 
 The same five rows in reference form:
 
-| # | Role | Shared / per partner | FAO instance | Owner |
-|---|---|---|---|---|
-| 1 | Hop A producer | shared | PFE → `production_forecasts` | views-pipeline-core (#269) |
-| 2 | Anti-corruption layer + §6 gate | per partner | FAO leg | **views-postprocessing** |
-| 3 | Delivery definition (§4.2a) | per partner | FAO delivery config | **views-postprocessing configuration** |
-| 4 | Hop B consumer | per partner | `unfao_bucket` → serving | views-faoapi (#100) |
-| 5 | Internal-store retention (§3.5) | shared | `production_forecasts` | **OPEN** |
+| Role                            | Scope       | FAO instance             | Owner                    |
+|---------------------------------|-------------|--------------------------|--------------------------|
+| Hop A producer                  | shared      | PFE → internal store     | views-pipeline-core #269 |
+| Anti-corruption layer + §6 gate | per partner | FAO leg                  | **views-postprocessing** |
+| Delivery definition (§4.2a)     | per partner | FAO delivery config      | **views-postprocessing config** |
+| Hop B consumer                  | per partner | `unfao_bucket` → serving | views-faoapi #100        |
+| Internal-store retention (§3.5) | shared      | `production_forecasts`   | **OPEN**                 |
 
 ---
 
