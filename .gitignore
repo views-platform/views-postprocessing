@@ -219,3 +219,6 @@ graphify-out/
 
 # ADR-011 precomputed GAUL lookup (small, must be tracked despite *.parquet rule)
 !views_postprocessing/data/gaul_lookup.parquet
+
+# ADR-013 §10 golden fixture: canonical bytes, must be tracked despite *.zip/*.parquet rules
+!tests/fixtures/wire_contract/*

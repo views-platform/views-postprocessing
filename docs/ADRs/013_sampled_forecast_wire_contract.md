@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-07-15
 **Deciders:** Project maintainer (PRIO MD&D Team) — explicit sign-off, views-models#149
-**Supersedes:** the phantom "platform ADR-046" (never existed; this ADR is the format authority it was assumed to be), and the v1 proposal comment on views-models#149 (2026-07-02)
+**Supersedes:** the phantom "platform ADR-046" (never existed *as a format authority* — see Erratum E2, 2026-07-16: a pipeline-core ADR-046 exists but is storage plumbing, not a format; this ADR is the format authority the citations assumed), and the v1 proposal comment on views-models#149 (2026-07-02)
 
 ---
 
@@ -59,7 +59,7 @@ The contract text below (v1.5, verbatim) is **adopted**. The iteration draft `re
 
 ## §0 Status and provenance
 
-**§0.1** The "platform ADR-046" cited across issues as declaring the FAO handoff format **does not exist** — a grep of every platform repo finds only dangling references, never a document. This contract replaces the phantom. Until adoption, the contract of record is *nothing*; on adoption it is the durable views-postprocessing ADR (§0.2) plus the ratifying comment on views-models#149.
+**§0.1** The "platform ADR-046" cited across issues as declaring the FAO handoff format **does not exist** — a grep of every platform repo finds only dangling references, never a document. *(Corrected 2026-07-16, Erratum E2: a document named ADR-046 does exist — views-pipeline-core's "Appwrite as Secondary Cloud Storage for views-faoapi", 2026-04-08 — but it defines storage plumbing only and contains no format content; the format authority the citations assumed remained unwritten. The conclusion stands; the "never a document" wording was false as literally written.)* This contract replaces the phantom. Until adoption, the contract of record is *nothing*; on adoption it is the durable views-postprocessing ADR (§0.2) plus the ratifying comment on views-models#149.
 
 **§0.2 Adoption mechanics.** Adoption = the maintainer's explicit sign-off on views-models#149, **enacted by landing the durable ADR in views-postprocessing** in the same motion. The ADR is not a follow-up; it is the adoption act. Implementation in any repo before that is out of contract. (views-pipeline-core#269 should state this precondition visibly.)
 
@@ -296,3 +296,17 @@ Skeleton ordering therefore is: **consumer guards → producer legs → run 0.**
   pressure: nothing may upload to `unfao_bucket` before the guard is live (§11.4), and the
   upload leg (views-postprocessing #91) is not yet built — the constraint orders the finish,
   it does not stall the work. Run 0 follows the proper deploy.
+- **2026-07-16 — Erratum E2 (provenance correction; no contract-content change):** the claim
+  that "ADR-046 does not exist — never a document" (§0.1, Supersedes line) is **false as
+  literally written**. A maintainer re-check found
+  `views-pipeline-core/documentation/ADRs/046_appwrite_storage_integration.md`
+  ("Appwrite as Secondary Cloud Storage for views-faoapi", 2026-04-08, on `development`):
+  infrastructure/failure-semantics only — env-var validation, graceful-degradation uploads,
+  SHA-256 dedup, auto-bucket creation — **zero format content**. The faoapi roadmap's
+  "amend ADR-046" (M7/M8) therefore pointed at a real document it proposed to extend, not
+  at nothing; the investigation flattened "exists but contains no format decision" into
+  "never existed", and the reviews repeated it. (A third, unrelated ADR-046 — views-hydranet
+  "Symmetric Feature Lifecycle" — overloads the number further.) **The substantive
+  conclusion is unchanged:** no wire-format authority existed anywhere; this ADR is it, and
+  a dedicated contract remains the right home over amending a storage-plumbing ADR.
+  Both false-as-written lines corrected in place with dated markers.
