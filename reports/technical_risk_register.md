@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-19                           |
-| Total Concerns    | 49                                   |
+| Total Concerns    | 50                                   |
 | Open Concerns     | 26                                   |
-| Resolved Concerns | 23                                   |
+| Resolved Concerns | 24                                   |
 
 ---
 
@@ -619,6 +619,24 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-50: ADR-013 §3 mis-described the Hop-A manifest and left the cell-count scope ambiguous across the producer/consumer boundary — RESOLVED same day
+
+| Field | Value |
+|-------|-------|
+| ID | C-50 |
+| Tier | 3 (at finding) — the prose asserted a manifest field ("store file-ids") the canonical bytes never carried, and `expected_cell_count`'s scope (per-shard N vs per-target total) was undecidable exactly where two repos implement against each other; a divergent producer reading would have failed run 0 on a spec ambiguity. Not Tier 2: both shipped implementations were verified to have independently converged on the same reading before any live run — the divergence was possible, not present. |
+| Source | `falsify` (2026-07-19) — maintainer-commissioned audit of "§3 is sufficient and unambiguous"; verdict FALSIFIED (2 hard, 4 soft) |
+| Trigger | (historical) A seat re-implementing or reviewing the Hop-A manifest from §3 prose — writing `file_id` fields, or an `expected_cell_count` totalled across months |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §3.1–§3.3 |
+
+Hard: (P1) "store file-ids" prose contradiction vs the fixture manifest (name + sha256, no file-id) + no manifest field names pinned; (P6) `expected_cell_count` scope ambiguity. Soft: `identifiers.npz` member names/dtypes unpinned (P2); hash algorithm/coverage unstated (P3); manifest store-document fields unspecified (P5); `.tap` unexplained (P7). Root cause: same as C-49 — the fixture silently carried the spec and the prose drifted, here into outright error.
+
+**RESOLVED 2026-07-19 (same day):** §3.2 rewritten around a field table matching the fixture bytes exactly; the file-id claim corrected in place with a dated marker; **scope ruling pinned: `expected_cell_count` = per-shard N, uniform across the run's months, ragged run malformed** — pinned only after verifying both shipped implementations agree (pipeline-core `sampled_forecast_publisher.py:261-268` enforces equal cells/month; vpp `track_a_source` checks per-shard); `time.npy`/`unit.npy`/int64, SHA-256-of-whole-zip, manifest store-doc fields, and `.tap` = Track A Package all pinned. Convergence note posted on pipeline-core PR #276. Enforcement: `tests/test_falsify_adr013_s3.py` (6 guards, green). Recorded in the Post-adoption record.
+
+Cross-refs: C-48/C-49 (same audit series and disease class), C-42/C-47 (prior doc-vs-reality drift).
+
+---
 
 ### C-49: ADR-013 §2 under-specified its own header fields; key order load-bearing but ungoverned — RESOLVED same day
 

@@ -370,18 +370,34 @@ before production use. The wire stays flexible; the product stays governed.
 
 **§3.1 Shard.** One stored object per **(run, target, month)**: a zip containing
 exactly what PFE already writes — `y_pred.npy` of shape `(N, S)` float32, plus
-`identifiers.npz` (the time and unit arrays, row-aligned with `y_pred`) — plus
-`metadata.json` (the §2 header). Its store document carries
+`identifiers.npz` (a zip of exactly two members, `time.npy` and `unit.npy`: int64
+arrays row-aligned with `y_pred`) — plus `metadata.json` (the §2 header). Its store document carries
 `type="sampled_forecast_shard"`, `category="forecast"`, `loa`,
 `targets=[<target>]`, and `name` per §3.3. Size ≈ 265 MB per shard per target at
 S=1024 over 64,742 cells.
 
-**§3.2 Manifest — one per (run, target).** A JSON document,
-`type="sampled_forecast_manifest"`, listing the target's shards (store file-ids +
-content hashes), the expected month set, and the expected cell count. It is
-**uploaded last and is the commit marker for that target's leg**: consumers MUST
-ignore shards no manifest lists, so a producer that dies mid-run leaves nothing
-visible. *(Erratum E1, 2026-07-15: the sidecar hash is NOT a Hop-A manifest field —
+**§3.2 Manifest — one per (run, target).** A JSON document — the target's packing
+list. Its fields, exactly as the §10 fixture pins them:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `contract_version` | string | per §2 |
+| `run_id`, `target` | string | which (run, target) this manifest commits |
+| `shards` | array | one entry per month shard: `name` (the §3.3 locator string) and `sha256` (SHA-256 hex digest of the complete shard zip bytes — the hash views-postprocessing verifies on read) |
+| `expected_months` | array of int | every month-id this target's leg must cover, ascending |
+| `expected_cell_count` | int | the number of cells in **each shard** — one month's N. Uniform across the run's months by construction: a ragged run (months with differing cell counts) is malformed and MUST NOT be published. *(Scope ruling 2026-07-19 — both shipped implementations verified convergent on this reading.)* |
+| `sidecar_sha256` | null | always null at Hop A (Erratum E1 below) |
+
+Shards are identified by `name` plus content hash — **not** by store file-id
+*(corrected 2026-07-19: an earlier draft promised store file-id references; the
+canonical bytes never carried them — names are locators per §3.3, hashes are
+identity)*. The manifest's own store document carries the same field set as the
+shard's: `type="sampled_forecast_manifest"`, `category="forecast"`, `loa`,
+`targets=[<target>]`, `name` per §3.3 (verified against the shipped publisher).
+
+The manifest is **uploaded last and is the commit marker for that target's leg**:
+consumers MUST ignore shards no manifest lists, so a producer that dies mid-run
+leaves nothing visible. *(Erratum E1, 2026-07-15: the sidecar hash is NOT a Hop-A manifest field —
 the sidecar is produced downstream by views-postprocessing, so the producer has
 nothing to hash; `sidecar_sha256` at Hop A is absent/null. The sidecar hash lives in
 the Hop-B run manifest only, per §5.2.)* Hop A deliberately keeps **per-target**
@@ -391,7 +407,8 @@ trivially wait for all targets before acting (§4.2a). **Hash verification:**
 views-postprocessing verifies each shard's content hash against this manifest on
 read; it owns the integrity invariants.
 
-**§3.3 Naming.** Shard name: `{run_id}__{target}__m{time_id:06d}.tap.zip`; manifest
+**§3.3 Naming.** Shard name: `{run_id}__{target}__m{time_id:06d}.tap.zip` (the
+`tap` extension stands for **Track A Package**); manifest
 name: `{run_id}__{target}__manifest.json`. Both templates live as **shared constants
 with golden-string tests** (tests that assert the literal string, so a rename cannot
 slip through) in the producing repo. **A name is a locator only — identity is the
@@ -881,6 +898,18 @@ record execution progress against it.
   top-level keys only — the `id_semantics`/`provenance`/`sharding` sub-objects are
   closed.** Enforcement: `tests/test_falsify_adr013_s0.py` and `_s2.py` (audit
   stubs converted to permanent guards). Register: C-48, C-49.
+- **2026-07-19 — §3 falsification audit (2 hard, 4 soft); all fixed same day; one
+  scope ruling pinned; one prose error corrected.** Hard: §3.2 promised "store
+  file-ids" the canonical manifest never carried (corrected in place — name +
+  hash, no file-id); `expected_cell_count` scope was undecidable (per shard vs
+  per-target total). **Ruling: per-shard N, uniform across the run's months —
+  ragged runs are malformed.** Verified convergent before pinning: pipeline-core's
+  shipped publisher (`sampled_forecast_publisher.py:261-268`, enforces equal
+  cells per month) and this repo's `track_a_source` adapter had independently
+  chosen the same reading. Also pinned: `identifiers.npz` members
+  (`time.npy`/`unit.npy`, int64), SHA-256-of-whole-zip hash coverage, the
+  manifest's store-document fields, `.tap` = Track A Package. Guards:
+  `tests/test_falsify_adr013_s3.py`. Register: C-50.
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner
