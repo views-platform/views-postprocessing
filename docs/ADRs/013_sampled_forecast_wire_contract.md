@@ -202,7 +202,9 @@ views-faoapi  (serves FAO; MAP/HDI
 ```
 
 In words: the pipeline zips exactly the files it already writes to local disk and
-uploads them to the internal store (Hop A). views-postprocessing downloads and
+uploads them to the **shared internal store** — `production_forecasts`, the shared
+shelf every partner delivery draws from (§0.3 role 1) — that upload is Hop A.
+views-postprocessing downloads and
 verifies them, holds them internally as views-frames `PredictionFrame` objects (the
 platform's native N×S array type), runs the no-collapse gate (§6), and re-emits them
 in the views-frames arrow format to the FAO-facing store (Hop B). views-faoapi reads
