@@ -112,21 +112,48 @@ before that point is out of contract. Sign-off required every cross-repo claim i
 this contract to be confirmed by the repo that owns it; all preconditions were met
 before adoption (the verification trail is in Appendix A).
 
-**§0.3 Ownership table.** Who owns which stretch of the wire. The **Role** column
-is the repeating pattern; the **This delivery** column is its FAO instance. When a
-new partner delivery arrives (e.g. UN CRAFD, UN OCHA), everything up to and
-including the internal store is **shared** — one Hop-A upload serves every partner.
-A new partner adds only its own Hop-B leg: its bucket, its serving consumer, and
-its own delivery-definition configuration in views-postprocessing. The producer
-side is untouched.
+**§0.3 Ownership.** Five responsibilities, told in the order the data flows. (The
+short version, peer-to-peer: *pipeline-core ships, views-postprocessing checks and
+repacks, the partner's API serves; our configuration defines what "complete"
+means, and cleanup of the internal store has no owner yet.*)
 
-| Role (repeats per partner?) | This delivery (FAO) | Owner |
-|---|---|---|
-| Hop A producer — publish archives to the shared internal store (**shared**, once for all partners) | PFE → `production_forecasts` | views-pipeline-core (#269) |
-| Anti-corruption layer — Hop A consumer + Hop B producer + **the no-collapse policy boundary (§6)** (**per partner**: one Hop-B leg each) | FAO leg | **views-postprocessing** |
-| Delivery definition — expected target set / run completeness (§4.2a) (**per partner**) | FAO delivery config | **views-postprocessing configuration** (a maintained *setting*, not code: the declared list defining "run complete" — changed by decision + config edit, never inferred from what arrives) |
-| Hop B consumer — serve the partner from its bucket (**per partner**) | `unfao_bucket` → serving | views-faoapi (#100) |
-| Internal-store retention (§3.5) (**shared**) | `production_forecasts` | **OPEN — no owner was actually named at sign-off** (gap surfaced 2026-07-19; see Post-adoption record) |
+1. **Putting forecasts on the internal shelf — views-pipeline-core.** Its publish
+   leg (#269) uploads every run's archives to `production_forecasts`. This happens
+   once per run and is **shared**: every partner delivery, present and future,
+   draws from this same shelf. Adding a partner never touches the producer.
+
+2. **Everything in the middle — views-postprocessing.** Take the run off the
+   internal shelf, verify it (hashes, headers), run the **§6 no-collapse gate**,
+   repack it in the partner's format, and place it in the partner's bucket. This
+   leg is **per partner**: FAO's exists now; a UN CRAFD or UN OCHA delivery would
+   each get their own copy of it.
+
+3. **Defining "complete" — views-postprocessing configuration.** A maintained
+   *setting* (not code) lists which targets a finished run must contain; the
+   middle leg refuses to ship until everything on that list has arrived (§4.2a).
+   The list is declared by a human decision and never inferred from what happens
+   to show up. **Per partner.**
+
+4. **Serving the partner — the partner's API repo.** For FAO: views-faoapi (#100)
+   reads `unfao_bucket` and answers FAO's requests, computing point estimates and
+   uncertainty intervals at serving time. Each partner has its own consumer.
+
+5. **Cleaning the internal shelf — OPEN.** Old runs (~29 GB each at reference
+   parameters) accumulate in `production_forecasts` with no deletion mechanism.
+   The maintainer has directed the shape of the fix — a configurable retention
+   period with automatic deletion — but the owner and the period are unassigned
+   (gap surfaced 2026-07-19; must close before the first full-S production run;
+   see the Post-adoption record). **Shared.**
+
+The same five rows in reference form:
+
+| # | Role | Shared / per partner | FAO instance | Owner |
+|---|---|---|---|---|
+| 1 | Hop A producer | shared | PFE → `production_forecasts` | views-pipeline-core (#269) |
+| 2 | Anti-corruption layer + §6 gate | per partner | FAO leg | **views-postprocessing** |
+| 3 | Delivery definition (§4.2a) | per partner | FAO delivery config | **views-postprocessing configuration** |
+| 4 | Hop B consumer | per partner | `unfao_bucket` → serving | views-faoapi (#100) |
+| 5 | Internal-store retention (§3.5) | shared | `production_forecasts` | **OPEN** |
 
 ---
 
