@@ -105,15 +105,20 @@ def read_shard(shard_bytes: bytes, *, expected_sha256: str) -> tuple[PredictionF
     return build_prediction_frame(values, time, unit), header
 
 
-def frames_for_target(manifest: dict, shard_bytes_by_name: dict) -> PredictionFrame:
-    """A (run, target)'s verified shards → one interior ``PredictionFrame``.
+def frames_for_target(
+    manifest: dict, shard_bytes_by_name: dict
+) -> tuple[PredictionFrame, list[dict]]:
+    """A (run, target)'s verified shards → ``(PredictionFrame, headers)``.
 
     ``shard_bytes_by_name`` maps shard ``name`` → downloaded bytes; the manifest is the
     only source of which shards exist (§3.3: names are locators, manifest content is
     identity). Verifies run completeness against the manifest's own declarations —
     months covered exactly, cell count per month — then stacks months into one frame.
+    The returned ``headers`` (manifest shard order) carry the producer-minted
+    provenance the sink passes through untouched (§10.2 — nothing is minted
+    downstream).
     """
-    frames, months_seen = [], []
+    frames, months_seen, headers = [], [], []
     for entry in manifest["shards"]:
         name = entry["name"]
         if name not in shard_bytes_by_name:
@@ -133,6 +138,7 @@ def frames_for_target(manifest: dict, shard_bytes_by_name: dict) -> PredictionFr
                 f"{manifest['expected_cell_count']}."
             )
         frames.append(frame)
+        headers.append(header)
         months_seen.append(int(header.get("time_id")))
 
     if sorted(months_seen) != sorted(int(m) for m in manifest["expected_months"]):
@@ -143,4 +149,4 @@ def frames_for_target(manifest: dict, shard_bytes_by_name: dict) -> PredictionFr
     values = np.concatenate([f.values for f in frames], axis=0)
     time = np.concatenate([np.asarray(f.index.time) for f in frames])
     unit = np.concatenate([np.asarray(f.index.unit) for f in frames])
-    return build_prediction_frame(values, time, unit)
+    return build_prediction_frame(values, time, unit), headers

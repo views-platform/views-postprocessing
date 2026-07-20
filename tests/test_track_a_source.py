@@ -68,8 +68,11 @@ def test_read_shard_round_trips_the_fixture():
 
 
 def test_frames_for_target_assembles_the_run():
-    frame = tas.frames_for_target(MANIFEST, {SHARD_NAME: SHARD})
+    frame, headers = tas.frames_for_target(MANIFEST, {SHARD_NAME: SHARD})
     assert frame.n_rows == 6 and frame.sample_count == 4
+    # headers ride along in manifest shard order (provenance pass-through, §10.2)
+    assert [h["time_id"] for h in headers] == [543]
+    assert headers[0]["provenance"]["ensemble"] == "fixture_ensemble"
 
 
 # --- §3.2 hash verification -----------------------------------------------------------
