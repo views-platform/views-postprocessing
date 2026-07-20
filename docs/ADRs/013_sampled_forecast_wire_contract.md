@@ -1029,6 +1029,21 @@ record execution progress against it.
   ADR (§0–§11) has now been independently falsification-audited; every finding
   fixed same-day; 40 permanent guards enforce the fixes
   (`tests/test_falsify_adr013_*.py`).**
+- **2026-07-20 — §10 fixture RE-BASELINED to the production toolchain (maintainer
+  decision, Option A; a §10 contract-change event).** The fixture's Hop-B byte
+  artifacts had been generated under pyarrow 23.0.1 (an unlocked dev
+  environment); the delivery repo's actual locked toolchain is **pyarrow 16.1.0**
+  and cannot be newer — `views-pipeline-core → viewser → views-storage` hard-pins
+  `pyarrow <17`. The three Hop-B artifacts (arrow shard, sidecar, run manifest)
+  + `SHA256SUMS` were regenerated under 16.1.0; **Track-A bytes are unchanged**
+  (verified byte-identical — producer-side conformance unaffected). New root
+  hash: `9658a6484cc9d975412e52624d52f328985f14cf58e3fc9fbdf3e64ab5a0564b`.
+  pyarrow is now an explicit first-class pin in this repo's pyproject
+  (`>=16.1.0,<17`). Vendors notified to re-vendor (their §10.1 pinned-hash tests
+  catch it regardless — the mechanism's second live save). **Platform debt noted
+  (maintainer: "fix this through the pipeline"): lifting the `<17` ceiling at its
+  source is filed as pipeline-core#280; when it lifts, the fixture gets one
+  planned re-baseline, coordinated, never a drive-by.**
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner
