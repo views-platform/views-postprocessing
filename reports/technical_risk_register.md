@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-19                           |
 | Total Concerns    | 55                                   |
-| Open Concerns     | 26                                   |
-| Resolved Concerns | 29                                   |
+| Open Concerns     | 25                                   |
+| Resolved Concerns | 30                                   |
 
 ---
 
@@ -530,6 +530,8 @@ No silent corruption and no current breakage (development is green on 2.3.0) →
 `unfao/frames.py` (`to_prediction_frame` / `to_target_frame`) converts the repo's pandas tables into views-frames `PredictionFrame`/`TargetFrame` `(N, 1)` value objects to prove they satisfy the published views-frames contract. It is the **only** module importing `views_frames`, and **no live path calls it** — its sole consumer is the conformance test (the module's own docstring states "nothing in the live delivery path calls it yet"). It is forward-looking scaffolding for the C-40 frame migration: harmless, but a maintenance/confusion surface (a reader can mistake it for an active code path, and it hardcodes `S=1`, i.e. point-only, which will need revisiting for the draws/uncertainty work). No correctness or reliability impact → **Tier 4**.
 
 **Partly addressed by S1 (epic #85 / #86, 2026-06-28).** `frames.py` was reworked to the declare-don't-guess design (D-11): it now exposes `build_prediction_frame` / `build_target_frame` over **declared primitives** (a 2-D `(N, S)` array + `(time, unit)`), supports **S>1** (the `S=1` hardcode is gone), is **pandas-free** (no longer the lone pandas importer — it sits alongside `delivery/`), and fails loud rather than inferring/reshaping. So the *S=1-hardcode*, *inference-risk*, and *pandas-coupling* dimensions are resolved. **Residual (entry stays open):** the module is still **not called by the live delivery path** — that wiring is S3 (#88, forecast convert-at-the-door). C-45 resolves when S3 lands (or, if S3 is abandoned, when the module is removed).
+
+**RESOLVED 2026-07-20 (epic #105, S6/S7 — the wiring landed):** `frames.build_prediction_frame` is now on the live contract path — `track_a_source` constructs every interior frame through it, called by `wire/source_selection.fetch_run`, which the manager's declared contract mode invokes (`_read_forecast_data_contract`). The conformance scaffolding became the load-bearing constructor exactly as intended. (#88 was superseded by #105/#111; the wiring shipped there.)
 
 See also C-40 (the pandas gate this adapter anticipates), #45 (the draws carrier that will need the `S>1` version), epic **#85** / **#86** (the S1 rework) / **#88** (the S3 wiring that closes this), **D-11** (the declare-don't-guess decision).
 
