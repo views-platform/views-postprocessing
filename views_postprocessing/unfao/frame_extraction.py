@@ -37,3 +37,20 @@ def cells_of(frame: PredictionFrame) -> set[int]:
 def months_of(frame: PredictionFrame) -> NDArray[np.int64]:
     """The distinct month ids present in the frame, ascending (its index ``time`` axis)."""
     return np.unique(np.asarray(frame.index.time, dtype=np.int64))
+
+
+def month_slice(
+    frame: PredictionFrame, month_id: int
+) -> tuple[NDArray[np.float32], NDArray[np.int64], NDArray[np.int64]]:
+    """One month's ``(values, time, unit)`` primitives, row order preserved.
+
+    The per-(target, month) sharding cut (ADR-013 §4.1) as a seam concern: the
+    shard writer stays frame-API-free by receiving primitives. A month absent
+    from the frame fails loud — the caller declared it, the frame must carry it.
+    """
+    time = np.asarray(frame.index.time, dtype=np.int64)
+    mask = time == month_id
+    if not mask.any():
+        raise ValueError(f"month {month_id} not present in frame (months: {months_of(frame)}).")
+    unit = np.asarray(frame.index.unit, dtype=np.int64)
+    return frame.values[mask], time[mask], unit[mask]
