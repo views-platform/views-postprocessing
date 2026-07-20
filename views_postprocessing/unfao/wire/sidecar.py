@@ -73,9 +73,14 @@ def build_sidecar(lookup: pa.Table, gids) -> pa.Table:
     return pa.table(columns)
 
 
-def write_sidecar(lookup: pa.Table, gids, *, run_id: str, directory: Path) -> tuple[str, str]:
-    """Write the run's sidecar; return ``(file_name, sha256_of_bytes)`` for §4.2."""
+def write_table(table: pa.Table, *, run_id: str, directory: Path) -> tuple[str, str]:
+    """Serialize an already-built (and parity-checked) sidecar table (§5)."""
     name = sidecar_name(run_id)
     path = Path(directory) / name
-    pq.write_table(build_sidecar(lookup, gids), path)
+    pq.write_table(table, path)
     return name, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def write_sidecar(lookup: pa.Table, gids, *, run_id: str, directory: Path) -> tuple[str, str]:
+    """Build + write the run's sidecar; return ``(file_name, sha256_of_bytes)``."""
+    return write_table(build_sidecar(lookup, gids), run_id=run_id, directory=directory)

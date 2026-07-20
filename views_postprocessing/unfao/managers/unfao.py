@@ -17,9 +17,11 @@ import json
 from datetime import datetime
 import os
 from dotenv import load_dotenv
-from views_postprocessing.unfao.enrichment import GaulLookupEnricher
+from views_postprocessing.unfao.enrichment import _DEFAULT_LOOKUP, GaulLookupEnricher
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
-from views_postprocessing.unfao import extraction, source_metadata
+from views_postprocessing.unfao import extraction, frame_extraction, product, source_metadata
+from views_postprocessing.unfao.wire import sink as wire_sink
+from views_postprocessing.unfao.wire import source_selection
 from views_postprocessing.delivery import coverage, identity, observed_range, provenance
 from pathlib import Path
 
@@ -31,6 +33,36 @@ logger = logging.getLogger(__name__)
 # so pinning the legacy type here makes contract artifacts unselectable by this reader.
 # Golden-string-tested (tests/test_selection_guard.py); change only with ADR-013.
 LEGACY_FORECAST_FILTERS = {"category": "forecast", "type": "ensemble"}
+
+
+class _ContractStorePort:
+    """Adapts ``DatastoreModule`` to the wire ports (ADR-013 epic #105; DIP —
+    ``wire/source_selection`` and ``wire/sink`` never see Appwrite types)."""
+
+    def __init__(self, datastore: DatastoreModule) -> None:
+        self._dsm = datastore
+
+    def latest_file_id(self, filters: dict):
+        return self._dsm.get_latest_file_id(filters=filters)
+
+    def file_metadata(self, file_id: str) -> dict:
+        return extraction.file_metadata(self._dsm.get_file_metadata(file_id))
+
+    def download(self, file_id: str) -> bytes:
+        return (
+            self._dsm.download_prediction(file_id).to_dict().get("data", {}).get("file_bytes", None)
+        )
+
+    def upload(self, file_path, *, filename, name, doc_type, category, loa, targets) -> None:
+        self._dsm.upload_data(
+            file=file_path,
+            filename=filename,
+            name=name,
+            type=doc_type,
+            category=category,
+            loa=loa,
+            targets=targets,
+        )
 
 
 class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
@@ -49,6 +81,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 
         self._historical_dataset = None
         self._forecast_dataset = None
+        self._forecast_run = None  # contract mode: {target: (frame, headers)}
         self._enricher = GaulLookupEnricher()
         self.ensemble_path_manager = None
 
@@ -70,14 +103,14 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             source=self._historical_dataframe, targets=self.configs.get("targets")
         )
 
-    def _read_forecast_data(self):
-        # Forecast Data
+    def _prod_forecasts_datastore(self) -> DatastoreModule:
+        """The shared internal store (ADR-013's 'shared shelf'), configured from the
+        declared ensemble's environment. Used by both the legacy and contract reads."""
         ensemble_name = self.configs.get("ensemble", None)
         if not ensemble_name:
             err_msg = "Ensemble name must be provided in configs with the `ensemble` key for forecasting. Cannot proceed."
             logger.error(err_msg)
             raise ValueError(err_msg)
-        
         self.ensemble_path_manager = EnsemblePathManager(ensemble_name_or_path=ensemble_name, validate=False)
         # ensemble_configs = EnsembleManager(
         #     ensemble_path=self.ensemble_path_manager,
@@ -107,9 +140,33 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
             database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
         )
+        return DatastoreModule(appwrite_file_manager_config=appwrite_config)
 
+    def _read_forecast_data_contract(self):
+        """ADR-013 contract inbound (epic #105): assemble the newest fully-manifested
+        run — declared targets awaited, declared ensemble verified. The `wire/`
+        package owns the policy; this method only adapts the store (DIP)."""
+        port = _ContractStorePort(self._prod_forecasts_datastore())
+        self._forecast_run = source_selection.fetch_run(
+            port,
+            expected_targets=product.TARGETS,
+            expected_ensemble=self.configs["ensemble"],
+        )
+        run_id = next(iter(self._forecast_run.values()))[1][0]["run_id"]
+        logger.info(
+            "Contract inbound: run %s assembled (%d targets).",
+            run_id,
+            len(self._forecast_run),
+        )
+
+    def _read_forecast_data(self):
+        # Explicit declared mode (ADR-013; never inferred from store contents).
+        if self.configs.get("wire_contract"):
+            self._read_forecast_data_contract()
+            return
+        loa = "pgm"
         try:
-            prediction_store_manager = DatastoreModule(appwrite_file_manager_config=appwrite_config)
+            prediction_store_manager = self._prod_forecasts_datastore()
 
             # Resolve the newest legacy forecast, then verify its identity before
             # delivering it (S3/C-25): a stray upload must not be silently shipped as
@@ -163,6 +220,10 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self,
     ) -> list:
         self._historical_dataframe = self._append_metadata(self._historical_dataset)
+        if self.configs.get("wire_contract"):
+            # Contract mode: the forecast is frames, not a dataframe; geography ships
+            # as the §5 sidecar (built at _save), never joined into the payload.
+            return
         self._forecast_dataframe = self._append_metadata(self._forecast_dataset)
 
     def _validate(self) -> pd.DataFrame:
@@ -179,6 +240,13 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 logger.error(err_msg)
                 raise ValueError(err_msg)
         logger.info("Historical dataframe metadata validation passed.")
+
+        if self.configs.get("wire_contract"):
+            # Contract mode: forecast-side null-gating is replaced by the wire's own
+            # verified chain (hashes + header/payload asserts at read; §6 gate + gid
+            # parity at _save). Coverage still applies, via the frame seam.
+            self._check_coverage()
+            return
 
         for col in _necessary_metadata_cols:
             if col not in self._forecast_dataframe.columns:
@@ -253,16 +321,25 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         region = self.configs.get("region")
         expected = coverage.expected_for(region)
         excluded = coverage.excluded_for(region)
-        for label, df in (
-            ("historical", self._historical_dataframe),
-            ("forecast", self._forecast_dataframe),
-        ):
-            cells = extraction.cells_of(df)
+        if self.configs.get("wire_contract"):
+            # Forecast cells come from the frame seam; targets share one cell set
+            # (enforced again at the sink, §4.2). Historical stays the pandas seam.
+            first_frame = next(iter(self._forecast_run.values()))[0]
+            sources = [
+                ("historical", extraction.cells_of(self._historical_dataframe), len(self._historical_dataframe)),
+                ("forecast", frame_extraction.cells_of(first_frame), first_frame.n_rows),
+            ]
+        else:
+            sources = [
+                ("historical", extraction.cells_of(self._historical_dataframe), len(self._historical_dataframe)),
+                ("forecast", extraction.cells_of(self._forecast_dataframe), len(self._forecast_dataframe)),
+            ]
+        for label, cells, n_rows in sources:
             logger.info(
                 "%s delivery coverage: %d distinct cells, %d rows.",
                 label,
                 len(cells),
-                len(df),
+                n_rows,
             )
             # GAUL-uncovered cells the curated region must drop (S4/C-30) — checked
             # before the count gate so a leaked island names itself, not "over-coverage
@@ -280,7 +357,51 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                     region,
                 )
 
+    def _save_contract(self) -> dict:
+        """ADR-013 contract outbound (epic #105): the composed sink delivers the run.
+
+        The §11.4 interlock is enforced by ``wire.sink`` itself: with the default
+        ``product.UPLOAD_ENABLED=False`` (overridable only by the explicit
+        ``wire_upload_enabled`` launch-config key), artifacts are staged locally and
+        ZERO store calls occur. First live enablement is gated on C-161 closure.
+        """
+        import pyarrow.parquet as pq
+
+        upload_enabled = bool(self.configs.get("wire_upload_enabled", product.UPLOAD_ENABLED))
+        store = _ContractStorePort(self._unfao_datastore()) if upload_enabled else None
+        return wire_sink.deliver_run(
+            self._forecast_run,
+            lookup=pq.read_table(_DEFAULT_LOOKUP),
+            staging_dir=Path(self._model_path.data_generated) / "wire_contract",
+            store=store,
+            upload_enabled=upload_enabled,
+        )
+
+    def _unfao_datastore(self) -> DatastoreModule:
+        """The FAO-facing store (`unfao_bucket`)."""
+        return DatastoreModule(appwrite_file_manager_config=self._unfao_appwrite_config())
+
+    def _unfao_appwrite_config(self) -> AppwriteConfig:
+        return AppwriteConfig(
+            path_manager=self._model_path,
+            endpoint=os.getenv("APPWRITE_ENDPOINT"),
+            project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
+            credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
+            auth_method="api_key",
+            cache_ttl_hours=24,
+            bucket_id=os.getenv("APPWRITE_UNFAO_BUCKET_ID"),
+            bucket_name=os.getenv("APPWRITE_UNFAO_BUCKET_NAME"),
+            collection_id=os.getenv("APPWRITE_UNFAO_COLLECTION_ID"),
+            collection_name=os.getenv("APPWRITE_UNFAO_COLLECTION_NAME"),
+            database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
+            database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
+        )
+
     def _save(self) -> list:
+        # Explicit declared mode (ADR-013; never inferred).
+        if self.configs.get("wire_contract"):
+            return self._save_contract()
+
         if self._historical_dataset is None or self._forecast_dataset is None:
             err_msg = "Datasets could not be initialized properly."
             logger.error(err_msg)
