@@ -17,7 +17,7 @@ from views_postprocessing.unfao.wire import header as wire_header
 from views_postprocessing.unfao.wire import shard as wire_shard
 
 _FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
-_PINNED_PYARROW = "23.0.1"
+_PINNED_PYARROW = "16.1.0"
 
 
 def _fixture_frame_and_header():
