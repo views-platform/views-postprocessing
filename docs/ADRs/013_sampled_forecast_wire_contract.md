@@ -1044,6 +1044,20 @@ record execution progress against it.
   (maintainer: "fix this through the pipeline"): lifting the `<17` ceiling at its
   source is filed as pipeline-core#280; when it lifts, the fixture gets one
   planned re-baseline, coordinated, never a drive-by.**
+- **2026-07-20 — HOP-B SINK LEG SHIPPED (epic #105 complete; upload-disabled).**
+  The contract's missing middle exists in fixture-proven code:
+  `unfao/wire/` (naming, header, shard, sidecar, run_manifest, source_selection,
+  sink) + `unfao/product.py` + `delivery/parity.py`, wired into the manager
+  behind an explicit declared `wire_contract` launch key. Settled by shipping:
+  **§4.2a's configuration home is `unfao/product.py`**; **§5.2's parity
+  invariant is `delivery/parity.py`**; the §11.4 upload interlock is live in
+  code (`product.UPLOAD_ENABLED=False`; the default configuration provably makes
+  zero store calls — golden-tested). The e2e capstone proves the anti-corruption
+  role end to end: fixture Track-A artifacts in → **byte-identical** fixture
+  Hop-B artifacts out, §6 gate first, manifest uploaded last, every document
+  under the pinned `un_fao` name (the F1 fix, in code). First live enablement
+  remains gated on C-161 closure (faoapi #184 release). Stories: vpp #106–#113;
+  PRs #115–#121.
 - **2026-07-19 — retention direction given (maintainer): a configurable retention
   period with automatic deletion** (e.g. 12 or 36 months — the value to be decided
   with the owner). This settles the *shape* of the §3.5 policy; the owner
