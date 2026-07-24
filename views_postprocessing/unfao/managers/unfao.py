@@ -152,6 +152,21 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             expected_targets=product.TARGETS,
             expected_ensemble=self.configs["ensemble"],
         )
+        # Declared-region curation (C-30/S4, at the anti-corruption layer): the
+        # producer publishes its full model grid; the FAO product excludes the
+        # declared GAUL-uncovered cells. Explicit frozenset, never inference.
+        excluded = coverage.excluded_for(self.configs.get("region"))
+        if excluded:
+            self._forecast_run = {
+                target: (frame_extraction.drop_units(frame, excluded), headers)
+                for target, (frame, headers) in self._forecast_run.items()
+            }
+            logger.info(
+                "Declared-region curation applied: %d excluded cells dropped per "
+                "target (region=%r).",
+                len(excluded),
+                self.configs.get("region"),
+            )
         run_id = next(iter(self._forecast_run.values()))[1][0]["run_id"]
         logger.info(
             "Contract inbound: run %s assembled (%d targets).",
