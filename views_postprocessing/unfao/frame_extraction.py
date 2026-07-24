@@ -39,6 +39,27 @@ def months_of(frame: PredictionFrame) -> NDArray[np.int64]:
     return np.unique(np.asarray(frame.index.time, dtype=np.int64))
 
 
+def drop_units(frame: PredictionFrame, excluded: frozenset) -> PredictionFrame:
+    """The frame without the DECLARED excluded cells (row filter on ``unit``).
+
+    Product curation as a seam concern (ADR-013 anti-corruption role): the producer
+    publishes its full model grid; the delivery restricts it to the declared
+    partner region using an explicit exclusion set (e.g.
+    ``delivery.coverage.excluded_for(region)``) — never inferred. Empty exclusion
+    returns the frame unchanged.
+    """
+    if not excluded:
+        return frame
+    unit = np.asarray(frame.index.unit, dtype=np.int64)
+    keep = ~np.isin(unit, np.fromiter(excluded, dtype=np.int64))
+    if keep.all():
+        return frame
+    time = np.asarray(frame.index.time, dtype=np.int64)
+    from views_postprocessing.unfao.frames import build_prediction_frame
+
+    return build_prediction_frame(frame.values[keep], time[keep], unit[keep])
+
+
 def month_slice(
     frame: PredictionFrame, month_id: int
 ) -> tuple[NDArray[np.float32], NDArray[np.int64], NDArray[np.int64]]:

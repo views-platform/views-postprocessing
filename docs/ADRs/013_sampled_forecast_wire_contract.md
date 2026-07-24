@@ -1044,6 +1044,14 @@ record execution progress against it.
   (maintainer: "fix this through the pipeline"): lifting the `<17` ceiling at its
   source is filed as pipeline-core#280; when it lifts, the fixture gets one
   planned re-baseline, coordinated, never a drive-by.**
+- **2026-07-24 — run-0 pre-flight: declared-region curation added at the
+  anti-corruption layer.** The real run-0 payload carries the full model grid
+  (64,818 cells) including exactly the 76 declared GAUL-uncovered exclusions
+  (C-30); the producer is right not to know partner curation, so the delivery now
+  applies `coverage.excluded_for(region)` — the explicit pinned frozenset, never
+  inference — to the assembled frames before the gate (contract-mode read).
+  Proven by a full dry run on the real run-0 data: curated 64,742 cells, gate
+  passed at 128 draws, sidecar + manifest staged, zero store calls.
 - **2026-07-20 — HOP-B SINK LEG SHIPPED (epic #105 complete; upload-disabled).**
   The contract's missing middle exists in fixture-proven code:
   `unfao/wire/` (naming, header, shard, sidecar, run_manifest, source_selection,
