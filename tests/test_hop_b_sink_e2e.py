@@ -1,11 +1,13 @@
-"""The epic #105 capstone: fixture Track-A artifacts in → Hop-B artifacts out
-(ADR-013 e2e), through source_selection + sink with fake ports only.
+"""The epic #105 capstone, streaming edition: fixture Track-A artifacts in →
+Hop-B artifacts out (ADR-013 e2e), through resolve_run leases + the streaming
+sink with fake ports only.
 
-Covers the S7 acceptance criteria: (a) §6 gate before any write, (b) upload order
-shards → sidecar → manifest LAST, (c) §4.1a document fields with the pinned
-consumer name, (d) the §11.4 interlock (default config ⇒ ZERO store calls),
-(e) byte parity with the full fixture set (toolchain-pinned like the other byte
-tests — fails loud on drift, never skips silently).
+Covers the S7 acceptance criteria under the OOM-fix design: (a) §6 gate before
+any of a target's bytes are staged, (b) upload order shards → sidecar → manifest
+LAST, (c) §4.1a document fields with the pinned consumer name, (d) the §11.4
+interlock (default config ⇒ ZERO store calls), (e) byte parity with the full
+fixture set (toolchain-pinned — fails loud on drift, never skips silently),
+plus the streaming-specific ragged-run refusals.
 """
 
 import hashlib
@@ -45,6 +47,17 @@ class FakeSourceStore:
         return next(b for i, _, b in self._records if i == file_id)
 
 
+class FakeLease:
+    """Trivial lease: preloaded values, for failure-path tests."""
+
+    def __init__(self, run_id, frame, headers):
+        self.run_id = run_id
+        self._value = (frame, headers)
+
+    def load(self):
+        return self._value
+
+
 class UploadLog:
     def __init__(self):
         self.calls = []
@@ -70,45 +83,53 @@ def _synthetic_lookup() -> pa.Table:
     )
 
 
-def _fetched_run():
-    return sel.fetch_run(
+def _leases():
+    """Real leases through the real resolver — the full inbound chain."""
+    return sel.resolve_run(
         FakeSourceStore(),
         expected_targets=["lr_ged_sb"],
         expected_ensemble="fixture_ensemble",
     )
 
 
+def _fixture_frame_and_headers():
+    return _leases()["lr_ged_sb"].load()
+
+
 def test_interlock_default_config_makes_zero_store_calls(tmp_path):
     # (d) — the default configuration is provably unable to touch the bucket.
     log = UploadLog()
     summary = sink.deliver_run(
-        _fetched_run(), lookup=_synthetic_lookup(), staging_dir=tmp_path, store=log
+        _leases(), lookup=_synthetic_lookup(), staging_dir=tmp_path, store=log
     )
     assert product.UPLOAD_ENABLED is False
     assert summary["uploaded"] is False
     assert log.calls == []  # ZERO store calls (§11.4)
-    assert (tmp_path / summary["manifest"]).exists()  # staged locally
+    assert (Path(summary["staging_dir"]) / summary["manifest"]).exists()
+    assert Path(summary["staging_dir"]).name == "fixture_run_0"  # per-run_id subdir
 
 
 def test_gate_fires_before_any_write(tmp_path):
     # (a) — a collapsed payload raises and NOTHING is staged.
     values = np.zeros((6, 4), dtype=np.float32)  # every row draw-degenerate
-    time = np.full(6, 543, dtype=np.int64)
-    unit = np.array(_GIDS, dtype=np.int64)
-    frame = build_prediction_frame(values, time, unit)
-    _, headers = _fetched_run()["lr_ged_sb"]
+    frame = build_prediction_frame(
+        values, np.full(6, 543, dtype=np.int64), np.array(_GIDS, dtype=np.int64)
+    )
+    _, headers = _fixture_frame_and_headers()
     with pytest.raises(DrawsCollapseError):
         sink.deliver_run(
-            {"lr_ged_sb": (frame, headers)}, lookup=_synthetic_lookup(), staging_dir=tmp_path
+            {"lr_ged_sb": FakeLease("fixture_run_0", frame, headers)},
+            lookup=_synthetic_lookup(),
+            staging_dir=tmp_path,
         )
-    assert list(tmp_path.iterdir()) == []  # gate first: no bytes staged
+    assert list(tmp_path.iterdir()) == []  # gate first: no bytes staged, no subdir
 
 
 def test_upload_order_and_document_fields(tmp_path):
     # (b) + (c) — order shards → sidecar → manifest LAST; §4.1a fields on every doc.
     log = UploadLog()
     summary = sink.deliver_run(
-        _fetched_run(),
+        _leases(),
         lookup=_synthetic_lookup(),
         staging_dir=tmp_path,
         store=log,
@@ -128,14 +149,35 @@ def test_upload_order_and_document_fields(tmp_path):
     assert log.calls[-1]["targets"] == ["lr_ged_sb"]
 
 
-def test_ragged_run_refused(tmp_path):
-    run = _fetched_run()
-    frame, headers = run["lr_ged_sb"]
+def test_ragged_run_refused_and_first_target_released(tmp_path):
+    frame, headers = _fixture_frame_and_headers()
     other = dict(headers[0])
     other["run_id"] = "another_run"
     with pytest.raises(sink.SinkError, match="disagree on run_id"):
         sink.deliver_run(
-            {"lr_ged_sb": (frame, headers), "lr_ged_ns": (frame, [other])},
+            {
+                "lr_ged_sb": FakeLease("fixture_run_0", frame, headers),
+                "lr_ged_ns": FakeLease("fixture_run_0", frame, [other]),
+            },
+            lookup=_synthetic_lookup(),
+            staging_dir=tmp_path,
+        )
+    # first target's shards were staged (harmless: no manifest = invisible, §4.2)
+    staged = list((tmp_path / "fixture_run_0").iterdir())
+    assert all("manifest" not in p.name for p in staged)
+
+
+def test_targets_disagreeing_on_cells_refused(tmp_path):
+    frame, headers = _fixture_frame_and_headers()
+    small = build_prediction_frame(
+        frame.values[:5], np.asarray(frame.index.time)[:5], np.asarray(frame.index.unit)[:5]
+    )
+    with pytest.raises(sink.SinkError, match="cell set"):
+        sink.deliver_run(
+            {
+                "lr_ged_sb": FakeLease("fixture_run_0", frame, headers),
+                "lr_ged_ns": FakeLease("fixture_run_0", small, headers),
+            },
             lookup=_synthetic_lookup(),
             staging_dir=tmp_path,
         )
@@ -143,22 +185,23 @@ def test_ragged_run_refused(tmp_path):
 
 def test_e2e_byte_parity_with_the_fixture(tmp_path):
     # (e) — the anti-corruption proof (§10): fixture Track-A in → fixture Hop-B out,
-    # byte for byte. Toolchain-pinned: fails loud on pyarrow drift.
+    # byte for byte, through resolve → lease → streamed sink. Toolchain-pinned.
     import pyarrow
 
     assert pyarrow.__version__ == "16.1.0", (
         f"pinned toolchain violated (fixture README): found {pyarrow.__version__}."
     )
     summary = sink.deliver_run(
-        _fetched_run(), lookup=_synthetic_lookup(), staging_dir=tmp_path
+        _leases(), lookup=_synthetic_lookup(), staging_dir=tmp_path
     )
+    staging = Path(summary["staging_dir"])
     for name in (
         "fixture_run_0__lr_ged_sb__m000543.arrow.parquet",
         "fixture_run_0__sidecar.parquet",
         "fixture_run_0__manifest.json",
     ):
-        assert (tmp_path / name).read_bytes() == (_FIX / name).read_bytes(), name
-    manifest = json.loads((tmp_path / summary["manifest"]).read_text())
+        assert (staging / name).read_bytes() == (_FIX / name).read_bytes(), name
+    manifest = json.loads((staging / summary["manifest"]).read_text())
     assert manifest["shards"][0]["sha256"] == hashlib.sha256(
         (_FIX / "fixture_run_0__lr_ged_sb__m000543.arrow.parquet").read_bytes()
     ).hexdigest()
