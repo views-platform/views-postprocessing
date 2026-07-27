@@ -19,7 +19,8 @@ import os
 from dotenv import load_dotenv
 from views_postprocessing.unfao.enrichment import _DEFAULT_LOOKUP, GaulLookupEnricher
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
-from views_postprocessing.unfao import extraction, product, source_metadata
+from views_pipeline_core.modules.dataloaders.datafactory_contract import declared_data_format
+from views_postprocessing.unfao import extraction, frame_extraction, historical, product, source_metadata
 from views_postprocessing.unfao.wire import sink as wire_sink
 from views_postprocessing.unfao.wire import source_selection
 from views_postprocessing.delivery import coverage, identity, observed_range, provenance
@@ -53,7 +54,7 @@ class _ContractStorePort:
             self._dsm.download_prediction(file_id).to_dict().get("data", {}).get("file_bytes", None)
         )
 
-    def upload(self, file_path, *, filename, name, doc_type, category, loa, targets) -> None:
+    def upload(self, file_path, *, filename, name, doc_type, category, loa, targets, description=None) -> None:
         self._dsm.upload_data(
             file=file_path,
             filename=filename,
@@ -62,6 +63,7 @@ class _ContractStorePort:
             category=category,
             loa=loa,
             targets=targets,
+            description=description,
         )
 
 
@@ -82,12 +84,42 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         self._historical_dataset = None
         self._forecast_dataset = None
         self._forecast_resolution = None  # contract mode: {target: TargetLease}
+        self._historical_frame = None  # frame-native historical (#126)
         self._enricher = GaulLookupEnricher()
         self.ensemble_path_manager = None
+
+    def _read_historical_frame(self):
+        """#126: historical actuals as a views_frames.FeatureFrame — the first
+        production consumer of pipeline-core's frame-native fetch. Same clip
+        policy as the legacy path (producer-sourced boundary, degrade-open)."""
+        frame = self._data_loader.get_feature_frame(
+            partition="forecasting", use_saved=False, level="pgm", validate=True
+        )
+        try:
+            lv = source_metadata.last_valid_month_id(self.configs.get("zarr_url"))
+        except Exception:
+            logger.warning("last_valid_month_id unavailable; skipping clip (degrade-open, C-26).", exc_info=True)
+            lv = None
+        if lv is None:
+            self._historical_frame = frame
+            return
+        fabricated = observed_range.fabricated_months(frame_extraction.months_of(frame), lv)
+        if len(fabricated):
+            logger.warning(
+                "Dropping %d fabricated (unobserved) month(s) above last_valid_month_id=%d.",
+                len(fabricated), lv,
+            )
+            frame = frame_extraction.drop_months_above(frame, lv)
+        self._historical_frame = frame
 
     def _read_historical_data(self):
         self._initialize_data_loader()
         run_type = "forecasting"
+        # Declared dispatch (never inferred): the queryset descriptor's
+        # data_format decides — pipeline-core's contract fn is the one gate.
+        if declared_data_format(self._model_path.get_queryset()) == "feature_frame":
+            self._read_historical_frame()
+            return
 
         self._data_loader.get_data(
                 use_saved=False,
@@ -244,7 +276,9 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
     def _transform(
         self,
     ) -> list:
-        self._historical_dataframe = self._append_metadata(self._historical_dataset)
+        if self._historical_frame is None:
+            self._historical_dataframe = self._append_metadata(self._historical_dataset)
+        # frame-native historical attaches geography at artifact build (historical.py)
         if self.configs.get("wire_contract"):
             # Contract mode: the forecast is frames, not a dataframe; geography ships
             # as the §5 sidecar (built at _save), never joined into the payload.
@@ -254,7 +288,15 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
     def _validate(self) -> pd.DataFrame:
         _necessary_metadata_cols = METADATA_COLS
 
-        for col in _necessary_metadata_cols:
+        if self._historical_frame is not None:
+            logger.info(
+                "Historical is frame-native: the metadata null-gate is enforced at "
+                "artifact build (historical.assert_metadata_complete)."
+            )
+            _historical_cols_to_check = []
+        else:
+            _historical_cols_to_check = _necessary_metadata_cols
+        for col in _historical_cols_to_check:
             if col not in self._historical_dataframe.columns:
                 err_msg = f"Historical dataframe is missing required metadata column: {col}. Found columns: {self._historical_dataframe.columns.tolist()}"
                 logger.error(err_msg)
@@ -356,12 +398,10 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             # Streaming mode: forecast coverage is asserted inside each lease's
             # load() (where the frame exists — see wire/source_selection); only
             # the historical (still pandas until #126) is checked here.
-            sources = [
-                ("historical", extraction.cells_of(self._historical_dataframe), len(self._historical_dataframe)),
-            ]
+            sources = [self._historical_coverage_source()]
         else:
             sources = [
-                ("historical", extraction.cells_of(self._historical_dataframe), len(self._historical_dataframe)),
+                self._historical_coverage_source(),
                 ("forecast", extraction.cells_of(self._forecast_dataframe), len(self._forecast_dataframe)),
             ]
         for label, cells, n_rows in sources:
@@ -403,13 +443,42 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             )
         upload_enabled = bool(self.configs.get("wire_upload_enabled", product.UPLOAD_ENABLED))
         store = _ContractStorePort(self._unfao_datastore()) if upload_enabled else None
-        return wire_sink.deliver_run(
+        summary = wire_sink.deliver_run(
             self._forecast_resolution,
             lookup=pq.read_table(_DEFAULT_LOOKUP),
             staging_dir=Path(self._model_path.data_generated) / "wire_contract",
             store=store,
             upload_enabled=upload_enabled,
         )
+        # Historical leg (#126): the FAO product ships actuals alongside the wire —
+        # frame-built, same artifact shape faoapi already ingests, same interlock.
+        if self._historical_frame is None:
+            raise ValueError(
+                "contract _save: no historical frame — the un_fao descriptor must "
+                "declare data_format: feature_frame (#126)."
+            )
+        hist_path, hist_description, _ = self._build_historical_artifact(
+            Path(summary["staging_dir"])
+        )
+        if upload_enabled:
+            store.upload(
+                hist_path,
+                filename=hist_path.name,
+                name=self._model_path.model_name,
+                doc_type="model",
+                category="historical",
+                loa="pgm",
+                targets=list(self.configs.get("targets", [])),
+                description=hist_description,
+            )
+            logger.info("uploaded %s (historical, run %s)", hist_path.name, summary["run_id"])
+        else:
+            logger.info(
+                "Interlock holding: historical artifact staged at %s (no store calls).",
+                hist_path,
+            )
+        summary["historical"] = hist_path.name
+        return summary
 
     def _unfao_datastore(self) -> DatastoreModule:
         """The FAO-facing store (`unfao_bucket`)."""
@@ -458,18 +527,24 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         dsm = DatastoreModule(appwrite_file_manager_config=unfao_appwrite_config)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        historical_file_path = self._model_path.data_generated / f"historical_dataset_{timestamp}.parquet"
         forecast_file_path = self._model_path.data_generated / f"forecast_dataset_{timestamp}.parquet"
 
-        self._historical_dataframe.to_parquet(
-            historical_file_path
-        )
+        if self._historical_frame is not None:
+            historical_file_path, hist_description, timestamp = self._build_historical_artifact(
+                self._model_path.data_generated
+            )
+        else:
+            historical_file_path = self._model_path.data_generated / f"historical_dataset_{timestamp}.parquet"
+            self._historical_dataframe.to_parquet(
+                historical_file_path
+            )
+            hist_description = self._delivery_description(self._historical_dataframe, timestamp)
         dsm.upload_data(file=historical_file_path,
                        filename=Path(historical_file_path).name,
                        name=self._model_path.model_name,
                        loa="pgm",
                        type="model", targets=self.configs.get("targets", []),
-                       description=self._delivery_description(self._historical_dataframe, timestamp),
+                       description=hist_description,
                        category="historical")
 
         self._forecast_dataframe.to_parquet(
@@ -482,6 +557,50 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                        type="model", targets=["pred_ln_sb_best", "pred_ln_ns_best", "pred_ln_os_best", "pred_ln_sb_prob", "pred_ln_ns_prob", "pred_ln_os_prob"],
                        description=self._delivery_description(self._forecast_dataframe, timestamp),
                        category="forecast")
+
+    def _historical_coverage_source(self):
+        """(label, cells, n_rows) for whichever historical representation is live."""
+        if self._historical_frame is not None:
+            return (
+                "historical",
+                frame_extraction.cells_of(self._historical_frame),
+                self._historical_frame.n_rows,
+            )
+        return (
+            "historical",
+            extraction.cells_of(self._historical_dataframe),
+            len(self._historical_dataframe),
+        )
+
+    def _historical_frame_description(self, table, timestamp: str) -> str:
+        """The C-15 provenance description for the frame-built historical artifact."""
+        region = self.configs.get("region")
+        prov = provenance.build_provenance(
+            lookup_version=self._enricher.lookup_version,
+            region=region,
+            expected_cell_count=coverage.expected_for(region),
+            actual_cell_count=len(frame_extraction.cells_of(self._historical_frame)),
+            unmapped_count=historical.unmapped_cell_count(table),
+        )
+        return (
+            f"Enriched with geographic metadata on {timestamp} using precomputed GAUL "
+            f"lookup (ADR-011, version={self._enricher.lookup_version}). "
+            f"provenance={json.dumps(prov, separators=(',', ':'))}"
+        )
+
+    def _build_historical_artifact(self, directory) -> tuple:
+        """Frame-built historical artifact staged into ``directory``; returns
+        (path, description, timestamp). Null-gate enforced here (fail loud)."""
+        import pyarrow.parquet as pq
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        table = historical.build_historical_table(
+            self._historical_frame, pq.read_table(_DEFAULT_LOOKUP)
+        )
+        historical.assert_metadata_complete(table)
+        path = Path(directory) / f"historical_dataset_{timestamp}.parquet"
+        historical.write_historical_artifact(table, path)
+        return path, self._historical_frame_description(table, timestamp), timestamp
 
     def _delivery_description(self, df: pd.DataFrame, timestamp: str) -> str:
         """Human prefix + structured provenance (S5/C-15) for an upload's metadata.
