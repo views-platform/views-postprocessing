@@ -19,7 +19,7 @@ import os
 from dotenv import load_dotenv
 from views_postprocessing.unfao.enrichment import _DEFAULT_LOOKUP, GaulLookupEnricher
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
-from views_postprocessing.unfao import extraction, frame_extraction, product, source_metadata
+from views_postprocessing.unfao import extraction, product, source_metadata
 from views_postprocessing.unfao.wire import sink as wire_sink
 from views_postprocessing.unfao.wire import source_selection
 from views_postprocessing.delivery import coverage, identity, observed_range, provenance
@@ -81,7 +81,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 
         self._historical_dataset = None
         self._forecast_dataset = None
-        self._forecast_run = None  # contract mode: {target: (frame, headers)}
+        self._forecast_resolution = None  # contract mode: {target: TargetLease}
         self._enricher = GaulLookupEnricher()
         self.ensemble_path_manager = None
 
@@ -103,9 +103,19 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             source=self._historical_dataframe, targets=self.configs.get("targets")
         )
 
-    def _prod_forecasts_datastore(self) -> DatastoreModule:
+    def _prod_forecasts_datastore(self, *, name_scoped: bool = True) -> DatastoreModule:
         """The shared internal store (ADR-013's 'shared shelf'), configured from the
-        declared ensemble's environment. Used by both the legacy and contract reads."""
+        declared ensemble's environment. Used by both the legacy and contract reads.
+
+        ``name_scoped`` controls pipeline-core's automatic ``name == model_name`` query
+        filter (``DatastoreModule.get_predictions_by_metadata`` injects it on every
+        lookup). The LEGACY read depends on it: its filters ``{category: forecast,
+        type: ensemble}`` carry no name, so the injected ensemble-name is the S3/C-25
+        identity guard that prevents selecting a *different* ensemble's forecast. The
+        CONTRACT read must switch it OFF: ADR-013 files are named
+        ``{run_id}__{target}__manifest.json`` (never the bare ensemble name), so an
+        injected ``name == "rusty_bucket"`` matches nothing and also clobbers the wire
+        layer's own run-id / target / name filters."""
         ensemble_name = self.configs.get("ensemble", None)
         if not ensemble_name:
             err_msg = "Ensemble name must be provided in configs with the `ensemble` key for forecasting. Cannot proceed."
@@ -140,38 +150,38 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
             database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
         )
-        return DatastoreModule(appwrite_file_manager_config=appwrite_config)
+        datastore = DatastoreModule(appwrite_file_manager_config=appwrite_config)
+        if not name_scoped:
+            # Suppress the automatic name==model_name filter (see docstring). model_path
+            # is used by DatastoreModule only for that injection and for uploads; the
+            # contract read neither uploads nor performs any model-scoped lookup.
+            datastore.model_path = None
+        return datastore
 
     def _read_forecast_data_contract(self):
-        """ADR-013 contract inbound (epic #105): assemble the newest fully-manifested
-        run — declared targets awaited, declared ensemble verified. The `wire/`
-        package owns the policy; this method only adapts the store (DIP)."""
-        port = _ContractStorePort(self._prod_forecasts_datastore())
-        self._forecast_run = source_selection.fetch_run(
+        """ADR-013 contract inbound (epic #105; streaming since the run-0 OOM fix):
+        RESOLVE the newest fully-manifested run — manifests + pinned shard
+        file_ids only, no heavy bytes. Frames materialize one target at a time
+        inside the sink at _save (each lease loads → verifies → curates → is
+        released). The `wire/` package owns the policy; this method only adapts
+        the store (DIP) and declares the product facts (region curation +
+        coverage expectations live in the lease, where frames exist)."""
+        port = _ContractStorePort(self._prod_forecasts_datastore(name_scoped=False))
+        region = self.configs.get("region")
+        self._forecast_resolution = source_selection.resolve_run(
             port,
             expected_targets=product.TARGETS,
             expected_ensemble=self.configs["ensemble"],
+            excluded_gids=coverage.excluded_for(region),
+            expected_cells=coverage.expected_for(region),
         )
-        # Declared-region curation (C-30/S4, at the anti-corruption layer): the
-        # producer publishes its full model grid; the FAO product excludes the
-        # declared GAUL-uncovered cells. Explicit frozenset, never inference.
-        excluded = coverage.excluded_for(self.configs.get("region"))
-        if excluded:
-            self._forecast_run = {
-                target: (frame_extraction.drop_units(frame, excluded), headers)
-                for target, (frame, headers) in self._forecast_run.items()
-            }
-            logger.info(
-                "Declared-region curation applied: %d excluded cells dropped per "
-                "target (region=%r).",
-                len(excluded),
-                self.configs.get("region"),
-            )
-        run_id = next(iter(self._forecast_run.values()))[1][0]["run_id"]
+        run_id = next(iter(self._forecast_resolution.values())).run_id
         logger.info(
-            "Contract inbound: run %s assembled (%d targets).",
+            "Contract inbound resolved: run %s (%d targets leased; region=%r; "
+            "heavy fetch deferred to delivery).",
             run_id,
-            len(self._forecast_run),
+            len(self._forecast_resolution),
+            region,
         )
 
     def _read_forecast_data(self):
@@ -258,8 +268,14 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 
         if self.configs.get("wire_contract"):
             # Contract mode: forecast-side null-gating is replaced by the wire's own
-            # verified chain (hashes + header/payload asserts at read; §6 gate + gid
-            # parity at _save). Coverage still applies, via the frame seam.
+            # verified chain (hashes + header/payload asserts + coverage inside each
+            # lease's load; §6 gate + gid parity at _save). This phase asserts the
+            # RESOLUTION happened — the Template Method stays truthful: _read
+            # resolves, _save materializes.
+            if self._forecast_resolution is None:
+                raise ValueError(
+                    "wire_contract mode: no resolved run — _read did not resolve."
+                )
             self._check_coverage()
             return
 
@@ -337,12 +353,11 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         expected = coverage.expected_for(region)
         excluded = coverage.excluded_for(region)
         if self.configs.get("wire_contract"):
-            # Forecast cells come from the frame seam; targets share one cell set
-            # (enforced again at the sink, §4.2). Historical stays the pandas seam.
-            first_frame = next(iter(self._forecast_run.values()))[0]
+            # Streaming mode: forecast coverage is asserted inside each lease's
+            # load() (where the frame exists — see wire/source_selection); only
+            # the historical (still pandas until #126) is checked here.
             sources = [
                 ("historical", extraction.cells_of(self._historical_dataframe), len(self._historical_dataframe)),
-                ("forecast", frame_extraction.cells_of(first_frame), first_frame.n_rows),
             ]
         else:
             sources = [
@@ -382,10 +397,14 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         """
         import pyarrow.parquet as pq
 
+        if self._forecast_resolution is None:
+            raise ValueError(
+                "contract _save called without a resolved run — _read must run first."
+            )
         upload_enabled = bool(self.configs.get("wire_upload_enabled", product.UPLOAD_ENABLED))
         store = _ContractStorePort(self._unfao_datastore()) if upload_enabled else None
         return wire_sink.deliver_run(
-            self._forecast_run,
+            self._forecast_resolution,
             lookup=pq.read_table(_DEFAULT_LOOKUP),
             staging_dir=Path(self._model_path.data_generated) / "wire_contract",
             store=store,
