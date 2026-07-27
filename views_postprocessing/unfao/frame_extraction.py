@@ -39,6 +39,21 @@ def months_of(frame: PredictionFrame) -> NDArray[np.int64]:
     return np.unique(np.asarray(frame.index.time, dtype=np.int64))
 
 
+def drop_months_above(frame, last_valid_month_id: int):
+    """The frame clipped to observed months (``time <= last_valid_month_id``).
+
+    Frame-native sibling of ``extraction.drop_months_above`` (S7/#92): works on
+    any frame sharing the ``SpatioTemporalIndex`` surface (PredictionFrame,
+    FeatureFrame) via ``.select`` on a boolean row mask. The boundary value is
+    declared by the caller (producer-sourced, C-26) — never inferred here.
+    """
+    time = np.asarray(frame.index.time, dtype=np.int64)
+    mask = time <= int(last_valid_month_id)
+    if mask.all():
+        return frame
+    return frame.select(mask)
+
+
 def drop_units(frame: PredictionFrame, excluded: frozenset) -> PredictionFrame:
     """The frame without the DECLARED excluded cells (row filter on ``unit``).
 
