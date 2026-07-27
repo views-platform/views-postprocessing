@@ -39,3 +39,22 @@ def test_guard_type_is_disjoint_from_contract_vocabulary():
         "sampled_forecast_sidecar",
     ):
         assert f'"type": "{contract_type}"' not in _SRC
+
+
+def test_compact_description_fits_the_store_limit():
+    """Run-0 lesson (2026-07-27): Appwrite's description attribute caps at 255
+    chars; the old prose-prefixed provenance exceeded it and stranded the
+    historical upload as an orphan file without a metadata document."""
+    from views_postprocessing.delivery import provenance
+    from views_postprocessing.delivery.provenance import DESCRIPTION_MAX, compact_description
+
+    prov = provenance.build_provenance(
+        lookup_version="land_gaul@272cdb01",
+        region="land_gaul",
+        expected_cell_count=64742,
+        actual_cell_count=64742,
+        unmapped_count=0,
+    )
+    text = compact_description(prov)
+    assert len(text) <= DESCRIPTION_MAX
+    assert "land_gaul@272cdb01" in text  # provenance survives, prose does not
