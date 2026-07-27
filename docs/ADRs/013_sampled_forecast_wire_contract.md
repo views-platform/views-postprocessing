@@ -1044,6 +1044,28 @@ record execution progress against it.
   (maintainer: "fix this through the pipeline"): lifting the `<17` ceiling at its
   source is filed as pipeline-core#280; when it lifts, the fixture gets one
   planned re-baseline, coordinated, never a drive-by.**
+- **2026-07-27 — run-0 attempt OOM-killed; both memory legs rebuilt (fix
+  campaign complete same-day; expert-review-governed).** The first live delivery
+  attempt was killed at 23.8 GB (31 GB host). Two stacked causes, both fixed:
+  **(A) the delivery now STREAMS one target at a time** — `resolve_run` pins
+  shard file_ids cheaply (race-free fetch-by-id), `TargetLease.load()`
+  fetches → verifies → curates → coverage-checks per target, the sink releases
+  each frame after its shards; measured on the real published run:
+  **4.73 GB peak, 108 shards, 5 min, zero store calls** (interlock held).
+  **(B) the historical path is pandas-free** (#126): actuals fetched as a
+  `views_frames.FeatureFrame` (the frame path's FIRST production consumer —
+  C-40's gate lifted), artifact built by `unfao/historical.py` via pyarrow —
+  reader-level parity with a legacy characterization golden proven through
+  faoapi's own reader semantics. Two ghosts found in the legacy artifact and
+  deliberately exorcised (faoapi reader verified safe on both): junk `row`/`col`
+  columns that would have served as bogus targets, and C-40's single-element
+  list-in-cell values (now scalars; their reader normalizes both identically).
+  Also closed: contract-mode `_save` had shipped no historical at all (S7 gap) —
+  actuals now ride beside the wire behind the same interlock. Upstream during
+  the same incident: the store's SDK JSON re-serialization surfaced
+  (pipeline-core #310 / C-217) — manifests are never hash-verified, rule now
+  pinned in docstrings. vpp PRs #127–#129; the third run-0 attempt is expected
+  at ~5 GB total.
 - **2026-07-24 — run-0 pre-flight: declared-region curation added at the
   anti-corruption layer.** The real run-0 payload carries the full model grid
   (64,818 cells) including exactly the 76 declared GAUL-uncovered exclusions
