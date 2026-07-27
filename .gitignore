@@ -222,3 +222,6 @@ graphify-out/
 
 # ADR-013 §10 golden fixture: canonical bytes, must be tracked despite *.zip/*.parquet rules
 !tests/fixtures/wire_contract/*
+
+# #126 historical characterization golden (small, must be tracked despite *.parquet rule)
+!tests/fixtures/historical_golden/*
