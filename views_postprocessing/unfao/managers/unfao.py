@@ -13,7 +13,6 @@ from views_pipeline_core.managers.model import ForecastingModelManager
 from views_pipeline_core.managers.ensemble import EnsemblePathManager
 import pandas as pd
 import io
-import json
 from datetime import datetime
 import os
 from dotenv import load_dotenv
@@ -55,7 +54,7 @@ class _ContractStorePort:
         )
 
     def upload(self, file_path, *, filename, name, doc_type, category, loa, targets, description=None) -> None:
-        self._dsm.upload_data(
+        result = self._dsm.upload_data(
             file=file_path,
             filename=filename,
             name=name,
@@ -65,6 +64,18 @@ class _ContractStorePort:
             targets=targets,
             description=description,
         )
+        # The store module degrades gracefully (its ADR-046 policy) and only LOGS
+        # metadata failures — which strands an invisible orphan file (run-0
+        # historical, 2026-07-27). The delivery fails loud instead.
+        success = getattr(result, "success", None)
+        if success is None and hasattr(result, "to_dict"):
+            success = result.to_dict().get("success")
+        if success is False:
+            error = getattr(result, "error", None) or "unknown store error"
+            raise RuntimeError(
+                f"upload of {filename!r} did not fully succeed (file may be an "
+                f"orphan without a metadata document): {error}"
+            )
 
 
 class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
@@ -582,11 +593,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             actual_cell_count=len(frame_extraction.cells_of(self._historical_frame)),
             unmapped_count=historical.unmapped_cell_count(table),
         )
-        return (
-            f"Enriched with geographic metadata on {timestamp} using precomputed GAUL "
-            f"lookup (ADR-011, version={self._enricher.lookup_version}). "
-            f"provenance={json.dumps(prov, separators=(',', ':'))}"
-        )
+        return provenance.compact_description(prov)
 
     def _build_historical_artifact(self, directory) -> tuple:
         """Frame-built historical artifact staged into ``directory``; returns
@@ -619,8 +626,4 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             actual_cell_count=len(extraction.cells_of(df)),
             unmapped_count=extraction.unmapped_cell_count(df, METADATA_COLS),
         )
-        return (
-            f"Enriched with geographic metadata on {timestamp} using precomputed GAUL "
-            f"lookup (ADR-011, version={self._enricher.lookup_version}). "
-            f"provenance={json.dumps(prov, separators=(',', ':'))}"
-        )
+        return provenance.compact_description(prov)

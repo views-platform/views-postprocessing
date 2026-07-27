@@ -52,3 +52,31 @@ def build_provenance(
     if fill_count is not None:
         provenance["fill_count"] = fill_count
     return provenance
+
+
+DESCRIPTION_MAX = 255  # Appwrite metadata attribute limit (run-0 lesson, 2026-07-27)
+
+
+def compact_description(prov: dict) -> str:
+    """The provenance dict as compact JSON, guaranteed to fit the store's
+    255-char description attribute — the only structured carrier the upload
+    exposes (C-15). The decorative prose prefix died here: it cost the run-0
+    historical document (metadata rejected; file stranded as an invisible
+    orphan). Fails loud if even compact JSON cannot fit — never truncates
+    silently."""
+    import json
+
+    text = json.dumps(prov, separators=(",", ":"))
+    if len(text) > DESCRIPTION_MAX:
+        essential = {
+            k: prov[k]
+            for k in ("lookup_version", "region", "expected_cell_count", "actual_cell_count", "unmapped_count")
+            if k in prov
+        }
+        text = json.dumps(essential, separators=(",", ":"))
+    if len(text) > DESCRIPTION_MAX:
+        raise ValueError(
+            f"provenance description cannot fit the store's {DESCRIPTION_MAX}-char "
+            f"limit even compacted ({len(text)} chars) — refusing to truncate silently."
+        )
+    return text
