@@ -685,6 +685,17 @@ a "simplification."
 - **(c) ADR numbering:** views-faoapi's consumer-side ADR is **ADR-031** (verified
   2026-07-06: 000–030 taken at that date). faoapi#100 retitled off "ADR-046" —
   **done** (verified 2026-07-19: its title now cites ADR-013).
+- **(d) Identity, secrets & configuration (added 2026-07-28, þing-01 P3/#138):**
+  this contract governs the **data** crossing the Appwrite seam; the
+  **identity/config** crossing the same seam (which key, which coordinates,
+  sourced from where, named how) is governed by
+  **[PLATFORM-001 — Identity, Secrets & Configuration Contract (VIEWS Appwrite seam)](https://github.com/views-platform/views-appwrite/blob/main/docs/ADRs/platform/PLATFORM-001_identity_secrets_configuration_contract.md)**,
+  homed in views-appwrite and referenced here **by URL, never by copy** — with its
+  coordinate registry
+  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/main/docs/ADRs/platform/coordinate_registry.toml))
+  as the canonical source of the non-secret coordinates this repo's runtime
+  resolves. This repo's declared environment (`unfao/appwrite_env.py`, fail-loud
+  entry validation) follows that registry's names.
 
 ---
 
@@ -1093,6 +1104,17 @@ record execution progress against it.
   with the owner). This settles the *shape* of the §3.5 policy; the owner
   assignment and the concrete period remain OPEN and are deliberately deferred —
   they must close before the first full-S production run, not before.
+- **2026-07-28 — þing-01 verdict executed in this repo (seam's other half
+  contracted).** The platform ratified **PLATFORM-001** (identity/secrets/
+  configuration for the Appwrite seam, homed in views-appwrite) — the plumbing
+  half of the seam whose data half this ADR seals. This repo's follow-through,
+  all merged: **P1/#134** — the implicit ensemble-dotenv borrow
+  (old `unfao.py:180`) killed; required environment DECLARED in
+  `unfao/appwrite_env.py` (registry-named) with fail-loud entry validation before
+  every store construction (PR #137). **P2/#135** — delivery-log/provenance
+  redaction audit: CLEAN; guards pin the wire/delivery packages credential-blind
+  and the provenance keyset closed (PR #136). **P3/#138** — §7(d) added: this ADR
+  now cross-references PLATFORM-001 by URL, never by copy.
 
 ---
 
