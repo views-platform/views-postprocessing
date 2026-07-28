@@ -15,11 +15,10 @@ import pandas as pd
 import io
 from datetime import datetime
 import os
-from dotenv import load_dotenv
 from views_postprocessing.unfao.enrichment import _DEFAULT_LOOKUP, GaulLookupEnricher
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
 from views_pipeline_core.modules.dataloaders.datafactory_contract import declared_data_format
-from views_postprocessing.unfao import extraction, frame_extraction, historical, product, source_metadata
+from views_postprocessing.unfao import appwrite_env, extraction, frame_extraction, historical, product, source_metadata
 from views_postprocessing.unfao.wire import sink as wire_sink
 from views_postprocessing.unfao.wire import source_selection
 from views_postprocessing.delivery import coverage, identity, observed_range, provenance
@@ -148,7 +147,8 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 
     def _prod_forecasts_datastore(self, *, name_scoped: bool = True) -> DatastoreModule:
         """The shared internal store (ADR-013's 'shared shelf'), configured from the
-        declared ensemble's environment. Used by both the legacy and contract reads.
+        launcher-assembled environment (validated fail-loud; þing-01 #134 — no dotenv
+        is loaded here). Used by both the legacy and contract reads.
 
         ``name_scoped`` controls pipeline-core's automatic ``name == model_name`` query
         filter (``DatastoreModule.get_predictions_by_metadata`` injects it on every
@@ -175,10 +175,11 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             err_msg = "level must be defined in the ensemble configurations (e.g, pgm, cm). Cannot proceed."
             logger.error(err_msg)
             raise ValueError(err_msg)
-        
-        # Force it to the correct .env just to be safe
-        load_dotenv(dotenv_path=str(self.ensemble_path_manager.dotenv))
 
+        appwrite_env.assert_env_declared(
+            appwrite_env.CONNECTION_ENV + appwrite_env.PROD_FORECASTS_ENV,
+            store="production_forecasts datastore",
+        )
         appwrite_config = AppwriteConfig(
             path_manager=self.ensemble_path_manager,
             endpoint=os.getenv("APPWRITE_ENDPOINT"),
@@ -496,6 +497,9 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         return DatastoreModule(appwrite_file_manager_config=self._unfao_appwrite_config())
 
     def _unfao_appwrite_config(self) -> AppwriteConfig:
+        appwrite_env.assert_env_declared(
+            appwrite_env.CONNECTION_ENV + appwrite_env.UNFAO_ENV, store="unfao_bucket datastore"
+        )
         return AppwriteConfig(
             path_manager=self._model_path,
             endpoint=os.getenv("APPWRITE_ENDPOINT"),
@@ -521,6 +525,9 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             logger.error(err_msg)
             raise ValueError(err_msg)
 
+        appwrite_env.assert_env_declared(
+            appwrite_env.CONNECTION_ENV + appwrite_env.UNFAO_ENV, store="unfao_bucket datastore"
+        )
         unfao_appwrite_config = AppwriteConfig(
             path_manager=self._model_path,
             endpoint=os.getenv("APPWRITE_ENDPOINT"),
