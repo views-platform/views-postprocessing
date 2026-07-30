@@ -225,3 +225,9 @@ graphify-out/
 
 # #126 historical characterization golden (small, must be tracked despite *.parquet rule)
 !tests/fixtures/historical_golden/*
+
+# Local Appwrite working cache: downloaded partner-store objects (production_forecasts/,
+# unfao_bucket/) plus cache_metadata.json. Delivery artifacts, never source — and this
+# repo is heading for its first public release (#125), so a stray `git add -A` must not
+# be able to commit partner data. See the þing-01 redaction clause (#135).
+appwrite_cache/
