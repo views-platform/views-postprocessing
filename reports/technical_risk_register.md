@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-07-27                           |
-| Total Concerns    | 55                                   |
-| Open Concerns     | 25                                   |
-| Resolved Concerns | 30                                   |
+| Last Updated      | 2026-07-31                           |
+| Total Concerns    | 58                                   |
+| Open Concerns     | 21                                   |
+| Resolved Concerns | 37                                   |
 
 ---
 
@@ -24,53 +24,54 @@
 
 ## Causal Clusters
 
-### Cluster A: Cache architecture never unified
-**Root cause:** Disk and memory caching implemented by duplicating logic in every method rather than abstracting the cache interface.
-**Entries:** C-05, C-06, C-14, C-16, D-01, D-02
-**Highest tier:** 1 (C-16)
-**Fix strategy:** Extract `CacheStrategy` interface with disk/memory implementations. Thread-lock in memory impl. Shapefile hash in disk cache keys.
-**Resolution scope:** Full
-**✅ RESOLVED 2026-06-24:** ADR-011 is executed and the runtime mapper (`mapping.py`) was deleted (C-39, PR #42). The cache machinery this cluster describes no longer exists — C-05, C-06, C-14, C-16, D-01, D-02 are all resolved.
+Clusters group open entries by shared **root cause** — fix the cause and the
+symptoms collapse together. Restructured during review-rr 2026-07-31: the
+original Clusters A–F all described the deleted runtime-mapper era and no longer
+covered a single open entry (see Historical clusters below).
 
-### Cluster B: Silent error hiding architecture
-**Root cause:** The codebase suppresses problem signals at three levels — global warning filter, DEBUG-level exception logging with `continue`, and raises without preceding logs. The impact propagates through a delivery chain with no correction mechanism.
-**Entries:** C-12, C-19, C-20, C-21, C-22, D-03 (resolved), D-04 (resolved), C-18 (resolved)
-**Highest tier:** 2 (C-12, C-21)
-**Fix strategy (5/9 done):** ✅ Replace global warning suppression with targeted filter. ◻ Promote geometry errors from DEBUG to WARNING. ✅ Add `make_valid()` preprocessing. ◻ Narrow exception scope. ✅ Zero-area guard clause (all 7 sites). ◻ `logger.error` before all raises (3 of ~23 done). ✅ Surface batch failures to caller (both methods). ◻ Enrichment provenance in upload (timestamp added, no shapefile version). ◻ Post-delivery correction procedure (C-22).
-**Resolution scope:** Full (code mechanisms) + Partial (operational impact — C-22 requires process documentation). **Note:** If D-05 resolves toward mapper elimination, remaining code fixes become moot.
-**✅ MOSTLY RESOLVED 2026-06-24:** the mapper deletion (C-39) removed the `mapping.py` error-hiding sites — **C-12, C-20, C-21 are resolved**, and the remaining ◻ fix-strategy items (geometry-error log level, exception-scope narrowing, `logger.error` before `mapping.py` raises) describe deleted code and are **moot**. Only the manager-side residue remains: **C-19** (3 `unfao.py` raises) and **C-22** (post-delivery correction process).
+### Cluster G: Inherited pipeline-core surface
+**Root cause:** this repo *is-a* pipeline-core postprocessor by double inheritance, so it inherits that project's data loader, container, store I/O, and dependency tree — defects in that surface land in FAO delivery without this repo owning the fix.
+**Entries:** C-40 (root), C-07, C-13, C-26, C-27, C-28, C-29, C-44, C-58
+**Highest tier:** 1 (C-26)
+**Fix strategy:** the thin-shell de-inheritance C-40 prescribes — and which is **half-built**: the sink side landed (`_ContractStorePort`, `unfao.py:37-78`) and the invariants are already pipeline-core-free modules the manager calls (`delivery/*`, `unfao/historical.py`, `unfao/wire/`). The remaining half is the **input** side (loader + `PGMDataset`), gated on pipeline-core Epic #186/#207.
+**Resolution scope:** Partial — C-26/C-27/C-28 are upstream-owned; de-inheritance makes them visible and testable, not fixed.
 
-### Cluster C: Module-level import side effect
-**Root cause:** `set_default_mapper()` couples class definition with instantiation and shapefile loading at import time.
-**Entries:** C-02, C-10
-**Highest tier:** 2 (C-02)
-**Fix strategy:** Lazy initialization or removal of module-level call. Add `mapper` constructor parameter to manager.
-**Resolution scope:** Full
-**✅ RESOLVED 2026-06-24:** ADR-011 is executed and the runtime mapper (`mapping.py`) was deleted (C-39, PR #42). The module-level `set_default_mapper()` side effect this cluster describes no longer exists — C-02 and C-10 are both resolved.
+### Cluster H: Go-global verification debt — discharged unevenly by run-0
+**Root cause:** a family of entries whose entire risk statement was "unverified until the first global run" — all keyed to one event, which occurred **2026-07-27**.
+**Entries:** C-43 (the survivor), C-30 + C-34 (merged, discharged), C-32 (discharged), C-25 (residual), D-12 and D-09 (deferral conditions)
+**Highest tier:** 2 (C-43)
+**Fix strategy:** one post-run-0 verification pass against producer run `rusty_bucket_forecasting_20260727_095355` — issue **#131 q1**.
+**Resolution scope:** Full for C-30/C-32/C-34. **Partial for C-43 — the finding that matters.** Run-0 discharged the *availability* half of this cluster (the path runs, memory is bounded at 5.6 GB, coverage is proven at 64,742 cells). It discharged **none of the correctness half**, because proving the path *runs* at scale was never what C-43 asked for. **C-43 now stands alone and un-gated, with delivered data in the partner store.**
 
-### Cluster D: Mapper-manager boundary contract
-**Root cause:** No explicit contract declares what columns the mapper produces and the manager consumes.
-**Entries:** C-04, C-17
-**Highest tier:** 2 (C-04)
-**Fix strategy:** Define `ENRICHMENT_SCHEMA` constant. Harmonize forward/reverse thresholds. Add end-to-end integration test.
-**Resolution scope:** Full
-**✅ RESOLVED 2026-06-24:** ADR-011 is executed and the runtime mapper (`mapping.py`) was deleted (C-39, PR #42). The mapper/manager column boundary is now a precomputed Parquet schema (`gaul_schema.py` + `GaulLookupEnricher`); there is no runtime forward/reverse divergence — C-04 and C-17 are both resolved.
+### Cluster I: Governance-artifact drift
+**Root cause:** the register, ADR prose, and issue bodies are hand-maintained mirrors of cross-repo state that moves under them.
+**Entries:** C-44, C-46, C-47, C-57 (the cross-repo instance: a registry referenced by URL cannot be diffed by a local test) — plus this register's own findings at review-rr 2026-07-31 (header miscount, two RESOLVED entries misfiled under Open, eight stale `unfao.py` line ranges after the manager grew 273→636 lines, two unnamespaced foreign-register IDs). Historical precedent: the entire C-48–C-55 ADR-013 audit series, and C-42/C-47.
+**Highest tier:** 3
+**Fix strategy:** this repo already solved this disease once — the ADR-013 audit series ended with **40 permanent guard tests** (`tests/test_falsify_adr013_*.py`), and the same pattern now guards the þing-01 invariants (`tests/test_env_declaration.py`, `tests/test_redaction_guard.py`). There is **no equivalent for the register**. A small `tests/test_register_integrity.py` — header counts match section counts; no RESOLVED body under `## Open Concerns`; every `C-\d+`/`D-\d+` reference resolves or is namespaced to a foreign register — would make this class self-detecting.
+**Resolution scope:** Full for the mechanical half.
 
-### Cluster F: CIC-code drift (documentation describes aspirational, not actual behavior)
-**Root cause:** CICs were written as design contracts and never validated against the code. Multiple guarantees are false.
-**Entries:** Campaign findings 1.1, 1.2 — affecting CIC PriogridCountryMapper §3/§5/§6 and CIC UNFAOPostProcessorManager §3/§6
-**Highest tier:** Not a code risk — documentation accuracy risk
-**Fix strategy:** Update CICs to describe actual code behavior. Specifically: (1) cache guarantee needs C-05 caveat, (2) return types need full key listing, (3) §6 log level should say DEBUG not WARNING, (4) ADR-008 compliance claim needs qualifying, (5) env var boundary validation claim needs qualifying. Pure documentation, no code changes.
-**Resolution scope:** Full
-**✅ PARTIALLY RESOLVED 2026-06-24:** the `PriogridCountryMapper` CIC was deleted with the mapper (C-39, PR #42), so its drift findings (1.1, 1.2) are moot. The `UNFAOPostProcessorManager` CIC remains and is kept current (it now describes `GaulLookupEnricher`).
+### Cluster J: Delivery aftercare has no mechanism
+**Root cause:** the delivery pipeline is write-only — nothing exists downstream of upload for correction, recall, or provenance audit.
+**Entries:** C-22 (acute), C-15, C-24
+**Highest tier:** 3
+**Fix strategy:** the C-22 correction procedure (issue #15) plus pipeline-core #245's structured metadata field to retire the description-as-carrier abuse.
+**Resolution scope:** Partial (process, not code).
+**Newly acute 2026-07-31:** every entry here was written conditionally — "*if* wrong data ever reaches FAO." Run-0 shipped 108 arrow shards, a sidecar, a manifest and 28.3M historical rows to `unfao_bucket`, and its integrity verification is still open. The conditional is spent.
 
-### Cluster E: Replace runtime mapper with precomputed lookup table
-**Root cause:** The area-majority algorithm is a confirmed FAO requirement (D-05 resolved), but it doesn't need 3,100 lines of geopandas runtime code — a one-time precomputation produces a ~65K-row Parquet lookup table that replaces the entire mapper with a dictionary join.
-**Entries:** C-23, D-05 (resolved), D-08, C-30, C-31, C-32, and transitively: Clusters A (cache), C (import side effect), plus C-07, C-08, C-11
-**Highest tier:** 2 (C-23)
-**Fix strategy (revised 2026-06-12):** (1) Build the lookup by joining views-datafactory's 7 area-majority GAUL parquets (regenerated June 11, 259,200 rows each) plus the GID→lat/lon formula — the original "run the current mapper with LFS" precomputation is obsolete. (2) Replace `mapping.py` with a simple Parquet-join enricher. (3) Remove 774 MB shapefile bundle, geopandas dependency, and all cache machinery. See `docs/cross_repo_integration_report.md` and ADR-011 assessment §10.
-**Resolution scope:** Full — resolves Clusters A and C entirely. Eliminates C-07, C-08, C-11. Reduces Cluster B to manager-side concerns only (C-19 unfao.py raises, C-21 batch tracking, C-22 correction process).
-**✅ EXECUTED 2026-06-24:** the lookup enricher shipped (`GaulLookupEnricher`, ADR-011) and the runtime mapper + shapefiles + geopandas were deleted (C-39, PR #42). The remaining open entries here are the datafactory-side area-math (C-08/C-31, tracked in views-datafactory) and the manager-side Cluster B residue (C-19/C-22) — not mapper code.
+### Historical clusters (mapper era — all resolved or moot)
+
+Clusters **A** (cache architecture never unified), **B** (silent error-hiding
+architecture), **C** (module-level import side effect), **D** (mapper–manager
+boundary contract), **E** (replace runtime mapper with precomputed lookup) and
+**F** (CIC–code drift) governed the register from 2026-06-02 to 2026-06-24. All
+were dissolved by ADR-011's execution and the runtime-mapper deletion (**C-39,
+PR #42**): C-02, C-04, C-05, C-06, C-10, C-11, C-12, C-14, C-16, C-17, C-19,
+C-20, C-21 and D-01, D-02, D-03, D-04 all describe code that no longer exists,
+and Cluster E's own goal shipped as `GaulLookupEnricher`. Cluster B's operational
+residue survives as **C-22** (now in Cluster J); Cluster E's upstream residue as
+**C-08** (relocated to views-datafactory). Full cluster text is preserved in git
+history at `3f1ea1f` and earlier; it is omitted here because a navigation aid
+that indexes only deleted code is noise.
 
 ---
 
@@ -102,29 +103,13 @@ Tier recalibrated from 2 to 3 during review-rr (2026-06-02): the gap is maintain
 | Tier | 3 |
 | Source | `repo-assimilation` (2026-06-02) |
 | Trigger | When `views-pipeline-core` updates its dependency tree (e.g., drops `geopandas` or `joblib`), verify that this package's imports still resolve |
-| Location | `pyproject.toml:11-13`, `views_postprocessing/unfao/mapping/mapping.py:1-20` |
+| Location | `pyproject.toml:11-15`; `views_postprocessing/unfao/managers/unfao.py:14`, `unfao/enrichment.py:26`, `unfao/extraction.py:26` |
 
 `mapping.py` directly imports `geopandas`, `shapely`, `numpy`, `pandas`, `joblib`, and `multiprocessing`. `unfao.py` directly imports `pandas`, `polars`, and `python-dotenv`. Only `views-pipeline-core` and `cachetools` are declared in `pyproject.toml`. The undeclared dependencies presumably arrive transitively via `views-pipeline-core`, but this coupling is implicit and fragile. If the upstream package refactors its dependency tree, this package will break with `ImportError` at install time.
 
 **Update 2026-06-24 (narrowed):** the `mapping.py` dimension is gone (C-39 — the `geopandas`/`shapely`/`joblib`/`multiprocessing` imports were deleted; `cachetools` dropped from `pyproject.toml`). Residual: `unfao.py` imports `pandas`/`polars`/`python-dotenv` undeclared, arriving transitively via `views-pipeline-core` (which *is* declared). Much smaller surface (Tier 4-ish); consider resolving outright if the transitive-via-pipeline-core guarantee is deemed sufficient.
 
----
-
-### C-08: Planar area calculation on geographic (degree-based) coordinates
-
-| Field | Value |
-|-------|-------|
-| ID | C-08 |
-| Tier | 3 |
-| Source | `repo-assimilation` (2026-06-02) |
-| Trigger | When processing PRIO-GRID cells above 55°N or below 55°S (e.g., Russia-Ukraine border, Nordic countries), verify that country/admin assignment is correct for cells straddling boundaries |
-| Location | `views_postprocessing/unfao/mapping/mapping.py:649-650,920,1192,1428` |
-
-All overlap ratio calculations use `.area` on EPSG:4326 geometries, which produces values in square degrees. At the equator, 1° longitude ≈ 1° latitude in distance. At 60°N, 1° longitude ≈ 0.5° latitude in distance, distorting area by up to 2x. For border cells at high latitudes, this distortion could theoretically cause incorrect assignment to the wrong country/admin region. In practice, most VIEWS conflict prediction zones are equatorial/mid-latitude, limiting the impact. No projection to equal-area CRS is performed before area calculations.
-
-**Update 2026-06-12 (expert-code-review):** The "equatorial/mid-latitude, limiting the impact" rationale dies with the planned global coverage — Russia, Scandinavia, and Canada (55°N+) enter scope when the region switches to `"land"`. Mitigating consideration: within a single 0.5° cell, all candidate polygon intersections sit at the same latitude band, so the cos(lat) distortion multiplies all candidates roughly equally and largely cancels in the *ranking* — this applies to both this repo's mapper and the datafactory's area-majority script. Required action before global delivery: one falsification probe on ~20 border cells above 55°N comparing degree-based assignment against an equal-area-projected computation. See C-31 (mapper unverified at global scale).
-
-**Update 2026-06-24 (narrowed to the datafactory dimension):** this repo's mapper area-math (`mapping.py:649-650,920,1192,1428`) is deleted (C-39); no degree-based area math runs in this repo anymore. The remaining concern is the **views-datafactory** area-majority script's degree-based area math at high latitudes — a cross-repo views-datafactory concern (this repo now consumes the lookup built from those parquets, so any distortion is upstream). Tracked there, not here.
+**Update 2026-07-31 (review-rr — narrative corrected against the tree):** the 2026-06-24 residual is now overstated. Verified: **`polars` has zero references repo-wide**; **`python-dotenv` is dead** (þing-01 #134 killed the implicit ensemble-dotenv borrow — see `unfao/appwrite_env.py`); `cachetools` is gone. Meanwhile `views-frames` and `pyarrow` became **declared** direct dependencies. **The residual is `pandas` alone**, imported directly at the three locations above and arriving transitively via `views-pipeline-core`. One undeclared package on a path that is itself being retired (epic #85) — genuinely Tier 4-ish now; resolve outright if the transitive guarantee is deemed sufficient, or declare `pandas` explicitly in the same PR that closes #89.
 
 ---
 
@@ -149,8 +134,8 @@ The "Validate Version" step fetches the latest version from `https://pypi.org/py
 | ID | C-13 |
 | Tier | 2 |
 | Source | `expert-review` (2026-06-02) |
-| Trigger | When configuring Appwrite connection parameters in `_read_forecast_data` or `_save`, verify that timeout parameters are set on the underlying HTTP client — currently no timeout exists and a hung endpoint blocks the pipeline indefinitely |
-| Location | `views_postprocessing/unfao/managers/unfao.py:131,262,272` |
+| Trigger | When configuring Appwrite connection parameters — in `_ContractStorePort` (contract path) or `_save`/`_read_forecast_data` (legacy path) — verify that timeout parameters are set on the underlying HTTP client; currently no timeout exists and a hung endpoint blocks the pipeline indefinitely |
+| Location | `views_postprocessing/unfao/managers/unfao.py:37-64` (`_ContractStorePort` — all four contract-path store calls), `:247` (legacy selection), `:560`, `:571` (legacy uploads) |
 
 `prediction_store_manager.download_latest_file()` (line 131) and `dsm.upload_data()` (lines 262, 272) make network calls to Appwrite with no configured timeout. If the endpoint hangs (DNS resolution stalls, connection accepted but response never arrives, TLS handshake blocks), the pipeline blocks indefinitely. There is no watchdog timer, no circuit breaker, and no automated alert for a run that never completes. The only detection is manual observation that a scheduled run didn't finish.
 
@@ -163,8 +148,8 @@ The "Validate Version" step fetches the latest version from `https://pypi.org/py
 | ID | C-15 |
 | Tier | 3 |
 | Source | `expert-review` (2026-06-02), `falsification-audit` (2026-06-02) |
-| Trigger | When UN FAO needs to audit the quality or provenance of received data, verify that upload metadata includes shapefile version, enrichment timestamp, and error count — currently none of these are present |
-| Location | `views_postprocessing/unfao/managers/unfao.py:262-267,272-277` |
+| Trigger | When wiring pipeline-core #245's structured metadata field, or when adding/removing a provenance key — verify the closed keyset in `delivery/provenance.py` and the `DESCRIPTION_MAX` bound still hold, and that the carrier is no longer free-text `description` |
+| Location | `views_postprocessing/delivery/provenance.py`; `views_postprocessing/unfao/managers/unfao.py:559-578` (legacy `_save` uploads), `:593-604` (`_historical_frame_description`), `:619` (`_delivery_description`) |
 
 Both `dsm.upload_data()` calls in `_save()` carry metadata: `name`, `loa`, `type`, `targets`, `description`, `category`. The `description` field was updated from a hardcoded test string to an enrichment timestamp (`"Enriched with geographic metadata on {timestamp}"`). However, broader enrichment provenance is still missing: no shapefile version/hash, no enrichment error count, no unmapped cell count. The consumer cannot verify which shapefile version produced their data or whether any errors occurred during enrichment.
 
@@ -176,28 +161,6 @@ See also C-14 (stale cache without version tracking), C-22 (no post-delivery cor
 
 ---
 
-### C-19: Systematic ADR-008 non-compliance — 23 of 24 raises lack preceding log — RESOLVED
-
-| Field | Value |
-|-------|-------|
-| ID | C-19 |
-| Resolved | 2026-06-28 |
-| Resolution | Every live-path structural raise now logs-before-raise. The mapper portion (20 raises) went with the deleted runtime mapper (C-39); the 3 `unfao.py` manager raises were fixed in #13; and the residual `enrichment.py` (`:42,:50,:103`) + `extraction.py` (`:39`, a module logger was added) raises got `logger.error`-then-raise in the tech-debt-cleanup pass (2026-06-28). The only raises now lacking a preceding log are in `unfao/frames.py` (the views-frames conformance adapter), which is **not on the live delivery path** and is tracked separately by **C-45**. ADR-008 compliance holds across the live path. |
-| Tier | 3 |
-| Source | `falsification-audit` (2026-06-02) |
-| Trigger | When a structural failure occurs in `GaulLookupEnricher` (lookup missing/incomplete, or an absent gid column) or in the `extraction` seam and the operator searches logs for context, verify the exception was preceded by a `logger.error` — these raises currently have none |
-| Location | `views_postprocessing/unfao/enrichment.py:42,50,103`; `views_postprocessing/unfao/extraction.py:39` |
-
-ADR-008 requires structural failures to be both logged persistently AND raised explicitly. Three validation methods in mapping.py and the C-01 fix in unfao.py were fixed with log-before-raise. 20 raises in mapping.py and 3 in unfao.py remain unfixed.
-
-Part of Cluster B (expanded scope).
-
-**Update 2026-06-24:** the mapper portion (20 of the 23 raises, in `mapping.py`) is gone with the deleted runtime mapper (C-39); the **3 raises in `unfao.py`** remain (tracked by issue #13). Narrowed to the manager.
-
-**Update 2026-06-28 (re-scoped after `review-base-docs`):** the `unfao.py` residual is **resolved** — the 3 manager raises got log-before-raise in #13 (`unfao.py:72,84,293`), and the `FileNotFoundError` at `:112` is logged by its enclosing `_read_forecast_data` try/except. So both historical locations (mapper, manager) are now clear. **The live ADR-008 residual moved to two modules the original audit never covered:** `enrichment.py` (`:42` lookup-missing, `:50` lookup-missing-columns, `:103` absent gid column) and `extraction.py:39` (the seam's index/column `KeyError`) — these raise without a preceding `logger.error`. Practical risk is low (the raises are loud, not swallowed — the messages are descriptive); the gap is uniform log-before-raise convention in live code. Tier 3 (observability/maintainability, no silent corruption). *(This residual was then fixed the same day — see the Resolution field above.)*
-
----
-
 ### C-22: No post-delivery correction process for wrong assignments
 
 | Field | Value |
@@ -205,12 +168,14 @@ Part of Cluster B (expanded scope).
 | ID | C-22 |
 | Tier | 3 |
 | Source | `falsification-audit` (2026-06-02) |
-| Trigger | When a Cluster B error is discovered after data has been uploaded to the UN FAO Appwrite bucket, verify that a correction/recall procedure exists — currently none is documented or implemented |
-| Location | `views_postprocessing/unfao/managers/unfao.py:259-277`, `reports/technical_risk_register.md` (Cluster B) |
+| Trigger | When the run-0 integrity verification (#131 q1) or any FAO/faoapi query surfaces a suspect delivered value — follow the correction procedure; **issue #15 must produce one first.** Re-check at every subsequent delivery until it exists. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:442-494` (`_save_contract`), `:518-578` (legacy `_save`); issue #15 (the undocumented procedure) |
 
 The delivery chain has four stages beyond the code: Appwrite bucket → UN FAO download → FAO systems → operational decisions. When an error is discovered post-delivery, correction requires clearing cache, re-running, re-uploading, notifying FAO, and FAO retracting old data. Steps 3-5 have no documented procedure.
 
-Part of Cluster B (operational impact dimension). See also C-14, C-15.
+Part of Cluster B (operational impact dimension). See also C-14 (RESOLVED — mapper-era cache), C-15.
+
+**Update 2026-07-31 (review-rr — the conditional is spent):** this entry was written conditionally — "*if* wrong data ever reaches FAO." **Run-0 delivered on 2026-07-27** (108 arrow shards + sidecar + manifest to `unfao_bucket`, plus 28,356,996 historical rows at 64,742 cells), and its integrity verification is still open (#131 q1). There is now delivered, unverified data in the partner's store and still no documented correction/recall procedure. Tier held at 3 (process gap, no code defect), but this is the acute member of Cluster J — **issue #15 is now the blocking artifact, not a nice-to-have.**
 
 ---
 
@@ -219,10 +184,10 @@ Part of Cluster B (operational impact dimension). See also C-14, C-15.
 | Field | Value |
 |-------|-------|
 | ID | C-24 |
-| Tier | 2 |
+| Tier | 3 |
 | Source | `falsification-audit` (2026-06-02) |
-| Trigger | When verifying that postprocessor output matches the FAO API contract (Release Note 01, Topic C), check whether field names and coding systems align — currently 3 of 4 data categories use different conventions |
-| Location | `views_postprocessing/unfao/managers/unfao.py:146-158` (filter_cols), FAO Release Note 01 `topic_c.tex` |
+| Trigger | When views-faoapi implements the Release-Note-01 Topic-C renaming layer — verify this repo's column names stay **unchanged** (faoapi's `_METADATA_COLS` validation depends on them) and that the rename lands consumer-side only. Take no action here otherwise. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:277` (`filter_cols`), `unfao/gaul_schema.py` (`METADATA_COLS`), FAO Release Note 01 `topic_c.tex` |
 
 The FAO API contract (Release Note 01, Topic C, confirmed and locked) specifies: UN M49 country codes, `ADM1_CODE`/`ADM1_NAME`/`ADM2_CODE`/`ADM2_NAME` for admin fields, and `lat`/`lon` for coordinates. The postprocessor's `filter_cols` uses: `country_iso_a3` (ISO Alpha-3), `admin1_gaul1_code`/`admin1_gaul1_name`/`admin2_gaul2_code`/`admin2_gaul2_name`, and `pg_xcoord`/`pg_ycoord`. Three of four data categories (country ID, admin fields, coordinates) use different naming conventions from the locked contract.
 
@@ -230,7 +195,9 @@ The FAO API contract (Release Note 01, Topic C, confirmed and locked) specifies:
 
 **This is NOT this repo's responsibility to fix.** The schema mismatch is between the API layer (views-faoapi) and the FAO contract. The postprocessor should keep its current column names — changing them now would break views-faoapi's `FAO_PGMDataset._METADATA_COLS` validation. The renaming belongs in views-faoapi as a response-formatting step, coordinated with FAO.
 
-See also C-17 (implicit column naming between mapper and manager), D-06 (resolved: no renaming layer exists).
+See also C-17 (RESOLVED — implicit column naming between mapper and manager), D-06 (resolved: no renaming layer exists).
+
+**Tier recalibrated from 2 to 3 during review-rr (2026-07-31):** the entry's own conclusion is that this is **not this repo's defect to fix** and that the correct action here is *inaction* (keep the current names). Tier 2 asserts structural fragility in this repo; what actually exists is a tracking stub for a views-faoapi contract gap, with a real but externally-owned consequence. Tier 3 (coordination / cost-of-change) matches. No change to the substance or the standing instruction.
 
 ---
 
@@ -242,7 +209,7 @@ See also C-17 (implicit column naming between mapper and manager), D-06 (resolve
 | Tier | 2 |
 | Source | `cross-repo-investigation` (2026-06-12) |
 | Trigger | When any new producer uploads to the prod_forecasts bucket with `category: "forecast"`, verify the postprocessor still picks up the intended ensemble's file — selection is newest-`$createdAt`-wins with no loa, model-name, or run-id filter |
-| Location | `views_postprocessing/unfao/managers/unfao.py:126`; views-pipeline-core `modules/datastore/datastore.py:475-511` |
+| Location | `views_postprocessing/unfao/managers/unfao.py:247` (legacy selection, `LEGACY_FORECAST_FILTERS` at `:34`), `:260` (identity assertion); contract path selects by manifest instead — `unfao/wire/source_selection.py:39`; views-pipeline-core `modules/datastore/datastore.py:475-511` |
 
 `_read_forecast_data()` calls `download_latest_file(filters={"category": "forecast"})`. "Latest" is resolved by sorting metadata documents on `$createdAt` descending and taking the first (datastore.py:475-511). There is no filter on `loa`, `name`, `targets`, or any run identifier. Today only the production ensemble uploads with this category, so the newest file is the right file by circumstance, not by contract. If a second model, a test run, or a backfill ever uploads to the same bucket with `category: "forecast"`, the postprocessor silently enriches and ships the wrong predictions to FAO. The same single-filter pattern exists downstream: views-faoapi selects from the unfao_bucket by category only (views-faoapi `api.py:488`), so a stray upload there reaches FAO directly. Compounding factor: Appwrite has no retention — every historical upload remains a candidate forever; correctness depends entirely on upload discipline.
 
@@ -261,14 +228,16 @@ See also C-13 (no timeout on the same calls), C-15 (upload metadata lacks proven
 | ID | C-26 |
 | Tier | 1 — silent data fabrication with no error signal: absence of evidence becomes evidence of absence in FAO-delivered values |
 | Source | `expert-code-review` (2026-06-12) |
-| Trigger | When the datafactory zarr has missing months or cells inside the requested range (failed harvest, partial assembly), verify the postprocessor fails rather than zero-fills — currently every NaN becomes 0.0 with no count logged |
-| Location | views-pipeline-core `modules/dataloaders/dataloaders.py:1208`; consumed at `views_postprocessing/unfao/managers/unfao.py:48-56` |
+| Trigger | When changing the historical fetch path, or when bumping views-pipeline-core's dataloader — verify whether the **currently active** path (`get_feature_frame`, since #126) zero-fills missing months/cells, and that any fill count is logged rather than silent |
+| Location | views-pipeline-core `modules/dataloaders/dataloaders.py:1208` (`fillna(0.0)`, legacy pandas fetch); consumed at `views_postprocessing/unfao/managers/unfao.py:125-147` (`_read_historical_data`, legacy branch). Frame-native branch: `:101-124` (`_read_historical_frame` → `get_feature_frame`) |
 
 `_fetch_data_from_datafactory()` applies `df.fillna(0.0)` unconditionally to all features. For `lr_ged_sb/ns/os`, a datafactory assembly gap (unharvested month, failed source) flows to FAO as "zero fatalities" rather than failing. The postprocessor's `_validate()` checks only the 9 metadata columns for nulls (`unfao.py:188-221`), never the feature columns — so the fabricated zeros pass every gate. There is no fill-count logging, so the corruption is unquantified and undetectable after the fact. The zarr exposes `last_valid_month_id` in its attributes, which would permit bounded filling (fill only outside the declared valid range, fail on fills inside it), but it is not consulted.
 
 Location is in views-pipeline-core, but the impact lands on this repo's FAO delivery; registered here because the consuming call and the delivery responsibility are here.
 
 See also C-25 (same data path, wrong-file variant), C-15 (upload provenance would aid post-hoc detection).
+
+**OPEN VERIFICATION QUESTION (review-rr 2026-07-31) — tier held at 1 pending an answer.** `fillna` has **zero occurrences in this repo**; the fabrication site is entirely upstream. Since #126, the historical path run-0 actually used is `get_feature_frame` (`_read_historical_frame`), **not** the pandas `get_data` branch that reaches `dataloaders.py:1208`. It could not be verified from this seat (views-pipeline-core is deliberately absent from test environments, per repo convention). **Question for the pipeline-core seat: does `get_feature_frame` inherit the same unconditional `fillna(0.0)`, or does the frame-native fetch propagate NaN?** If it propagates NaN, this Tier 1 now describes only the legacy branch (retirement is the named post-run-0 follow-up) and should be re-tiered. **Do not downgrade on inspection of this repo alone** — the deliverable ran through the unverified path at global scale on 2026-07-27.
 
 ---
 
@@ -279,8 +248,8 @@ See also C-25 (same data path, wrong-file variant), C-15 (upload provenance woul
 | ID | C-27 |
 | Tier | 2 — structural fragility: any dependency or config breakage is converted into a misleading crash far from its cause |
 | Source | `expert-code-review` (2026-06-12) |
-| Trigger | When a dependency bump, import error, or config change breaks `ViewsDataLoader` construction, verify the real exception is visible — currently it is caught bare, logged as "No Queryset detected" with `exc_info=False`, and replaced with `self._data_loader = None` |
-| Location | views-pipeline-core `managers/model/model.py:883-902`; crash site `views_postprocessing/unfao/managers/unfao.py:48` |
+| Trigger | When bumping views-pipeline-core, or changing this postprocessor's queryset/config — verify a `ViewsDataLoader` construction failure surfaces its real exception rather than a downstream `AttributeError`; today it is caught bare, logged as "No Queryset detected" with `exc_info=False`, and replaced with `self._data_loader = None` |
+| Location | views-pipeline-core `managers/model/model.py:883-902`; crash sites `views_postprocessing/unfao/managers/unfao.py:105` (`_read_historical_frame`), `:134` (`_read_historical_data`) |
 
 `_initialize_data_loader()` catches bare `Exception`, discards the traceback, and nulls the loader. The failure then surfaces as `AttributeError: 'NoneType' object has no attribute 'get_data'` in `_read_historical_data` — the operator debugs the postprocessor while the cause (import error, malformed config, path issue) was erased at construction time. Cost is time-to-diagnosis during exactly the runs where time matters.
 
@@ -293,7 +262,7 @@ See also C-25 (same data path, wrong-file variant), C-15 (upload provenance woul
 | ID | C-28 |
 | Tier | 2 — same hazard class as C-13, on the other input path; a stalled chunk read blocks delivery with no deadline or alert |
 | Source | `expert-code-review` (2026-06-12) |
-| Trigger | When the datafactory HTTP server accepts connections but stalls mid-chunk (network degradation to the zarr host), verify the pipeline run terminates — no deadline exists anywhere on the fetch path |
+| Trigger | When configuring the datafactory zarr fetch, or bumping views-pipeline-core's dataloader — verify a read deadline exists on the HTTP path; today none does anywhere on the fetch path, so a mid-chunk stall blocks the run forever |
 | Location | views-pipeline-core `modules/dataloaders/dataloaders.py:1180-1188`; views-datafactory `src/datafactory_query/dataset.py:106-217` |
 
 `load_dataset()` opens a remote zarr over plain HTTP. xarray chunk reads have no timeout; a stall blocks the scheduled run forever, and the only detection is manually noticing a run never finished. Risk grows with the planned global region (~5× data volume → longer fetch window). Partial overlap with C-13 (no timeout on Appwrite operations) — same problem type, different dependency and repo; registered separately because the fix sites are disjoint.
@@ -310,21 +279,23 @@ See also C-13.
 | Tier | 2 — under a realistic pipeline-core caching refactor, the postprocessor silently reads a stale previous parquet and enriches outdated data |
 | Source | `expert-code-review` (2026-06-12) |
 | Trigger | When views-pipeline-core changes caching behavior (format, filename template, skip-write optimization), verify `_read_historical_data` still reads what `get_data()` just produced — the return value is discarded and the dataframe re-read from `cached_data_path` |
-| Location | `views_postprocessing/unfao/managers/unfao.py:48-56`; views-pipeline-core `modules/dataloaders/dataloaders.py:1490-1494` |
+| Location | `views_postprocessing/unfao/managers/unfao.py:134` (`get_data(...)` return discarded), `:141` (`cached_data_path` re-read); views-pipeline-core `modules/dataloaders/dataloaders.py:1490-1494` |
 
 `get_data()` returns `(df, alerts)`; the manager discards it and re-reads from `self._data_loader.cached_data_path`, a property set as a side effect of the fetch. Two sources of truth for "the data just fetched," coupled by an undocumented convention. If pipeline-core ever skips the disk write for `use_saved=False` (a legitimate optimization from its perspective), the manager reads a stale previous file silently — or crashes if none exists. The convention has already drifted once: the loader docstring (dataloaders.py:1466-1471) still documents `{partition}_viewser_df` naming while the code now formats `{partition}_{source}_df` (line 1490). Fix is one line: consume the return value. Related to views-pipeline-core register entries C-59/C-60 (cache filename convention).
 
+**Update 2026-07-31 (review-rr — scope narrowed to the legacy branch):** since #126 the historical path run-0 used is `_read_historical_frame` (`get_feature_frame`, `:101-124`), which returns a `FeatureFrame` **directly** and has no disk side-channel. The side-channel survives only in the legacy `_read_historical_data` branch (`:134`/`:141`), whose retirement is the named post-run-0 follow-up. Tier held at 2 while the branch exists and remains reachable; resolves with the branch.
+
 ---
 
-### C-30: 82 GAUL-uncovered land cells crash or corrupt global delivery
+### C-30: GAUL-uncovered land cells crash or corrupt global delivery (absorbs C-34: the coverage contract)
 
 | Field | Value |
 |-------|-------|
 | ID | C-30 |
-| Tier | 1 — with `-1`/`""` passed through, validation passes and FAO receives rows attributed to country "-1" (silent); with nulls, the delivery run crashes (loud, but on delivery day) |
-| Source | `expert-code-review` (2026-06-12), verified by direct data inspection |
-| Trigger | When the region switches from `africa_me_legacy` to `land` for global historical delivery, verify the 82 unassigned cells are explicitly excluded before `_validate()` — they have no GAUL assignment in any source |
-| Location | `views_postprocessing/unfao/managers/unfao.py:188-221`; views-datafactory `data/raw/gaul_admin/gaul0_code.parquet` (value = -1) |
+| Tier | 2 — the exclusion manifest and cell-count contract are pinned in code and were exercised live at global scale in run-0; residual is upstream-regression risk, not an unguarded silent-corruption path |
+| Source | `expert-code-review` (2026-06-12), verified by direct data inspection; **merged with C-34** (`expert-code-review` 2026-06-12) during review-rr 2026-07-31 |
+| Trigger | When a region's expected cell count or exclusion manifest changes upstream — a views-datafactory region redefinition (`regions.py`, the bundled `*_pgids.json`), a new GAUL curation like ADR-043, or a region-string change in views-models `config_queryset.py` — verify `EXPECTED_CELLS_BY_REGION` and `EXCLUDED_GIDS_BY_REGION` are re-derived from the live producer rather than trusted as frozen |
+| Location | `views_postprocessing/delivery/coverage.py:56` (`land_gaul: 64_742`), `:92` (`EXCLUDED_GIDS_BY_REGION`), `:99`; `views_postprocessing/unfao/managers/unfao.py:397` (`_check_coverage`), `:300` (`_validate`); views-models `postprocessors/un_fao/configs/config_queryset.py`; views-datafactory `src/datafactory_query/regions.py` |
 
 Verified 2026-06-12: of the datafactory's 64,818 `land`-region cells, 64,736 have complete area-majority metadata; exactly 82 are unassigned across all 7 GAUL fields — all remote sub-Antarctic islands FAO's GAUL 2024 boundaries do not cover (Macquarie, Auckland Islands, Prince Edward; sample gids 51078, 51798, 53979, 62356, 94776, 99027). The mitigation must be a named exclusion-list constant with the gids, count-asserted in both the enricher and a test, logged at WARNING, and disclosed to FAO — not a generic `code != -1` filter, which would silently absorb future coverage regressions. Generalizes the previously documented "5 ocean cells" of africa_me_legacy (those 5 are among the excluded set).
 
@@ -332,21 +303,11 @@ Verified 2026-06-12: of the datafactory's 64,818 `land`-region cells, 64,736 hav
 
 **Mitigation landed (S4, 2026-06-26, `sprint/fao-input-integrity`):** the 76 excluded gids are pinned as a frozen manifest in `delivery/coverage.py` (`EXCLUDED_GIDS_BY_REGION`), the count is corrected to 64,742, `assert_no_excluded_cells` is wired into the manager's `_check_coverage` **region-gated** (a no-op for unpinned `africa_me_legacy`, so its 5 ocean cells are unaffected), the 76 are disclosed in `docs/fao_excluded_cells.md`, and a test cross-checks the manifest against the datafactory sibling when present (drift tripwire). **Residual:** still Tier 1 until the live `land_gaul` run (views-platform/views-models#127) exercises it end-to-end — the guard is unit-proven but not yet run against a real global delivery.
 
-See also D-10 (handling decision), C-34 (coverage contract).
+**RESIDUAL DISCHARGED 2026-07-27 — run-0 exercised the guard live.** The stated residual was "*still Tier 1 until the live `land_gaul` run (views-models#127) exercises it end-to-end — the guard is unit-proven but not yet run against a real global delivery.*" **Run-0 delivered on 2026-07-27** against producer run `rusty_bucket_forecasting_20260727_095355`: `region=land_gaul`, coverage gate reported **64,742 distinct cells / 28,356,996 rows** for the historical frame, the forecast leg shipped 108 shards + sidecar + manifest, and the process exited cleanly with no loud failures. The pinned count and the 76-gid exclusion manifest were both correct against a real global delivery. **Tier recalibrated from 1 to 2 during review-rr (2026-07-31):** the silent-corruption path is now guarded and proven, so what remains is regression risk under upstream change — which is exactly what the rewritten trigger watches.
 
----
+**MERGED: C-34 (Spatial coverage has no contract) absorbed here, review-rr 2026-07-31.** C-34 registered the absence of any expected-cell-count assertion, with the coverage decision split across three repos (views-models region string → views-datafactory cell-set → consequences here). Both concerns are now implemented by **one module** (`delivery/coverage.py`) and were discharged by **one event** (run-0), so tracking them separately doubled the maintenance without adding signal. C-34's distinctive contribution — that the trigger is an *upstream* region/cell-set change in either of two other repos — is carried into the merged trigger and Location above. C-34 remains as a forwarding stub in Resolved Concerns.
 
-### C-32: Unbudgeted memory at global enrichment volume
-
-| Field | Value |
-|-------|-------|
-| ID | C-32 |
-| Tier | 2 — realistic MemoryError mid-`_transform` on the planned global run; fails after the fetch succeeded, late in the pipeline |
-| Source | `expert-code-review` (2026-06-12) |
-| Trigger | Before the first global historical run, verify peak memory of joining 9 metadata columns onto ~28M rows (64,818 cells × ~432 months) — four string columns as pandas object dtype cost roughly 8–20 GB at this scale |
-| Location | `views_postprocessing/unfao/managers/unfao.py:154-163` (the metadata join); any replacement enricher |
-
-Object-dtype strings (`admin1_gaul0_name`, `admin1_gaul1_name`, `admin2_gaul2_name`, `country_iso_a3`) broadcast to 28M rows dominate memory. Mitigation is cheap and should be built into any new enricher from day one: pandas categorical dtype for the string columns (~10× reduction; the underlying uniques number in the low thousands). A full-volume dry run (fetch → enrich → validate → local parquet, no upload) before delivery day is the verification.
+See also D-10 (handling decision), C-43 (the *value*-correctness sibling — run-0 discharged coverage but **not** enrichment-value verification), C-26 (the other coverage-integrity-without-signal path).
 
 ---
 
@@ -357,72 +318,18 @@ Object-dtype strings (`admin1_gaul0_name`, `admin1_gaul1_name`, `admin2_gaul2_na
 | ID | C-33 |
 | Tier | 2 — two to three additional Appwrite stores are planned imminently; the current design forces copy-pasting a 273-line manager per store |
 | Source | `expert-code-review` (2026-06-12) |
-| Trigger | When the second Appwrite prediction store is configured, verify store identity comes from configuration — currently env var names (`APPWRITE_UNFAO_*`, `APPWRITE_PROD_FORECASTS_*`) are inline in two hand-built `AppwriteConfig` blocks, the forecast targets list is hardcoded, and category strings are literals |
-| Location | `views_postprocessing/unfao/managers/unfao.py:109-122, 234-247, 272`; dead alternative config blocks at `unfao.py:80-107` |
+| Trigger | When the second Appwrite prediction store is configured (issue #97 scoping), verify store identity comes from configuration — the env **names** are now centrally declared, but the three `AppwriteConfig` constructions, the targets list, and the category strings are still inline per-store |
+| Location | `views_postprocessing/unfao/managers/unfao.py:148-204` (`_prod_forecasts_datastore`), `:495-517` (`_unfao_datastore`/`_unfao_appwrite_config`), `:528-534` (legacy `_save`); declared names in `views_postprocessing/unfao/appwrite_env.py` |
 
 Mitigation: a small `DeliveryProfile` (bucket/collection/database ids, category, targets) passed to the manager — one manager class, N store configs. Scheduled **after** the FAO global delivery ships (D-09); the only immediate action is deleting the commented-out config blocks at lines 80-107, which are a mis-uncomment hazard during deadline work.
 
-See also C-24 (schema contract per store), D-09.
+**Update 2026-07-31 (review-rr — two stale facts corrected, and the deferral has expired):**
+1. **The dead config blocks are gone.** `unfao.py:80-107` is now the class definition and `__init__`; the commented-out alternative `AppwriteConfig` blocks no longer exist. That immediate action — and D-09's first named exception — is **discharged**.
+2. **"273-line manager" is stale**: `unfao.py` is now **636 lines**, so the copy-paste-per-store cost this entry warns about has roughly doubled.
+3. **Partially mitigated by þing-01 #134.** `unfao/appwrite_env.py` now declares the env **names** centrally (`CONNECTION_ENV`, `PROD_FORECASTS_ENV`, `UNFAO_ENV`) and validates them fail-loud before every `AppwriteConfig` construction, following the PLATFORM-001 coordinate registry. Names are no longer scattered string literals. **What is still hardcoded is store *identity*** — which names apply to which store, the targets list, and the category strings — so the `DeliveryProfile` case stands. Tier held at 2.
+4. **The deferral condition has expired**: D-09 scheduled this "after the FAO global delivery ships." It shipped 2026-07-27. Ready for the "calm 1-day job" whenever #97 scoping lands.
 
----
-
-### C-34: Spatial coverage has no contract — no assertion of expected cell count anywhere
-
-| Field | Value |
-|-------|-------|
-| ID | C-34 |
-| Tier | 2 — a wrong or upstream-changed region definition delivers partial coverage to FAO with no error signal |
-| Source | `expert-code-review` (2026-06-12) |
-| Trigger | When the region string in views-models `config_queryset.py` or the datafactory's bundled `land_pgids.json` / `africa_me_legacy_pgids.json` changes, verify this repo notices — today nothing asserts how many cells the pipeline expects to process |
-| Location | views-models `postprocessors/un_fao/configs/config_queryset.py:20`; views-datafactory `src/datafactory_query/regions.py:126-152`; no counterpart check in `views_postprocessing/` |
-
-The coverage decision lives in one repo (views-models), the cell-set definition in a second (views-datafactory), and the consequences in a third (this repo). Mitigation: a coverage test asserting enrichment completeness for the configured region (for `land`: 64,736 complete + exactly the 82 known exclusions), plus cell-count logging in `_read` and `_validate`.
-
-See also C-30, C-26 (both are coverage-integrity failures with no signal).
-
----
-
-### C-37: Reconciliation uses a pragmatic per-draw approximation, not principled probabilistic reconciliation
-
-| Field | Value |
-|-------|-------|
-| ID | C-37 |
-| Tier | 3 |
-| Source | `manual` (2026-06-24) — phase-2 reconciliation migration |
-| Trigger | When reconciliation is wired into a delivery and its uncertainty is consumed (intervals, scores), verify the method is the principled one — the current per-draw scaling can distort the joint predictive distribution |
-| Location | `views_postprocessing/reconciliation/proportional.py` |
-
-`reconcile_proportional` is a faithful numpy port of views-reporting's `ForecastReconciler.reconcile_forecast`: **top-down disaggregation using forecast proportions** (FPP3), applied **per posterior draw**. It rescales each marginal draw independently to hit that draw's country total, which implicitly assumes the grid and country samples are index-aligned joint draws. This is a pragmatic approximation, **not** principled joint probabilistic reconciliation (the IJF paper, PII `S0169207023001097` — exact title TBC; cf. FPP3 §reconciliation), under which the reconciled draws would be coherent samples from a single reconciled joint distribution (e.g. MinT-style projection on samples). The migration deliberately preserves the existing method first (parity proven bit-for-bit against the untouched views-reporting oracle, `tests/test_reconciliation_parity.py`); the upgrade is **gated behind** completing the move and wiring (slices 2-3) so behaviour change and relocation never mix. Until then, treat reconciled uncertainty as approximate.
-
-See also the migration plan (reconciliation slices 2-4) and views-reporting issue #72 (the relocation).
-
-**Update 2026-06-24 (expert-code-review, Kleppmann lens):** the per-draw index-pairing is only *valid* if the production cm and pgm forecasts are the **same joint posterior draws**. If they come from independent models (separate posteriors), pairing draw *s* of the grid with draw *s* of the country is arbitrary and the reconciled uncertainty is meaningless — and the parity fixture cannot detect this, because it manufactures aligned draws. **At S7 (#39) wiring, verify the sample-alignment assumption against the real pipeline as a hard precondition** (or escalate the C-37 upgrade). This is a correctness precondition distinct from the "is the method principled" question.
-
-**Update 2026-06-24 (reframe — now near-term, not deferred):** this is no longer a someday concern. FAO (`rusty_bucket`) sidesteps reconciliation entirely (pure-grid ensemble aggregated *up* — sums by construction), but the **next UN-agency deliverable** is an FAO-like grid ensemble that **does** reconcile against a CM model, with **full pooled draws (~1024)** → **probabilistic** reconciliation. The reconciler is already probabilistic-ready (fully vectorized over samples), so the open question is purely C-37's: does that deliverable reconcile grid draws to a country **point total** (well-defined, no alignment needed) or to country **draws** (needs a defined draw-alignment — and today CM models are point-only / independently trained, so no aligned draws exist)? **This decision gates the probabilistic-reconciliation-on-`PredictionFrameEnsembleManager` work** (pipeline-core#200, under epic #193); resolve it once the UN models / CM target are defined.
-
-**Calibration note (review-rr 2026-06-24):** stays **Tier 3 while unwired**, but **escalate to Tier 2 the moment reconciliation is wired into a delivery** — at that point a wrong sample-alignment assumption silently delivers *meaningless uncertainty* (a correctness risk, not maintainability). The wiring (pipeline-core#200) is the escalation trigger.
-
-**Update 2026-06-26 (home change):** the reconciler (`proportional.py`, `grouping.py`, `module.py`) is relocating from this repo to the **`views_frames_reconcile` sibling** in the views-frames distribution (Epic 11, views-platform/views-frames#131) — its correct foundation home (CRP/SDP: a frame operation belongs in the frames family, not bolted onto FAO delivery). **C-37 and C-38 move with it** — track them in views-frames going forward. vpp's copy is deleted in #62 once views-frames v1.7.0 ships (release → repoint views-models#191 → delete).
-
----
-
-### C-38: Reconciliation grouping is O(groups × N) and materializes the whole grid frame — won't scale to global volume
-
-| Field | Value |
-|-------|-------|
-| ID | C-38 |
-| Tier | 2 |
-| Source | `expert-code-review` (2026-06-24) |
-| Trigger | Before the first global / `land`-region reconciliation run — i.e. before wiring at S7 (#39) — benchmark `ReconciliationModule.reconcile` runtime and peak memory on global-volume frames; nothing above the 39-row fixture has been measured |
-| Location | `views_postprocessing/reconciliation/grouping.py:69-79` (per-group `np.nonzero(inverse == gi)`); `views_postprocessing/reconciliation/module.py` (holds the full pgm frame; `np.empty_like` copy) |
-
-`reconcile_pgm_to_cm` groups grid rows with `np.unique` (good) but then loops over unique `(time, country)` groups doing `np.nonzero(inverse == gi)` **per group** — an O(groups × N_pg) full-array scan. At global scale (~86k groups × ~28M pgm rows) that is ~10¹² comparisons plus 86k full-size boolean masks. Separately, the module holds the **entire** pgm frame at once (28M rows × S samples × 4 bytes ≈ 11 GB at S=100, **>100 GB at S=1000**) and `np.empty_like` doubles it — the original views-reporting code processed per-country subsets, never materialized the global frame, and used `ProcessPoolExecutor` for exactly this scale. **Parity is unaffected** (the result is identical); only runtime/memory blow up. Mitigation: replace the per-group `nonzero` with a single `argsort(inverse)` + contiguous slices (O(N log N)); budget/measure peak memory on a global-volume dry run and chunk by time or country if needed — both **before** wiring. Same enumerable-vs-discovered-at-scale pattern as C-31/C-32.
-
-Tier 2: structural fragility under the realistic change of wiring to global, with a clear trigger; not Tier 1 (no silent corruption — parity is exact; this is a runtime/memory failure). See also C-31 (mapper scale), C-32 (enricher memory), C-37 (the algorithm), epic #31 / views-reporting#72.
-
-**Update 2026-06-24 — compute RESOLVED.** The per-group `np.nonzero(inverse == gi)` was replaced with **group-by-sort** (`argsort(inverse)` + contiguous slices from `np.unique` counts, O(N log N), one index array). Parity stays **bit-exact** (`tests/test_reconciliation_grouping.py`, `test_reconciliation_e2e_parity.py` → 0.0) and a scale guard (`tests/test_reconciliation_scale.py`) protects against regression. **Residual (relocated with the code):** the module holds the whole pgm frame in memory at once; at global volume the **caller must chunk by time** (reconciliation is independent across months). The reconciler — and this chunk-by-time obligation — **left vpp**: the algorithm now lives in `views_frames_reconcile` and the vpp `ReconciliationModule` CIC was retired (#62 / PR #63, merged to `development` 2026-06-26). The global-volume verification is now a **consumer-side obligation at reconciliation-wiring time** (pipeline-core#200/#221), not a vpp concern. Tracked cross-repo via C-42; no further vpp action.
-
-**Update 2026-06-24 (reframe — residual now near-term):** the memory residual is no longer "verify someday." The upcoming UN-agency deliverable reconciles **frames with ~1024 pooled draws** — squarely in the >100 GB-at-global regime. When pipeline-core's `PredictionFrameEnsembleManager` wires probabilistic reconciliation (pipeline-core#200, under epic #193), the **caller must chunk by time** (reconciliation is independent across months) and **measure peak memory on a global-volume dry-run** as part of that work. The reconciler code itself is unchanged (compute already O(N log N)); this is a consumer-side obligation.
+See also C-24 (schema contract per store), D-09 (the deferral, now expired), #97 (second-store scoping).
 
 ---
 
@@ -433,8 +340,8 @@ Tier 2: structural fragility under the realistic change of wiring to global, wit
 | ID | C-40 |
 | Tier | 2 |
 | Source | `expert-code-review` (2026-06-24) |
-| Trigger | When pipeline-core changes `PGMDataset` / the data loader / the postprocessor base (it is mid-migration: their #186/#188/#161), or when wanting to unit-test or numpy-ify the FAO enrich/validate without standing up the whole framework |
-| Location | `views_postprocessing/unfao/managers/unfao.py:26` (double inheritance); `:78-98` and `:185-199` (inline env/AppwriteConfig/DatastoreModule); `:112-122` (`_append_metadata`), `:147-172` (`_validate`) |
+| Trigger | **(a) Upstream change:** when pipeline-core changes `PGMDataset` / the data loader / the postprocessor base (mid-migration: their #186/#188/#161), verify the inherited surface this repo depends on still holds. **(b) Standing work item:** the input-side de-inheritance (the sink side landed — see the 2026-07-31 update) — schedule it, don't wait for a trigger. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:80` (double inheritance); `:148-204`, `:495-534` (inline env/AppwriteConfig/DatastoreModule); `:276-287` (`_append_metadata`), `:300-349` (`_validate`); DIP sink adapter at `:37-78` (`_ContractStorePort`) |
 
 `UNFAOPostProcessorManager` subclasses **two concrete** pipeline-core base classes (`PostprocessorManager`, `ForecastingModelManager`) and **interleaves infrastructure** (env reading, `AppwriteConfig` construction, `DatastoreModule`, path resolution) with the FAO **business logic** (GAUL enrichment, the 9-column null gate) inside the lifecycle hooks. Consequences: (a) the FAO logic cannot be instantiated or unit-tested without the full framework + Appwrite env + viewser; (b) **pandas cannot leave the delivery path** because the inherited data loader and `PGMDataset` are pandas — gated on pipeline-core's own DataFrame retirement; (c) **SDP exposure** — heavy *inheritance* coupling to a pipeline-core that is itself unstable (mid-migration), so upstream changes break far from their cause (cf. C-27, C-29); (d) it's the repo's only composition-over-inheritance violation. The dependency itself is correct (`unfao.py` genuinely *is* a pipeline-core postprocessor) — the issue is its **blast radius**. Mitigation (does **not** fight the Template-Method framework): keep the subclass as a **thin shell** but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager *calls*, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP). This makes the FAO logic testable standalone and insulates it from pipeline-core churn.
 
@@ -449,13 +356,220 @@ Tier 2: structural fragility under the realistic change of wiring to global, wit
 
 **Migration backlog (2026-06-28):** the full pandas→views-frames map + sequenced, parity-preserving removal plan is now tracked as epic **#85** ("Push pandas to the seams") with stories #86–#92 and tracking #93. The unilateral arc (S1–S3: generalize `frames.py` to S>1, frame-native extraction siblings, forecast convert-at-the-door) makes vpp's interior carry `(N,S)` behind frozen wires; S6 (#91, outbound arrow wire) is gated on faoapi #45, and S7 (#92, historical inbound) is gated on this entry's pipeline-core gate above.
 
-**Wire contract posted (2026-07-03) — the S6/#45 circular wait is dissolved.** A three-way audit (pipeline-core / producers / consumer+substrate, all on `origin/development` + maintainer-authored issues) established: (i) there are **two wire hops** (producer→store; vpp→faoapi) and the roadmap's arrow work covered only the second; (ii) **no publish path from PFE to the prediction store exists at all** — models#143's "no pipeline-core change required" is **falsified** (PFE's `use_prediction_store` is stored then only logged, `prediction_frame_ensemble.py:141/:799`; `PredictionIOManager._upload_to_prediction_store` raises `NotImplementedError`, `io.py:117`); (iii) full global draws ≈ **9.5 GB/target**, so the wire mandates per-month sharding; (iv) the "platform ADR-046" cited as the format authority **does not exist** (phantom). **ADOPTED 2026-07-15 as ADR-013** *(post-adoption: F1 invisibility confirmed live — six stranded orange_ensemble forecast docs in unfao_bucket, forecast serving has been empty all along; both §11.4 legacy guards merged same day, Hop-B guard must reach production before vpp's first contract upload — faoapi C-161)* after five reviewed iterations (two seat reviews, reconciliation, owner-ratified F1) — maintainer sign-off on views-models#149. The v1 proposal history: Hop A = Track A zip archive per (run,target,month) + manifest-last commit marker (new **pipeline-core#269**); Hop B = per-month `views_frames.io.arrow` (#91/faoapi#100); interior = per-target 2-D `PredictionFrame`; the 9 GAUL columns move to a **gid-keyed sidecar**; the **#149 no-collapse boundary is named: vpp `delivery/draws.py`** (a new invariant, sibling of coverage/identity — follow-on vpp work with the durable vpp ADR after explicit sign-off); target vocabulary **decided: `lr_ged_sb/ns/os`**, producers rename at publish (models#146).
+**Wire contract posted (2026-07-03) — the S6/#45 circular wait is dissolved.** A three-way audit (pipeline-core / producers / consumer+substrate, all on `origin/development` + maintainer-authored issues) established: (i) there are **two wire hops** (producer→store; vpp→faoapi) and the roadmap's arrow work covered only the second; (ii) **no publish path from PFE to the prediction store exists at all** — models#143's "no pipeline-core change required" is **falsified** (PFE's `use_prediction_store` is stored then only logged, `prediction_frame_ensemble.py:141/:799`; `PredictionIOManager._upload_to_prediction_store` raises `NotImplementedError`, `io.py:117`); (iii) full global draws ≈ **9.5 GB/target**, so the wire mandates per-month sharding; (iv) the "platform ADR-046" cited as the format authority **does not exist** (phantom). **ADOPTED 2026-07-15 as ADR-013** *(post-adoption: F1 invisibility confirmed live — six stranded orange_ensemble forecast docs in unfao_bucket, forecast serving has been empty all along; both §11.4 legacy guards merged same day, Hop-B guard must reach production before vpp's first contract upload — **views-faoapi C-161**)* after five reviewed iterations (two seat reviews, reconciliation, owner-ratified F1) — maintainer sign-off on views-models#149. The v1 proposal history: Hop A = Track A zip archive per (run,target,month) + manifest-last commit marker (new **pipeline-core#269**); Hop B = per-month `views_frames.io.arrow` (#91/faoapi#100); interior = per-target 2-D `PredictionFrame`; the 9 GAUL columns move to a **gid-keyed sidecar**; the **#149 no-collapse boundary is named: vpp `delivery/draws.py`** (a new invariant, sibling of coverage/identity — follow-on vpp work with the durable vpp ADR after explicit sign-off); target vocabulary **decided: `lr_ged_sb/ns/os`**, producers rename at publish (models#146).
+
+**Update 2026-07-31 (review-rr — the prescribed DIP mitigation has half landed, uncredited).** This entry's mitigation was: "*keep the subclass as a thin shell but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager calls, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP).*" The **sink half exists**: `_ContractStorePort` (`unfao.py:37-78`) wraps `DatastoreModule` behind a four-method port (`latest_file_id` / `file_metadata` / `download` / `upload`), and the contract delivery path drives the store through it. The **invariant half also largely exists** as pipeline-core-free modules the manager calls: `delivery/coverage.py`, `identity.py`, `draws.py`, `parity.py`, `provenance.py`, `observed_range.py` (the package docstring pins them representation-free), plus `unfao/historical.py` and `unfao/wire/`. **Residual scope of this entry is now the input side and the shell itself:** the double inheritance at `:80` (consequences a/c/d), the inherited `ViewsDataLoader`/`PGMDataset` on the legacy branch, and the fact that the FAO logic still cannot be instantiated without the framework. Tier held at 2 — the blast radius argument is unchanged for what remains. This is the root of **Cluster G**.
 
 See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper cleanup that precedes any unfao restructuring), **#45** (the delivery-side draw carrier — ship `(N, S)` uncollapsed as a native frame, the producer half of this same problem), and **epic #85** (the migration backlog).
 
 ---
 
-### C-42: Reconciliation migration is stranded across three repos; production runs the old path and the migration-state was mis-stated
+### C-43: ADR-011 enrichment swap shipped without its output-equivalence proof — and the proof is now unrecoverable
+
+| Field | Value |
+|-------|-------|
+| ID | C-43 |
+| Tier | 2 |
+| Source | `manual` (2026-06-26) — user-flagged rigor loss on accepting option A; verified against git history (`eba1df8` / PR #42) |
+| Trigger | **This trigger has FIRED — see the 2026-07-31 update.** Forward-looking replacement: when FAO or faoapi reports geographic metadata that looks wrong for specific cells, **or** before the next global delivery — forward-check a sample of `land_gaul` assignments against views-datafactory's GAUL parquet. The protective pre-go-global gate this entry originally described has passed. |
+| Location | `views_postprocessing/unfao/enrichment.py` (`GaulLookupEnricher`); `views_postprocessing/unfao/managers/unfao.py:129` (`_append_metadata`), `:147-172` (`_validate` — the 9-column NULL gate, checks presence not correctness); umbrella #20 / issues #21, #23, #24 (the baseline+diff procedure, now unrunnable); deleted in `eba1df8` (PR #42): `mapping.py` + both ADR-011 diff scripts |
+
+ADR-011 swapped FAO geo-enrichment from the runtime geopandas mapper to the GAUL lookup enricher (commit `65635b6`). The swap's own plan (umbrella #20) required an **output-equivalence proof** before trusting it in production: Stage 0 (#21) run the OLD mapper on real `africa_me_legacy` data to archive a ground-truth baseline; Stage 2 (#23) diff the new enricher against it with *"zero unexplained differences."* That proof was **never produced** — no `baseline_schema.md` or baseline parquet was ever committed — and on 2026-06-24 the old mapper **and both diff scripts** were deleted (`eba1df8`, PR #42, C-39). So the equivalence check is now **unrecoverable** short of `git revert`-ing the mapper back.
+
+The accepted path forward (**option A**) is a single smoke-test delivery: "the run is green and the output looks sane," which proves the path *runs*, not that it produces the *same / correct* values the trusted mapper did. The manager's `_validate` enforces only that the 9 GAUL columns are **non-null** — it does not check value correctness — so a latent bug in the lookup build or the merge-by-gid (wrong join key, stale `lookup_version`, gid misalignment) would ship **wrong-but-non-null** geographic metadata to FAO with **no error signal**.
+
+**Why not Tier 1:** the lookup is built from views-datafactory's authoritative area-majority GAUL parquets — the canonical *producer* source (D-07). The new path sources from the gold standard; the old mapper was the *less*-trusted path being retired (C-31, C-23). So the missing diff is a lost cross-check, not "unverified code," and the Stage-1 enricher unit tests + coverage guards (C-30/C-34) cover part of the build. **Why Tier 2:** the residual silent-wrong-value path is real, the null gate cannot catch it, the one guard that would have is gone for good, and the trigger (go-global to 64k cells) is concrete and imminent.
+
+**Mitigation if assurance is wanted before go-global** (cheaper than reverting the mapper): forward-check a sample of `land_gaul` cell assignments directly against the datafactory GAUL parquet, or add a lightweight value-level assertion into the enricher path (a forward check against the producer source — *not* a resurrection of the deleted old-mapper diff).
+
+**TRIGGER FIRED 2026-07-27 — the risk changed tense (review-rr 2026-07-31).** Run-0 delivered the first FAO global-land forecast: `region=land_gaul`, 64,742 cells, 28,356,996 historical rows, 108 arrow shards + sidecar + manifest committed to `unfao_bucket`. The go-global run this entry was written to warn about **has happened**, and it happened with **no value-level equivalence check** — exactly as predicted. The concern is therefore no longer "risk of shipping unverified enrichment" but **"unverified enrichment has shipped, at global scale, and the forward-check is outstanding."**
+
+This is the most important consequence of the run-0 cluster (Cluster H). Run-0 discharged the *availability* half of the go-global debt — the path runs, memory is bounded (C-32: 5.6 GB), coverage is proven (C-30: 64,742 correct). It discharged **none of the correctness half**, because proving the path *runs* at scale was never what C-43 asked for. **This entry now stands alone and un-gated**, with delivered data in the partner store and `_validate`'s null gate still checking presence rather than value. Tier held at 2: the lookup is still built from views-datafactory's authoritative area-majority parquets (the gold-standard producer), which is why this is a lost cross-check rather than unverified code.
+
+**Recommended action (unchanged, now overdue rather than pre-emptive):** forward-check a sample of delivered `land_gaul` cell assignments directly against the datafactory GAUL parquet — cheap, and it is the mitigation this entry proposed from the start. Folds naturally into #131 q1 (run-0 delivery-integrity verification).
+
+See also C-03 (the sibling enrich→validate test-coverage gap), C-22 (no post-delivery correction/recall process — **now acute: the consequence path is live**), C-39 / C-31 / C-23 (the resolved mapper-deletion cluster this emerged from), C-30 (coverage — discharged by the same run that left this standing), C-32 / C-34 (RESOLVED — the go-global scale risks that fired cleanly), D-08 (the swap-to-lookup-first decision whose verification debt this is), #131 (run-0 delivery-integrity verification).
+
+---
+
+### C-44: views-pipeline-core 3.0.0 dependency bump is pending and must not land until the platform runs on development across all repos
+
+| Field | Value |
+|-------|-------|
+| ID | C-44 |
+| Tier | 3 |
+| Source | `manual` (2026-06-26) — surfaced while consolidating a stranded local commit after the input-integrity sprint merge |
+| Trigger | When views-pipeline-core 3.0.0 is published to PyPI **and** the platform is confirmed running smoothly on `development` across all consumer repos — then bump `pyproject.toml` to a reproducible version pin (`views-pipeline-core = ">=3.0.0,<4.0.0"`), re-lock, and PR. Do **not** land the bump before both conditions hold, and do **not** source it from a moving git branch. |
+| Location | `pyproject.toml:13` (currently `views-pipeline-core = ">=2.1.3,<3.0.0"`); `poetry.lock` (pins `views-pipeline-core 2.3.0`, a reproducible PyPI wheel); the deferred change preserved on local branch `backup/pipeline-core-3.0.0-git-source` (commit `78d238e`) |
+
+`development` currently pins `views-pipeline-core = ">=2.1.3,<3.0.0"` and the committed `poetry.lock` resolves it to **2.3.0** from PyPI — reproducible, and the merged input-integrity sprint (#64) was CI-proven green against it. **3.0.0 is not yet on PyPI (political hold).** A local-only commit (`78d238e`, authored 2026-06-25 in a separate session, never pushed) repoints the dependency to pipeline-core's **git `development` branch** to track the unreleased 3.x "in tandem with other consumers."
+
+That change was deliberately **not** landed on `development` (2026-06-26), for three reasons: (a) sourcing from a **moving git branch** makes builds **non-reproducible** (the branch advances under us); (b) it is a **major-version switch** (2.x→3.x) whose breaking changes were never exercised against the just-merged sprint code; (c) it would require a **full re-lock** resolving 3.x + its transitive tree, rippling through `poetry.lock`. The maintainer's standing constraint: **the platform must run smoothly on `development` across all repos before taking the major dependency bump.** Until then the bump is premature.
+
+No silent corruption and no current breakage (development is green on 2.3.0) → **Tier 3** (coordination / release-sequencing / reproducibility). The deferred work is preserved (backup branch) and becomes a trivial, reproducible one-line pin once 3.0.0 ships and the cross-repo gate clears. Cross-refs C-40 (the underlying pipeline-core inheritance coupling that makes major bumps high-blast-radius), C-07 (the transitive-via-pipeline-core dependency surface), C-09 (publish-workflow version handling).
+
+---
+
+### C-46: `test_datafactory_deploy_readiness` is hardcoded to a local path — CI-skipped, and currently failing on the one machine that runs it `[backlog]`
+
+| Field | Value |
+|-------|-------|
+| ID | C-46 |
+| Tier | 4 |
+| Source | `repo-assimilation` (2026-06-27) |
+| Trigger | When treating `test_datafactory_deploy_readiness` as a release gate (it never runs in CI), or when a contributor's local `pytest` fails on it — re-promote / re-pin the strict-xfail now that views-datafactory has advanced to `1.5.0`-dev past its `v1.4.0` tag |
+| Location | `tests/test_datafactory_deploy_readiness.py` (`_DF = Path("/home/simon/.../views-datafactory")`, `skipif(not _DF.exists())`) |
+
+The cross-repo deploy-readiness gates introduced under C-36 are guarded by `skipif` on a **hardcoded local datafactory checkout path**, so they are **skipped in CI** and only ever execute on one developer's machine. There, `test_version_bumped_past_latest_tag` is currently **failing**: it is an `xfail(strict)` that flipped to XPASS because datafactory moved to `1.5.0`-dev past its `v1.4.0` tag — exactly the auto-flip C-36's resolution anticipated, but because of the hardcoded path the flip surfaces as a **local red** rather than a CI signal, and breaks local `pytest` runs (the suite is run with this test deselected). No correctness/reliability impact on the delivery → **Tier 4** (test hygiene). C-36 (resolved) converted these gates to strict-xfail but did not capture the local-path / CI-skip dimension.
+
+See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the datafactory version-state coupling).
+
+**Tagged `[backlog]` during review-rr (2026-07-31):** Tier 4, single-machine scope, mechanical fix. Kept in the register for completeness rather than active risk management — see the Register Conventions note on the `[backlog]` tag.
+
+---
+
+### C-47: Stale untracked `reconciliation/__pycache__/` survives the module's retirement and misrepresents the package tree `[backlog]`
+
+| Field | Value |
+|-------|-------|
+| ID | C-47 |
+| Tier | 4 — pure hygiene: not importable (no `__init__.py`, no sources), untracked, no correctness or reliability impact; its only effect is misleading humans and tools that inventory the tree |
+| Source | `manual` (2026-07-19) — maintainer question "I thought reconciliation had moved out?" during the ADR-013 read-through; directory listing showed a phantom `reconciliation/` package |
+| Trigger | When the D-12 repo-rename assessment (or any repo-structure audit / fresh assimilation) next inventories `views_postprocessing/` and takes the phantom `reconciliation/` dir as evidence the module still lives here — as happened in-session 2026-07-19 |
+| Location | `views_postprocessing/reconciliation/__pycache__/` (untracked bytecode leftovers; sources deleted in #62 / PR #63, `6af2020`) |
+
+The reconciliation retirement (C-42 cutover leg C2) deleted all tracked sources, but the untracked `__pycache__/` bytecode directory survived on the working machine. Directory listings therefore still show a `views_postprocessing/reconciliation/` package, which already misled one in-session inspection into reporting the migration unfinished. Deletion is a one-liner (`rm -rf views_postprocessing/reconciliation`) deferred by maintainer decision; tracked as a GitHub issue. Resolves on deletion (verify `git status` stays clean and the vpp suite green — trivially expected).
+
+Cross-refs: C-42 (RESOLVED — the migration this is residue of), D-12 (the rename assessment it could mislead), issue #103 (the live tracker).
+
+**Verified still present 2026-07-31 (review-rr):** `views_postprocessing/reconciliation/__pycache__/` holds 6 stale `.pyc` files (`proportional`, `grouping`, `module`, `frames`, `validation`, `__init__` — all `cpython-310`). Directory listings still show a phantom `reconciliation/` package. **Tagged `[backlog]`:** Tier 4, one-line fix, already tracked as issue #103 — kept here for completeness, not active risk management. Resolves on deletion.
+
+---
+
+### C-57: PLATFORM-001 coordinate registry is referenced by URL, so nothing detects drift between it and this repo's declared environment
+
+| Field | Value |
+|-------|-------|
+| ID | C-57 |
+| Tier | 3 |
+| Source | `manual` (2026-07-31) — review-rr blind-spot analysis, following the þing-01 verdict (`orð_dómr.md`, ratified as amended 2026-07-28) |
+| Trigger | When views-appwrite amends `coordinate_registry.toml` — renames a coordinate, retires the legacy secret slot in favour of `APPWRITE_{READ,WRITE,PROVISION}_API_KEY`, or adds a target — verify `views_postprocessing/unfao/appwrite_env.py` still matches. Nothing mechanical will tell you: the registry is deliberately **referenced, never copied**, and the two live in different repositories |
+| Location | `views_postprocessing/unfao/appwrite_env.py` (`CONNECTION_ENV`, `PROD_FORECASTS_ENV`, `UNFAO_ENV`); views-appwrite `docs/ADRs/platform/coordinate_registry.toml` (the authority); `tests/test_env_declaration.py` (guards this repo's half only); `docs/ADRs/013_sampled_forecast_wire_contract.md` §7(d) (the URL reference) |
+
+The þing-01 assembly (D1) settled that the PLATFORM-001 contract is **homed in views-appwrite and referenced by URL, never by copy** — a deliberate and correct choice: copies were the platform's original disease (sáttmál S6, the copy-chain this repo's own `load_dotenv` borrow was the runtime edge of, killed in #134/PR #137). But referencing-not-copying moves the failure mode rather than removing it: **the registry can now change without this repo noticing.**
+
+This repo's half is well guarded. `tests/test_env_declaration.py` pins that every `APPWRITE_*` name the manager reads is declared, that all three store paths validate before constructing an `AppwriteConfig`, that empty-string counts as missing, and that exactly one declared name is a secret by the D3 suffix rule. **What no test can see is the other side of the reference** — whether `coordinate_registry.toml` still spells the coordinates the way `appwrite_env.py` does. Divergence surfaces at runtime as a fail-loud `EnvironmentError` from `assert_env_declared` (good — that is D6 working), but only on a delivery run, and only after the launcher has already been reconfigured.
+
+Two named changes are already anticipated and will fire this trigger: the **retirement of the legacy `APPWRITE_DATASTORE_API_KEY`** in favour of the three-tier read/write/provision slots (D4), and any target-coordinate addition for the second store (issue #97). Tier 3 — coordination and cost-of-change across a repo boundary; the failure is loud, not silent, and D6's entry validation is the backstop that keeps it that way.
+
+**Deliberately out of scope here:** the þing-01 redaction clause is already mechanically enforced (`tests/test_redaction_guard.py` — the delivery modules stay credential-blind and the provenance description is a closed keyset), and D2's ruling that **integration tests against the production Appwrite project are FORBIDDEN** (no non-production project exists) is a standing prohibition, not a drift risk.
+
+Cross-refs: C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
+
+---
+
+### C-58: A wrong Appwrite coordinate auto-provisions a new empty target instead of raising — both client lineages, on every write
+
+| Field | Value |
+|-------|-------|
+| ID | C-58 |
+| Tier | 2 — a single wrong or drifted coordinate value silently redirects a delivery into a freshly created empty bucket/collection/database; the run reports success, FAO receives nothing, and no error is raised at the time of the mistake |
+| Source | `manual` (2026-07-31) — review-rr blind-spot analysis; the underlying code finding was verified from this seat during þing-01 (recorded in `orð_09.md`, and it revised the assembly's own sáttmál S8 and D8 trigger wording) |
+| Trigger | When any `APPWRITE_*_BUCKET_ID` / `_COLLECTION_ID` / `_DATABASE_ID` value changes — a registry amendment (C-57), a launcher reconfiguration, a second-store rollout (#97), or a typo — verify the delivery landed in the **intended** target rather than a newly created one: check the run's uploaded object count against the store's expected bucket, not just that the run exited 0 |
+| Location | views-pipeline-core `modules/datastore/datastore.py:350-370` (`upload_data` creates a missing bucket and retries; their ADR-046 §5); `modules/appwrite/file.py:2205/2351/2395` → `create_metadata_collection_if_not_exists` (`:1184`) → `create_database_if_not_exists` (`:905`) → `create_collection` (`:1250`) → `_create_dynamic_attributes` (`:1027`, failures logged only). Consumed at `views_postprocessing/unfao/managers/unfao.py:56` (`_ContractStorePort.upload`), `:560`, `:571` (legacy `_save`) |
+
+þing-01's **D5** ruled that a wrong coordinate **must RAISE**, that auto-provisioning must be **opt-in and default off**, and that a half-succeeded write must raise. The platform does not currently behave that way on the write path, and the assembly's own working document had this wrong until it was corrected from this seat: sáttmál S8 asserted "pipeline-core raises," which is true for reads and **false for writes**. Verified: **both** client lineages auto-provision. `DatastoreModule.upload_data` catches a missing bucket, creates it, and retries. `upload_file_with_metadata` traverses create-if-not-exists for the metadata collection, the database (the EXISTS short-circuit still exercises `databases.list`), the collection, and the dynamic attributes — on **every** metadata upload, with attribute-creation failures logged rather than raised. That correction is why the verdict's D8 trigger was widened to fire on a defect *common to* the client copies, not only on divergence between them.
+
+The practical exposure here is bounded but real. Coordinates are validated for **presence** (`appwrite_env.assert_env_declared`, D6) — never for **correctness**, which is unobservable from this seat by design: this repo has no console access and no introspection, and none should be added, because scopes and coordinates are *declared, not discovered*. Run-0 delivered to the correct bucket, which proves the currently-configured coordinates are right; it does **not** prove the guard exists, because a correct coordinate never exercises the auto-create branch. The nearest thing to a detector today is the `_ContractStorePort.upload` orphan check (`unfao.py:56-64`) and the manifest-last commit marker, neither of which catches "wrote successfully to the wrong place."
+
+Tier 2 rather than 1: no *value* is corrupted — the payload is exactly right, it lands in the wrong container — and the consequence is visible downstream (FAO serves nothing) rather than being wrong-but-plausible data. The precedent is already on record: six stranded `orange_ensemble` forecast documents sat invisible in `unfao_bucket` for months (ADR-013 Post-adoption, 2026-07-15) because a *name* filter mismatched — the same class of silent mis-addressing, discovered only by a deliberate read-only audit.
+
+**Not this repo's code to fix.** The fix belongs in views-pipeline-core (make provisioning an explicit opt-in parameter defaulting to off, per D5), and D5's drill ordering is fixed verbatim by the verdict: amend → ship raise → drill the raise path → stand up a test project → drill provisioning. This repo's available mitigations are a post-upload target assertion in `_ContractStorePort`, or a read-back count check after the manifest commits.
+
+Cross-refs: C-57 (registry drift — the most likely way a coordinate goes wrong), C-25 (the sibling wrong-*source* selection risk, mitigated by identity assertion), C-13 (the same store calls, timeout dimension), C-40 (the inherited pipeline-core surface this arrives through — **Cluster G**), C-22 (no recall procedure if a mis-delivery is discovered late).
+
+---
+
+## Disagreements
+
+### D-12: Post-Run-0 infrastructure & naming intents — repo rename, internal-store transport, compute co-location
+
+| Field | Value |
+|-------|-------|
+| ID | D-12 |
+| Source | Maintainer direction during the ADR-013 read-through (2026-07-19); assessment in-session |
+| Location | Repo-wide (rename); ADR-013 §3/§8 (store transport, co-location); mirrored as dated deferred intents in ADR-013 §8 |
+
+Three maintainer-raised intents, assessed and **deliberately deferred** — all sequenced strictly after (1) Run 0 proves the wire as adopted and (2) a §3.5 retention owner exists (infrastructure ownership must exist before infrastructure multiplies):
+
+1. **Rename this repo** to a delivery-screaming name (e.g. `views-delivery`). The repo is already purely delivery code (reconciliation retired to `views_frames_reconcile`, #62 closed 2026-06-26), so the name is the only mismatch with the screaming-architecture rubric. GitHub redirects soften the repo rename; the `views_postprocessing` *package* rename (cross-repo imports, views-models launchers) is the real churn and may trail.
+2. **Move `production_forecasts` off Appwrite** to self-managed storage (e.g. Hetzner object storage) — no external consumer reads the internal store. Contract-tolerant: §3 payload + manifest-last semantics are transport-agnostic; only the store-document addressing needs a bounded amendment.
+3. **Co-locate delivery compute with the internal store** to kill the ~29 GB/run upload-download round-trip — while **keeping the logical hop** (complete-or-invisible commit marker, hash verification, schedule independence, multi-partner fan-out). Fusing producer and delivery into one machine is **explicitly rejected** — it would rebuild the coupling ADR-013 dissolved.
+
+**Re-open trigger:** Run 0 verified AND retention owner named — then sequence 2→3 (or 2 alone) as an infrastructure epic, and 1 whenever wire churn is calm. See also C-40 (the migration this rides on), ADR-013 §8.
+
+**Status 2026-07-31 (review-rr — trigger HALF fired):** **Run 0 delivered** on 2026-07-27 (first FAO global-land forecast, frame-native, no OOM) — but it is **delivered, not yet verified**: issue #131 q1 (manifest integrity, sidecar/parity, 3 targets × 36 months, coverage gate on both frames) is still open, and #131 also surfaced a liveness dialect gap on the `unfao_delivery` forecast surface. **The retention owner is still unnamed** (ADR-013 §3.5 records the duty as OPEN). Both halves must hold before this re-opens, so it stays deferred — but it is now one open verification away, not one delivery away. Note that intent 2 (move `production_forecasts` off Appwrite) and the unnamed retention owner compound: run-0 added ~110 objects in a single run to a store with no retention policy.
+
+---
+
+### D-11: Pandas→frames seam — concrete siblings + delete vs a polymorphic abstraction
+
+| Field | Value |
+|-------|-------|
+| ID | D-11 |
+| Source | `expert-code-review` (2026-06-28) — review of pandas-migration epic #85 |
+| Location | epic #85 / stories #86 (`unfao/frames.py`), #87 (`unfao/extraction.py` + new frame module), #88/#91 (`unfao/managers/unfao.py` source/sink seams) |
+
+The pandas→views-frames migration (epic #85) deliberately swaps each seam by adding a **concrete** frame-native sibling next to the pandas one and later **deleting** the pandas path — rather than introducing a polymorphic abstraction (an `Extractor` Protocol / a representation port) that both implementations satisfy.
+
+- **Position A — concrete siblings + delete (the plan's choice; Martin/Beck-pragmatic, WET-before-DRY).** pandas and frames do **not** coexist at runtime — it is a migration, not a permanent dual representation — so a polymorphic interface would be speculative (YAGNI/ISP: don't force an interface nobody dispatches on). The seam stays readable, each representation is one-concept-per-file, and retirement is a clean file-delete. The invariants already depend on **primitives** (the real abstraction, DIP-satisfied at that boundary), so no port is needed above them.
+- **Position B — abstraction/port (Hickey/strict-OCP).** Depending on a representation port would make the swap "extend, not modify," and would let the two paths coexist cleanly during cutover.
+
+**Decision: A**, consistent with the maintainer's WET-before-DRY rule and the "migration not coexistence" reality. **Re-open trigger (the one acute case):** S6 (#91) introduces a temporary **dual-write** (legacy parquet + arrow sample-frame) for parity during the faoapi cutover — *if that coexistence proves long-lived* (rather than a brief cutover window), a small abstraction may then earn its place; revisit only then. Until then, concrete-and-delete stands.
+
+**SETTLED 2026-07-31 (review-rr — the re-open trigger resolved without firing).** The sole re-open condition was a long-lived S6/#91 dual-write. **#91 is CLOSED**, and the contract path shipped frame-native end-to-end (PRs #115–#129, wire delivered in run-0) without a durable dual-representation window. Position A is vindicated by events: concrete siblings + delete is what actually happened, the pandas path is confined to the legacy branch pending its named post-run-0 deletion, and no polymorphic representation port was ever needed. No live tension remains — this entry is kept as decision provenance for the remaining seam work (#89, #90) rather than as an open question.
+
+See also C-40 (the inheritance/representation coupling this migration unwinds), #85 (the migration epic), #45 (the faoapi wire / S6 dual-write).
+
+---
+
+### D-09: Multi-store support — parameterize the manager now vs after the FAO global delivery
+
+| Field | Value |
+|-------|-------|
+| ID | D-09 |
+| Source | `expert-code-review` (2026-06-12) |
+| Perspectives | GoF: the manager is being touched anyway — extract the `DeliveryProfile` now while context is loaded. Beck/Hickey/Ousterhout: the smallest change that delivers wins; a profile refactor adds review surface to the highest-stakes week, and frameworks built under deadline pressure rot. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:109-122, 234-247, 272` |
+| Status | Open. Review adjudication: **after delivery** — with two exceptions to do now: delete the dead config blocks (`unfao.py:80-107`, a mis-uncomment hazard) and ensure nothing added this week hardcodes additional store identity. The `DeliveryProfile` itself is a calm 1-day job the following week (C-33). |
+
+**DEFERRAL EXPIRED 2026-07-31 (review-rr).** The adjudication was "after the FAO global delivery"; **that delivery shipped 2026-07-27** (run-0). Both named exceptions are discharged: the dead config blocks at `unfao.py:80-107` **no longer exist** (verified — that range is now the class definition and `__init__`), and store env **names** were subsequently centralized into `unfao/appwrite_env.py` by þing-01 #134, so nothing added since hardcodes new name literals. What the disagreement actually deferred — the `DeliveryProfile` value object (one manager class, N store configs) — is now unblocked and is the "calm 1-day job." **Not resolved, because the decision it defers is still undecided:** build the profile now, or wait for issue #97's second-store scoping to define what a profile must carry. Recommend deciding that alongside #97; on decision this closes into C-33.
+
+---
+
+## Resolved Concerns
+
+### C-56: Run-0 was OOM-killed at 23.8 GB — the pandas delivery path could not fit global volume on the 31 GB host — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-56 |
+| Resolved | 2026-07-27 |
+| Resolution | Fixed by changing **representation**, not by tuning. Two stacked causes were measured: the pandas historical path (~6–10 GB of intermediate copies over 28.3M rows) and the contract forecast leg holding all three targets plus download transients in memory at once (~12 GB). **Part A — streaming delivery:** `source_selection.fetch_run` split into a cheap `resolve_run` (manifests only, shard file-ids pinned at resolve so later fetches are race-free) plus per-target `TargetLease.load`; `sink.deliver_run` now consumes one target at a time (load → §6 no-collapse gate → month shards → release), accumulating records incrementally. **Part B — frame-native historical (#126):** `_read_historical_frame` fetches a `views_frames.FeatureFrame` via pipeline-core's `get_feature_frame` (this repo is its first production consumer) and `unfao/historical.py` builds the artifact through pyarrow, pandas-free; the uploaded parquet stays byte-reader-identical for faoapi, proven against a legacy characterization golden (`tests/fixtures/historical_golden/`). Shipped across PRs #115–#129. **Re-run 2026-07-27: peak RSS 5.6 GB, 28,356,996 rows at 64,742 cells, clean exit, no OOM** — the delivery that had been impossible succeeded. |
+
+Registered retrospectively during review-rr (2026-07-31) as **incident memory**: this was the most consequential production event in the repo's history — it blocked the first-ever FAO global-land delivery — and it had no register entry, so a future reader would find the fix (frame-native, streaming) with no record of the failure that forced it. The plan file's closeout step required this entry and it was never written.
+
+**Why it matters beyond the fix:** the register **predicted this**. C-32 (RESOLVED) named it a year-quarter early — *"verify peak memory of joining 9 metadata columns onto ~28M rows — four string columns as pandas object dtype cost roughly 8–20 GB at this scale"* — and its proposed mitigation (categorical dtype) would have bought perhaps 10× on the string columns but left the object-dtype container in place; the actual fix was to leave pandas entirely. C-40 had independently identified the representation as the root cause and pandas retirement as the gate. **The register worked; the entry was simply not acted on before the run.**
+
+**Live residual (not a defect — a budget):** peak memory is now a load-bearing operational constraint. 5.6 GB against a 31 GB host is comfortable at S=1 point forecasts and 3 targets × 36 months. It is **not** self-evidently comfortable at the next deliverable's scale — the UN-agency product carries ~1024 pooled draws (cf. the C-38 memory analysis, relocated to views-frames), and the forecast leg's per-target streaming bounds one axis but not the sample axis. **Re-measure peak RSS before the first sample-bearing delivery** rather than assuming this headroom persists; ADR-013 §4.6 carries the capacity math.
+
+Cross-refs: C-32 (RESOLVED — the entry that predicted this, discharged by the same re-run), C-40 (the representation coupling whose pandas gate this lifted), C-30 (the coverage guard the same run exercised), C-43 (the correctness debt the same run did **not** discharge), C-38 (RESOLVED/relocated — the sample-axis memory analysis this residual points at), issues #126, #131.
+
+---
+
+### C-42: Reconciliation migration is stranded across three repos; production runs the old path and the migration-state was mis-stated — RESOLVED
+
+**RESOLVED 2026-07-31 (review-rr) — disposition settled at this entry's own request.** The entry asked for exactly this adjudication: *"This entry can move to Resolved once C-43 is filed (it is); kept open here only pending a /review-rr relocation."* It also contained a **direct internal contradiction** — that sentence against a closing paragraph saying *"C-42 stays open as a thin tracker until #198 lands."* Adjudication: the registered **hazard** — acting on a mis-stated cross-repo migration state — is resolved and independently verified (all three cutover legs landed; no unguarded importer of `views_postprocessing.reconciliation` remains anywhere). The **residual** (pipeline-core's `views_reporting.statistics.ForecastReconciler` re-export) is, by this entry's own reasoning, owned by **pipeline-core #198** and *"no separate vpp entry warranted (would duplicate #198)."* A tracker that duplicates another repo's issue is not a vpp risk. Closed; vpp **#40** remains the local waiting-on marker.
 
 | Field | Value |
 |-------|-------|
@@ -479,47 +593,9 @@ See also C-37 / C-38 (the reconciler concerns — relocating to views-frames wit
 
 ---
 
-### C-43: ADR-011 enrichment swap shipped without its output-equivalence proof — and the proof is now unrecoverable
+### C-45: `unfao/frames.py` is an unused views-frames conformance adapter carried on no live path — RESOLVED
 
-| Field | Value |
-|-------|-------|
-| ID | C-43 |
-| Tier | 2 |
-| Source | `manual` (2026-06-26) — user-flagged rigor loss on accepting option A; verified against git history (`eba1df8` / PR #42) |
-| Trigger | When the `africa_me_legacy` smoke-test delivery (option A) is accepted as the swap's verification, and — more acutely — when Stage 4 flips the region to `land_gaul` (64,736 cells, views-platform/views-models#127): the go-global run is the first time the lookup enricher's output reaches FAO at scale with **no** equivalence check against the previously-trusted mapper. Also fires if FAO / faoapi reports geographic metadata that looks wrong for specific cells. |
-| Location | `views_postprocessing/unfao/enrichment.py` (`GaulLookupEnricher`); `views_postprocessing/unfao/managers/unfao.py:129` (`_append_metadata`), `:147-172` (`_validate` — the 9-column NULL gate, checks presence not correctness); umbrella #20 / issues #21, #23, #24 (the baseline+diff procedure, now unrunnable); deleted in `eba1df8` (PR #42): `mapping.py` + both ADR-011 diff scripts |
-
-ADR-011 swapped FAO geo-enrichment from the runtime geopandas mapper to the GAUL lookup enricher (commit `65635b6`). The swap's own plan (umbrella #20) required an **output-equivalence proof** before trusting it in production: Stage 0 (#21) run the OLD mapper on real `africa_me_legacy` data to archive a ground-truth baseline; Stage 2 (#23) diff the new enricher against it with *"zero unexplained differences."* That proof was **never produced** — no `baseline_schema.md` or baseline parquet was ever committed — and on 2026-06-24 the old mapper **and both diff scripts** were deleted (`eba1df8`, PR #42, C-39). So the equivalence check is now **unrecoverable** short of `git revert`-ing the mapper back.
-
-The accepted path forward (**option A**) is a single smoke-test delivery: "the run is green and the output looks sane," which proves the path *runs*, not that it produces the *same / correct* values the trusted mapper did. The manager's `_validate` enforces only that the 9 GAUL columns are **non-null** — it does not check value correctness — so a latent bug in the lookup build or the merge-by-gid (wrong join key, stale `lookup_version`, gid misalignment) would ship **wrong-but-non-null** geographic metadata to FAO with **no error signal**.
-
-**Why not Tier 1:** the lookup is built from views-datafactory's authoritative area-majority GAUL parquets — the canonical *producer* source (D-07). The new path sources from the gold standard; the old mapper was the *less*-trusted path being retired (C-31, C-23). So the missing diff is a lost cross-check, not "unverified code," and the Stage-1 enricher unit tests + coverage guards (C-30/C-34) cover part of the build. **Why Tier 2:** the residual silent-wrong-value path is real, the null gate cannot catch it, the one guard that would have is gone for good, and the trigger (go-global to 64k cells) is concrete and imminent.
-
-**Mitigation if assurance is wanted before go-global** (cheaper than reverting the mapper): forward-check a sample of `land_gaul` cell assignments directly against the datafactory GAUL parquet, or add a lightweight value-level assertion into the enricher path (a forward check against the producer source — *not* a resurrection of the deleted old-mapper diff).
-
-See also C-03 (the sibling enrich→validate test-coverage gap), C-22 (no post-delivery correction/recall process — the consequence if wrong values do ship), C-39 / C-31 / C-23 (the resolved mapper-deletion cluster this emerged from), C-30 / C-32 / C-34 (the go-global scale risks where this bites), D-08 (the swap-to-lookup-first decision whose verification debt this is).
-
----
-
-### C-44: views-pipeline-core 3.0.0 dependency bump is pending and must not land until the platform runs on development across all repos
-
-| Field | Value |
-|-------|-------|
-| ID | C-44 |
-| Tier | 3 |
-| Source | `manual` (2026-06-26) — surfaced while consolidating a stranded local commit after the input-integrity sprint merge |
-| Trigger | When views-pipeline-core 3.0.0 is published to PyPI **and** the platform is confirmed running smoothly on `development` across all consumer repos — then bump `pyproject.toml` to a reproducible version pin (`views-pipeline-core = ">=3.0.0,<4.0.0"`), re-lock, and PR. Do **not** land the bump before both conditions hold, and do **not** source it from a moving git branch. |
-| Location | `pyproject.toml:13` (currently `views-pipeline-core = ">=2.1.3,<3.0.0"`); `poetry.lock` (pins `views-pipeline-core 2.3.0`, a reproducible PyPI wheel); the deferred change preserved on local branch `backup/pipeline-core-3.0.0-git-source` (commit `78d238e`) |
-
-`development` currently pins `views-pipeline-core = ">=2.1.3,<3.0.0"` and the committed `poetry.lock` resolves it to **2.3.0** from PyPI — reproducible, and the merged input-integrity sprint (#64) was CI-proven green against it. **3.0.0 is not yet on PyPI (political hold).** A local-only commit (`78d238e`, authored 2026-06-25 in a separate session, never pushed) repoints the dependency to pipeline-core's **git `development` branch** to track the unreleased 3.x "in tandem with other consumers."
-
-That change was deliberately **not** landed on `development` (2026-06-26), for three reasons: (a) sourcing from a **moving git branch** makes builds **non-reproducible** (the branch advances under us); (b) it is a **major-version switch** (2.x→3.x) whose breaking changes were never exercised against the just-merged sprint code; (c) it would require a **full re-lock** resolving 3.x + its transitive tree, rippling through `poetry.lock`. The maintainer's standing constraint: **the platform must run smoothly on `development` across all repos before taking the major dependency bump.** Until then the bump is premature.
-
-No silent corruption and no current breakage (development is green on 2.3.0) → **Tier 3** (coordination / release-sequencing / reproducibility). The deferred work is preserved (backup branch) and becomes a trivial, reproducible one-line pin once 3.0.0 ships and the cross-repo gate clears. Cross-refs C-40 (the underlying pipeline-core inheritance coupling that makes major bumps high-blast-radius), C-07 (the transitive-via-pipeline-core dependency surface), C-09 (publish-workflow version handling).
-
----
-
-### C-45: `unfao/frames.py` is an unused views-frames conformance adapter carried on no live path
+**RELOCATED 2026-07-31 (review-rr — placement fix only, no change of substance).** Marked RESOLVED 2026-07-20 but never moved out of `## Open Concerns`; with C-19 it caused the header count mismatch corrected in this pass. Re-verified in code 2026-07-31: `frames.build_prediction_frame` is live on the contract path — imported at `unfao/track_a_source.py:35` (used at `:105` and `:152`) and `unfao/frame_extraction.py:73`. The conformance scaffolding became the load-bearing constructor exactly as intended.
 
 | Field | Value |
 |-------|-------|
@@ -539,90 +615,123 @@ See also C-40 (the pandas gate this adapter anticipates), #45 (the draws carrier
 
 ---
 
-### C-46: `test_datafactory_deploy_readiness` is hardcoded to a local path — CI-skipped, and currently failing on the one machine that runs it
+### C-38: Reconciliation grouping is O(groups × N) and materializes the whole grid frame — RESOLVED (compute fixed; residual relocated to views-frames)
+
+**RESOLVED HERE 2026-07-31 (review-rr) — compute fixed, residual relocated.** Two dispositions in one entry, both already recorded below: the **compute** half was genuinely fixed (per-group `np.nonzero` → group-by-sort, O(N log N), parity bit-exact, scale guard added), and the **memory** residual (holding the whole pgm frame; chunk-by-time obligation) **left this repo with the code** in #62 / PR #63 and is now a consumer-side obligation at reconciliation-wiring time (pipeline-core#200/#221). The entry's own text already said *"no further vpp action."* Additionally its trigger referenced *"wiring at S7 (#39)"* — **#39 is CLOSED** with different scope, so the trigger was unsatisfiable as written. Closed here; the memory obligation remains live in views-frames / pipeline-core.
 
 | Field | Value |
 |-------|-------|
-| ID | C-46 |
-| Tier | 4 |
-| Source | `repo-assimilation` (2026-06-27) |
-| Trigger | When treating `test_datafactory_deploy_readiness` as a release gate (it never runs in CI), or when a contributor's local `pytest` fails on it — re-promote / re-pin the strict-xfail now that views-datafactory has advanced to `1.5.0`-dev past its `v1.4.0` tag |
-| Location | `tests/test_datafactory_deploy_readiness.py` (`_DF = Path("/home/simon/.../views-datafactory")`, `skipif(not _DF.exists())`) |
+| ID | C-38 |
+| Tier | 2 |
+| Source | `expert-code-review` (2026-06-24) |
+| Trigger | Before the first global / `land`-region reconciliation run — i.e. before wiring at S7 (#39) — benchmark `ReconciliationModule.reconcile` runtime and peak memory on global-volume frames; nothing above the 39-row fixture has been measured |
+| Location | `views_postprocessing/reconciliation/grouping.py:69-79` (per-group `np.nonzero(inverse == gi)`); `views_postprocessing/reconciliation/module.py` (holds the full pgm frame; `np.empty_like` copy) |
 
-The cross-repo deploy-readiness gates introduced under C-36 are guarded by `skipif` on a **hardcoded local datafactory checkout path**, so they are **skipped in CI** and only ever execute on one developer's machine. There, `test_version_bumped_past_latest_tag` is currently **failing**: it is an `xfail(strict)` that flipped to XPASS because datafactory moved to `1.5.0`-dev past its `v1.4.0` tag — exactly the auto-flip C-36's resolution anticipated, but because of the hardcoded path the flip surfaces as a **local red** rather than a CI signal, and breaks local `pytest` runs (the suite is run with this test deselected). No correctness/reliability impact on the delivery → **Tier 4** (test hygiene). C-36 (resolved) converted these gates to strict-xfail but did not capture the local-path / CI-skip dimension.
+`reconcile_pgm_to_cm` groups grid rows with `np.unique` (good) but then loops over unique `(time, country)` groups doing `np.nonzero(inverse == gi)` **per group** — an O(groups × N_pg) full-array scan. At global scale (~86k groups × ~28M pgm rows) that is ~10¹² comparisons plus 86k full-size boolean masks. Separately, the module holds the **entire** pgm frame at once (28M rows × S samples × 4 bytes ≈ 11 GB at S=100, **>100 GB at S=1000**) and `np.empty_like` doubles it — the original views-reporting code processed per-country subsets, never materialized the global frame, and used `ProcessPoolExecutor` for exactly this scale. **Parity is unaffected** (the result is identical); only runtime/memory blow up. Mitigation: replace the per-group `nonzero` with a single `argsort(inverse)` + contiguous slices (O(N log N)); budget/measure peak memory on a global-volume dry run and chunk by time or country if needed — both **before** wiring. Same enumerable-vs-discovered-at-scale pattern as C-31/C-32.
 
-See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the datafactory version-state coupling).
+Tier 2: structural fragility under the realistic change of wiring to global, with a clear trigger; not Tier 1 (no silent corruption — parity is exact; this is a runtime/memory failure). See also C-31 (mapper scale), C-32 (enricher memory), C-37 (the algorithm), epic #31 / views-reporting#72.
+
+**Update 2026-06-24 — compute RESOLVED.** The per-group `np.nonzero(inverse == gi)` was replaced with **group-by-sort** (`argsort(inverse)` + contiguous slices from `np.unique` counts, O(N log N), one index array). Parity stays **bit-exact** (`tests/test_reconciliation_grouping.py`, `test_reconciliation_e2e_parity.py` → 0.0) and a scale guard (`tests/test_reconciliation_scale.py`) protects against regression. **Residual (relocated with the code):** the module holds the whole pgm frame in memory at once; at global volume the **caller must chunk by time** (reconciliation is independent across months). The reconciler — and this chunk-by-time obligation — **left vpp**: the algorithm now lives in `views_frames_reconcile` and the vpp `ReconciliationModule` CIC was retired (#62 / PR #63, merged to `development` 2026-06-26). The global-volume verification is now a **consumer-side obligation at reconciliation-wiring time** (pipeline-core#200/#221), not a vpp concern. Tracked cross-repo via C-42; no further vpp action.
+
+**Update 2026-06-24 (reframe — residual now near-term):** the memory residual is no longer "verify someday." The upcoming UN-agency deliverable reconciles **frames with ~1024 pooled draws** — squarely in the >100 GB-at-global regime. When pipeline-core's `PredictionFrameEnsembleManager` wires probabilistic reconciliation (pipeline-core#200, under epic #193), the **caller must chunk by time** (reconciliation is independent across months) and **measure peak memory on a global-volume dry-run** as part of that work. The reconciler code itself is unchanged (compute already O(N log N)); this is a consumer-side obligation.
 
 ---
 
-### C-47: Stale untracked `reconciliation/__pycache__/` survives the module's retirement and misrepresents the package tree
+### C-37: Reconciliation uses a pragmatic per-draw approximation, not principled probabilistic reconciliation — RESOLVED (relocated to views-frames)
+
+**RESOLVED HERE 2026-07-31 (review-rr) — subject relocated to views-frames.** The reconciler (`proportional.py`, `grouping.py`, `module.py`) left this repo in **#62 / PR #63** and now lives in `views_frames_reconcile`; the vpp `ReconciliationModule` CIC was retired with it. Verified 2026-07-31: no `reconciliation/` sources exist under `views_postprocessing/` (only stale bytecode — C-47). The **methodological concern is unresolved and remains live in views-frames** (Epic 11 / views-platform/views-frames#131): the per-draw scaling is still a pragmatic approximation, the sample-alignment precondition still needs verifying against real pooled draws before reconciled uncertainty is consumed, and the Tier-2 escalation on wiring (pipeline-core#200) still applies **there**. Closed here because no vpp action can satisfy its trigger; **track it in views-frames.**
 
 | Field | Value |
 |-------|-------|
-| ID | C-47 |
-| Tier | 4 — pure hygiene: not importable (no `__init__.py`, no sources), untracked, no correctness or reliability impact; its only effect is misleading humans and tools that inventory the tree |
-| Source | `manual` (2026-07-19) — maintainer question "I thought reconciliation had moved out?" during the ADR-013 read-through; directory listing showed a phantom `reconciliation/` package |
-| Trigger | When the D-12 repo-rename assessment (or any repo-structure audit / fresh assimilation) next inventories `views_postprocessing/` and takes the phantom `reconciliation/` dir as evidence the module still lives here — as happened in-session 2026-07-19 |
-| Location | `views_postprocessing/reconciliation/__pycache__/` (untracked bytecode leftovers; sources deleted in #62 / PR #63, `6af2020`) |
+| ID | C-37 |
+| Tier | 3 |
+| Source | `manual` (2026-06-24) — phase-2 reconciliation migration |
+| Trigger | When reconciliation is wired into a delivery and its uncertainty is consumed (intervals, scores), verify the method is the principled one — the current per-draw scaling can distort the joint predictive distribution |
+| Location | `views_postprocessing/reconciliation/proportional.py` |
 
-The reconciliation retirement (C-42 cutover leg C2) deleted all tracked sources, but the untracked `__pycache__/` bytecode directory survived on the working machine. Directory listings therefore still show a `views_postprocessing/reconciliation/` package, which already misled one in-session inspection into reporting the migration unfinished. Deletion is a one-liner (`rm -rf views_postprocessing/reconciliation`) deferred by maintainer decision; tracked as a GitHub issue. Resolves on deletion (verify `git status` stays clean and the vpp suite green — trivially expected).
+`reconcile_proportional` is a faithful numpy port of views-reporting's `ForecastReconciler.reconcile_forecast`: **top-down disaggregation using forecast proportions** (FPP3), applied **per posterior draw**. It rescales each marginal draw independently to hit that draw's country total, which implicitly assumes the grid and country samples are index-aligned joint draws. This is a pragmatic approximation, **not** principled joint probabilistic reconciliation (the IJF paper, PII `S0169207023001097` — exact title TBC; cf. FPP3 §reconciliation), under which the reconciled draws would be coherent samples from a single reconciled joint distribution (e.g. MinT-style projection on samples). The migration deliberately preserves the existing method first (parity proven bit-for-bit against the untouched views-reporting oracle, `tests/test_reconciliation_parity.py`); the upgrade is **gated behind** completing the move and wiring (slices 2-3) so behaviour change and relocation never mix. Until then, treat reconciled uncertainty as approximate.
 
-Cross-refs: C-42 (the migration this is residue of), D-12 (the rename assessment it could mislead).
+See also the migration plan (reconciliation slices 2-4) and views-reporting issue #72 (the relocation).
+
+**Update 2026-06-24 (expert-code-review, Kleppmann lens):** the per-draw index-pairing is only *valid* if the production cm and pgm forecasts are the **same joint posterior draws**. If they come from independent models (separate posteriors), pairing draw *s* of the grid with draw *s* of the country is arbitrary and the reconciled uncertainty is meaningless — and the parity fixture cannot detect this, because it manufactures aligned draws. **At S7 (#39) wiring, verify the sample-alignment assumption against the real pipeline as a hard precondition** (or escalate the C-37 upgrade). This is a correctness precondition distinct from the "is the method principled" question.
+
+**Update 2026-06-24 (reframe — now near-term, not deferred):** this is no longer a someday concern. FAO (`rusty_bucket`) sidesteps reconciliation entirely (pure-grid ensemble aggregated *up* — sums by construction), but the **next UN-agency deliverable** is an FAO-like grid ensemble that **does** reconcile against a CM model, with **full pooled draws (~1024)** → **probabilistic** reconciliation. The reconciler is already probabilistic-ready (fully vectorized over samples), so the open question is purely C-37's: does that deliverable reconcile grid draws to a country **point total** (well-defined, no alignment needed) or to country **draws** (needs a defined draw-alignment — and today CM models are point-only / independently trained, so no aligned draws exist)? **This decision gates the probabilistic-reconciliation-on-`PredictionFrameEnsembleManager` work** (pipeline-core#200, under epic #193); resolve it once the UN models / CM target are defined.
+
+**Calibration note (review-rr 2026-06-24):** stays **Tier 3 while unwired**, but **escalate to Tier 2 the moment reconciliation is wired into a delivery** — at that point a wrong sample-alignment assumption silently delivers *meaningless uncertainty* (a correctness risk, not maintainability). The wiring (pipeline-core#200) is the escalation trigger.
+
+**Update 2026-06-26 (home change):** the reconciler (`proportional.py`, `grouping.py`, `module.py`) is relocating from this repo to the **`views_frames_reconcile` sibling** in the views-frames distribution (Epic 11, views-platform/views-frames#131) — its correct foundation home (CRP/SDP: a frame operation belongs in the frames family, not bolted onto FAO delivery). **C-37 and C-38 move with it** — track them in views-frames going forward. vpp's copy is deleted in #62 once views-frames v1.7.0 ships (release → repoint views-models#191 → delete).
 
 ---
 
-## Disagreements
-
-### D-12: Post-Run-0 infrastructure & naming intents — repo rename, internal-store transport, compute co-location
+### C-34: Spatial coverage has no contract — no assertion of expected cell count anywhere — MERGED into C-30
 
 | Field | Value |
 |-------|-------|
-| ID | D-12 |
-| Source | Maintainer direction during the ADR-013 read-through (2026-07-19); assessment in-session |
-| Location | Repo-wide (rename); ADR-013 §3/§8 (store transport, co-location); mirrored as dated deferred intents in ADR-013 §8 |
-
-Three maintainer-raised intents, assessed and **deliberately deferred** — all sequenced strictly after (1) Run 0 proves the wire as adopted and (2) a §3.5 retention owner exists (infrastructure ownership must exist before infrastructure multiplies):
-
-1. **Rename this repo** to a delivery-screaming name (e.g. `views-delivery`). The repo is already purely delivery code (reconciliation retired to `views_frames_reconcile`, #62 closed 2026-06-26), so the name is the only mismatch with the screaming-architecture rubric. GitHub redirects soften the repo rename; the `views_postprocessing` *package* rename (cross-repo imports, views-models launchers) is the real churn and may trail.
-2. **Move `production_forecasts` off Appwrite** to self-managed storage (e.g. Hetzner object storage) — no external consumer reads the internal store. Contract-tolerant: §3 payload + manifest-last semantics are transport-agnostic; only the store-document addressing needs a bounded amendment.
-3. **Co-locate delivery compute with the internal store** to kill the ~29 GB/run upload-download round-trip — while **keeping the logical hop** (complete-or-invisible commit marker, hash verification, schedule independence, multi-partner fan-out). Fusing producer and delivery into one machine is **explicitly rejected** — it would rebuild the coupling ADR-013 dissolved.
-
-**Re-open trigger:** Run 0 verified AND retention owner named — then sequence 2→3 (or 2 alone) as an infrastructure epic, and 1 whenever wire churn is calm. See also C-40 (the migration this rides on), ADR-013 §8.
+| ID | C-34 |
+| Resolved | 2026-07-31 (merged) |
+| Resolution | **Merged into C-30 during review-rr (2026-07-31); ID retained as a forwarding stub so existing cross-references resolve.** C-34 registered the absence of any expected-cell-count assertion, with the coverage decision split across three repos (views-models region string → views-datafactory cell-set → consequences here). Both C-34 and C-30 are now implemented by **one module** (`delivery/coverage.py`: `EXPECTED_CELLS_BY_REGION`, `EXCLUDED_GIDS_BY_REGION`, wired into the manager's `_check_coverage`) and were discharged by **one event** — run-0 on 2026-07-27 reported 64,742 distinct cells / 28,356,996 rows for `land_gaul`, exercising both guards end-to-end at global scale for the first time. Tracking them separately doubled maintenance without adding signal. C-34's distinctive contribution — that the real trigger is an *upstream* region/cell-set change in either of two other repos — is carried verbatim into C-30's rewritten trigger and Location. **See C-30.** |
 
 ---
 
-### D-11: Pandas→frames seam — concrete siblings + delete vs a polymorphic abstraction
+### C-32: Unbudgeted memory at global enrichment volume — RESOLVED (measured in run-0)
+
+**RESOLVED 2026-07-27 — measured, not merely deferred (recorded review-rr 2026-07-31).** The trigger read *"Before the first global historical run, verify peak memory of joining 9 metadata columns onto ~28M rows… roughly 8–20 GB at this scale."* That estimate proved right for the pandas path — run 0's first attempt was **OOM-killed at 23.8 GB** on the 31 GB host. The fix was representational rather than the categorical-dtype mitigation proposed below: the historical path went frame-native (#126, `get_feature_frame` → `views_frames.FeatureFrame`, artifact built via pyarrow in `unfao/historical.py`) and the forecast leg streams per target. **Re-run 2026-07-27: peak RSS 5.6 GB across 28,356,996 rows at 64,742 cells, no OOM, clean exit.** The concern is empirically discharged. Memory remains a live *budget* on the 31 GB host — see the Blind Spots note in the review-rr report of 2026-07-31 recommending an incident entry for the OOM chain, which is **not** registered by this pass.
 
 | Field | Value |
 |-------|-------|
-| ID | D-11 |
-| Source | `expert-code-review` (2026-06-28) — review of pandas-migration epic #85 |
-| Location | epic #85 / stories #86 (`unfao/frames.py`), #87 (`unfao/extraction.py` + new frame module), #88/#91 (`unfao/managers/unfao.py` source/sink seams) |
-
-The pandas→views-frames migration (epic #85) deliberately swaps each seam by adding a **concrete** frame-native sibling next to the pandas one and later **deleting** the pandas path — rather than introducing a polymorphic abstraction (an `Extractor` Protocol / a representation port) that both implementations satisfy.
-
-- **Position A — concrete siblings + delete (the plan's choice; Martin/Beck-pragmatic, WET-before-DRY).** pandas and frames do **not** coexist at runtime — it is a migration, not a permanent dual representation — so a polymorphic interface would be speculative (YAGNI/ISP: don't force an interface nobody dispatches on). The seam stays readable, each representation is one-concept-per-file, and retirement is a clean file-delete. The invariants already depend on **primitives** (the real abstraction, DIP-satisfied at that boundary), so no port is needed above them.
-- **Position B — abstraction/port (Hickey/strict-OCP).** Depending on a representation port would make the swap "extend, not modify," and would let the two paths coexist cleanly during cutover.
-
-**Decision: A**, consistent with the maintainer's WET-before-DRY rule and the "migration not coexistence" reality. **Re-open trigger (the one acute case):** S6 (#91) introduces a temporary **dual-write** (legacy parquet + arrow sample-frame) for parity during the faoapi cutover — *if that coexistence proves long-lived* (rather than a brief cutover window), a small abstraction may then earn its place; revisit only then. Until then, concrete-and-delete stands.
-
-See also C-40 (the inheritance/representation coupling this migration unwinds), #85 (the migration epic), #45 (the faoapi wire / S6 dual-write).
-
----
-
-### D-09: Multi-store support — parameterize the manager now vs after the FAO global delivery
-
-| Field | Value |
-|-------|-------|
-| ID | D-09 |
+| ID | C-32 |
+| Tier | 2 — realistic MemoryError mid-`_transform` on the planned global run; fails after the fetch succeeded, late in the pipeline |
 | Source | `expert-code-review` (2026-06-12) |
-| Perspectives | GoF: the manager is being touched anyway — extract the `DeliveryProfile` now while context is loaded. Beck/Hickey/Ousterhout: the smallest change that delivers wins; a profile refactor adds review surface to the highest-stakes week, and frameworks built under deadline pressure rot. |
-| Location | `views_postprocessing/unfao/managers/unfao.py:109-122, 234-247, 272` |
-| Status | Open. Review adjudication: **after delivery** — with two exceptions to do now: delete the dead config blocks (`unfao.py:80-107`, a mis-uncomment hazard) and ensure nothing added this week hardcodes additional store identity. The `DeliveryProfile` itself is a calm 1-day job the following week (C-33). |
+| Trigger | Before the first global historical run, verify peak memory of joining 9 metadata columns onto ~28M rows (64,818 cells × ~432 months) — four string columns as pandas object dtype cost roughly 8–20 GB at this scale |
+| Location | `views_postprocessing/unfao/managers/unfao.py:154-163` (the metadata join); any replacement enricher |
+
+Object-dtype strings (`admin1_gaul0_name`, `admin1_gaul1_name`, `admin2_gaul2_name`, `country_iso_a3`) broadcast to 28M rows dominate memory. Mitigation is cheap and should be built into any new enricher from day one: pandas categorical dtype for the string columns (~10× reduction; the underlying uniques number in the low thousands). A full-volume dry run (fetch → enrich → validate → local parquet, no upload) before delivery day is the verification.
 
 ---
 
-## Resolved Concerns
+### C-19: Systematic ADR-008 non-compliance — 23 of 24 raises lack preceding log — RESOLVED
+
+**RELOCATED 2026-07-31 (review-rr — placement fix only, no change of substance).** This entry was marked RESOLVED on 2026-06-28 but was never physically moved out of `## Open Concerns`; it and C-45 are the sole cause of the header count mismatch corrected in this pass (Open 25→27 actual, now 19 after all relocations). Re-verified in code 2026-07-31: log-before-raise holds at `enrichment.py:46/53/106` and `extraction.py:46`. The field table below retains its original Tier/Trigger/Location rows for provenance.
+
+| Field | Value |
+|-------|-------|
+| ID | C-19 |
+| Resolved | 2026-06-28 |
+| Resolution | Every live-path structural raise now logs-before-raise. The mapper portion (20 raises) went with the deleted runtime mapper (C-39); the 3 `unfao.py` manager raises were fixed in #13; and the residual `enrichment.py` (`:42,:50,:103`) + `extraction.py` (`:39`, a module logger was added) raises got `logger.error`-then-raise in the tech-debt-cleanup pass (2026-06-28). The only raises now lacking a preceding log are in `unfao/frames.py` (the views-frames conformance adapter), which is **not on the live delivery path** and is tracked separately by **C-45**. ADR-008 compliance holds across the live path. |
+| Tier | 3 |
+| Source | `falsification-audit` (2026-06-02) |
+| Trigger | When a structural failure occurs in `GaulLookupEnricher` (lookup missing/incomplete, or an absent gid column) or in the `extraction` seam and the operator searches logs for context, verify the exception was preceded by a `logger.error` — these raises currently have none |
+| Location | `views_postprocessing/unfao/enrichment.py:42,50,103`; `views_postprocessing/unfao/extraction.py:39` |
+
+ADR-008 requires structural failures to be both logged persistently AND raised explicitly. Three validation methods in mapping.py and the C-01 fix in unfao.py were fixed with log-before-raise. 20 raises in mapping.py and 3 in unfao.py remain unfixed.
+
+Part of Cluster B (expanded scope).
+
+**Update 2026-06-24:** the mapper portion (20 of the 23 raises, in `mapping.py`) is gone with the deleted runtime mapper (C-39); the **3 raises in `unfao.py`** remain (tracked by issue #13). Narrowed to the manager.
+
+**Update 2026-06-28 (re-scoped after `review-base-docs`):** the `unfao.py` residual is **resolved** — the 3 manager raises got log-before-raise in #13 (`unfao.py:72,84,293`), and the `FileNotFoundError` at `:112` is logged by its enclosing `_read_forecast_data` try/except. So both historical locations (mapper, manager) are now clear. **The live ADR-008 residual moved to two modules the original audit never covered:** `enrichment.py` (`:42` lookup-missing, `:50` lookup-missing-columns, `:103` absent gid column) and `extraction.py:39` (the seam's index/column `KeyError`) — these raise without a preceding `logger.error`. Practical risk is low (the raises are loud, not swallowed — the messages are descriptive); the gap is uniform log-before-raise convention in live code. Tier 3 (observability/maintainability, no silent corruption). *(This residual was then fixed the same day — see the Resolution field above.)*
+
+---
+
+### C-08: Planar area calculation on geographic (degree-based) coordinates — RESOLVED (relocated to views-datafactory)
+
+**RELOCATED / RESOLVED HERE 2026-07-31 (review-rr).** This entry's own 2026-06-24 update already concluded: *"this repo's mapper area-math is deleted (C-39); no degree-based area math runs in this repo anymore… a cross-repo views-datafactory concern. Tracked there, not here."* Verified 2026-07-31: zero degree-based area computation exists in `views_postprocessing/` — enrichment is a keyed gather against the precomputed ADR-011 lookup, and geopandas/shapely are absent from the dependency tree. The high-latitude distortion question is real but is **views-datafactory's**, in the area-majority script that builds the GAUL parquets this repo consumes. Kept open here for 5 weeks as a ghost tracker with an orphaned trigger (no vpp action could satisfy it). Closed here; **the concern itself remains live in the views-datafactory register.**
+
+| Field | Value |
+|-------|-------|
+| ID | C-08 |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-06-02) |
+| Trigger | When processing PRIO-GRID cells above 55°N or below 55°S (e.g., Russia-Ukraine border, Nordic countries), verify that country/admin assignment is correct for cells straddling boundaries |
+| Location | `views_postprocessing/unfao/mapping/mapping.py:649-650,920,1192,1428` |
+
+All overlap ratio calculations use `.area` on EPSG:4326 geometries, which produces values in square degrees. At the equator, 1° longitude ≈ 1° latitude in distance. At 60°N, 1° longitude ≈ 0.5° latitude in distance, distorting area by up to 2x. For border cells at high latitudes, this distortion could theoretically cause incorrect assignment to the wrong country/admin region. In practice, most VIEWS conflict prediction zones are equatorial/mid-latitude, limiting the impact. No projection to equal-area CRS is performed before area calculations.
+
+**Update 2026-06-12 (expert-code-review):** The "equatorial/mid-latitude, limiting the impact" rationale dies with the planned global coverage — Russia, Scandinavia, and Canada (55°N+) enter scope when the region switches to `"land"`. Mitigating consideration: within a single 0.5° cell, all candidate polygon intersections sit at the same latitude band, so the cos(lat) distortion multiplies all candidates roughly equally and largely cancels in the *ranking* — this applies to both this repo's mapper and the datafactory's area-majority script. Required action before global delivery: one falsification probe on ~20 border cells above 55°N comparing degree-based assignment against an equal-area-projected computation. See C-31 (mapper unverified at global scale).
+
+**Update 2026-06-24 (narrowed to the datafactory dimension):** this repo's mapper area-math (`mapping.py:649-650,920,1192,1428`) is deleted (C-39); no degree-based area math runs in this repo anymore. The remaining concern is the **views-datafactory** area-majority script's degree-based area math at high latitudes — a cross-repo views-datafactory concern (this repo now consumes the lookup built from those parquets, so any distortion is upstream). Tracked there, not here.
+
+---
 
 ### C-55: ADR-013 §10/§11 — vendoring mechanism leaned on the README; two verification vehicles conflatable; stale guard tense — RESOLVED same day; AUDIT SERIES COMPLETE
 
@@ -634,7 +743,7 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 | Trigger | (historical) A vendoring implementer reconstructing the root-hash mechanism from the README instead of the contract; a reader taking S=8 vs S=4 as a contradiction |
 | Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §10.1, §11.1, §11.4 |
 
-**RESOLVED 2026-07-19 (same day):** §10.1 self-contains the mechanism (path, per-file `SHA256SUMS`, root hash = SHA-256 of `SHA256SUMS`); §11.1 distinguishes the two vehicles; §11.4 re-tensed (both guards merged 2026-07-15; Hop-B production deploy rides C-161). Enforcement: `tests/test_falsify_adr013_s10_11.py`.
+**RESOLVED 2026-07-19 (same day):** §10.1 self-contains the mechanism (path, per-file `SHA256SUMS`, root hash = SHA-256 of `SHA256SUMS`); §11.1 distinguishes the two vehicles; §11.4 re-tensed (both guards merged 2026-07-15; Hop-B production deploy rides **views-faoapi C-161**). Enforcement: `tests/test_falsify_adr013_s10_11.py`.
 
 **Series closure:** with this entry, every section of ADR-013 (§0–§11) has been independently falsification-audited (C-48–C-55): 5 FALSIFIED, 3 CONTESTED, 2 sections SURVIVED outright (§1, §9); every finding fixed same-day; 40 permanent guards enforce the fixes. Recurring root cause across the series: the golden fixture silently carried spec the prose drifted from — now everywhere the prose names the fixture as its executable pin.
 
@@ -678,29 +787,29 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 | Trigger | (historical) Building the #91 sidecar writer or the faoapi sidecar reader from §5 prose without diffing against the fixture bytes |
 | Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §5.1–§5.2 |
 
-Hard: (P1) 10-column file with `priogrid_id` as first column vs prose "keyed by …, exactly these 9 columns"; (P2) data-dependent code dtype ("int64 when complete; float64 where NaN"). Soft: data source unnamed (P3); "preserved with NaN" imprecise for string nulls (P4a); C-146 bare insider ref (P4b); "extended to the sidecar" future work in present tense (P5); column/row order pinned only in fixture bytes (P6).
+Hard: (P1) 10-column file with `priogrid_id` as first column vs prose "keyed by …, exactly these 9 columns"; (P2) data-dependent code dtype ("int64 when complete; float64 where NaN"). Soft: data source unnamed (P3); "preserved with NaN" imprecise for string nulls (P4a); **views-faoapi C-146** bare insider ref (P4b — foreign register, namespaced during review-rr 2026-07-31); "extended to the sidecar" future work in present tense (P5); column/row order pinned only in fixture bytes (P6).
 
-**RESOLVED 2026-07-19 (same day):** §5.1 rewritten — 10-column truth with `priogrid_id` as a real first column; **dtype ruling (MINOR): `*_code` columns always float64** (one stable schema, matches canonical bytes); column order + ascending row order declared normative (§10 pins both); source named (ADR-011 `gaul_lookup.parquet`, datafactory area-majority); null-vs-NaN precision; C-146 glossed; §5.2 re-tensed as future #91 work. Enforcement: `tests/test_falsify_adr013_s5.py` (7 guards, green). Recorded in the Post-adoption record.
+**RESOLVED 2026-07-19 (same day):** §5.1 rewritten — 10-column truth with `priogrid_id` as a real first column; **dtype ruling (MINOR): `*_code` columns always float64** (one stable schema, matches canonical bytes); column order + ascending row order declared normative (§10 pins both); source named (ADR-011 `gaul_lookup.parquet`, datafactory area-majority); null-vs-NaN precision; **views-faoapi C-146** glossed; §5.2 re-tensed as future #91 work. Enforcement: `tests/test_falsify_adr013_s5.py` (7 guards, green). Recorded in the Post-adoption record.
 
 Cross-refs: C-48–C-51 (the audit series), C-45 (the #91 wiring these rules land in), D-12.
 
 ---
 
-### C-51: ADR-013 §4 — unpinned run-manifest, sidecar outside the commit ordering, and a phantom C-71 upload obligation — RESOLVED same day
+### C-51: ADR-013 §4 — unpinned run-manifest, sidecar outside the commit ordering, and a phantom views-faoapi C-71 upload obligation — RESOLVED same day
 
 | Field | Value |
 |-------|-------|
 | ID | C-51 |
-| Tier | 3 (at finding) — one protocol gap (sidecar outside the manifest-last commit ordering contradicted §4.2's torn-runs-invisible guarantee — an outage-shaped hole, loud not silent) and one factually wrong obligation ("C-71 approval fields" that do not exist in faoapi's mechanism) sat directly in the path of the #91 sink-adapter implementation. Not Tier 2: the hash-verification chain made every failure mode loud, and no implementation had yet built on the wrong text. |
+| Tier | 3 (at finding) — one protocol gap (sidecar outside the manifest-last commit ordering contradicted §4.2's torn-runs-invisible guarantee — an outage-shaped hole, loud not silent) and one factually wrong obligation ("views-faoapi C-71 approval fields" that do not exist in faoapi's mechanism) sat directly in the path of the #91 sink-adapter implementation. Not Tier 2: the hash-verification chain made every failure mode loud, and no implementation had yet built on the wrong text. |
 | Source | `falsify` (2026-07-19) — maintainer-commissioned audit of "§4 is sufficient and unambiguous"; verdict FALSIFIED (4 hard, 2 soft) |
 | Trigger | (historical) Building the #91 sink adapter from §4 prose — uploading the sidecar after the manifest, or hunting for nonexistent approval fields |
 | Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §4.1–§4.5 |
 
-Hard: (P1) run-manifest fields unpinned; prose understated the canonical bytes (sidecar *object* with name+sha256, per-shard `target`/`time_id`); (P3) Hop-B file-name templates absent + document-`name`-vs-file-name duality unexplained; (P8) **sidecar outside the commit-marker ordering**; (P6) **"C-71 approval fields present" ground-truthed as nonexistent** — faoapi's C-71 is consumer-side env file-id lists (`APPWRITE_UNFAO_QUARANTINED_FILE_IDS` / `APPWRITE_UNFAO_APPROVED_FILE_IDS`, `prediction.py:17-38`); the clause imposed a phantom uploader duty. Soft: cell-count ruling not inherited (P2); §4.5(b) raw-table-read mechanics unstated (P5). §4.3 selection and §4.6 capacity math survived.
+Hard: (P1) run-manifest fields unpinned; prose understated the canonical bytes (sidecar *object* with name+sha256, per-shard `target`/`time_id`); (P3) Hop-B file-name templates absent + document-`name`-vs-file-name duality unexplained; (P8) **sidecar outside the commit-marker ordering**; (P6) **"views-faoapi C-71 approval fields present" ground-truthed as nonexistent** — faoapi's C-71 is consumer-side env file-id lists (`APPWRITE_UNFAO_QUARANTINED_FILE_IDS` / `APPWRITE_UNFAO_APPROVED_FILE_IDS`, `prediction.py:17-38`); the clause imposed a phantom uploader duty. Soft: cell-count ruling not inherited (P2); §4.5(b) raw-table-read mechanics unstated (P5). §4.3 selection and §4.6 capacity math survived.
 
-**RESOLVED 2026-07-19 (same day):** §4.2 rewritten around a field table matching the fixture bytes; §4.1b added (three Hop-B name templates + the two-names clarification); **ordering clarified (MINOR): manifest uploads only after every shard AND the sidecar**; **the C-71 upload obligation deleted with a dated correction** (mechanism documented as it actually is, composing with §4.4's manifest-as-control-point); §3.2's cell-count ruling inherited verbatim; §4.5(b) mechanics note added. faoapi seat notified on #100. Enforcement: `tests/test_falsify_adr013_s4.py` (6 guards, green). Recorded in the Post-adoption record.
+**RESOLVED 2026-07-19 (same day):** §4.2 rewritten around a field table matching the fixture bytes; §4.1b added (three Hop-B name templates + the two-names clarification); **ordering clarified (MINOR): manifest uploads only after every shard AND the sidecar**; **the views-faoapi C-71 upload obligation deleted with a dated correction** (mechanism documented as it actually is, composing with §4.4's manifest-as-control-point); §3.2's cell-count ruling inherited verbatim; §4.5(b) mechanics note added. faoapi seat notified on #100. Enforcement: `tests/test_falsify_adr013_s4.py` (6 guards, green). Recorded in the Post-adoption record.
 
-Cross-refs: C-48/C-49/C-50 (the audit series — same fixture-carries-the-spec root cause), C-161 (the deploy gate the #91 leg still waits on).
+Cross-refs: C-48/C-49/C-50 (the audit series — same fixture-carries-the-spec root cause), **views-faoapi C-161** (the deploy gate the #91 leg still waits on — foreign register, namespaced during review-rr 2026-07-31).
 
 ---
 
@@ -745,7 +854,7 @@ Cross-refs: C-48 (same disease class in §0, same audit day), C-42/C-47 (prior d
 | Field | Value |
 |-------|-------|
 | ID | C-48 |
-| Tier | 3 (at finding) — a governance document read by all four repos' seats stated "FAO's exists now" with no execution-status information, inviting cross-repo readers to believe the contract flow was live while the sink leg was unbuilt, the Hop-B guard undeployed (C-161), and FAO serving empty. Misleading a seat into acting on that (e.g. uploading before the guard) was the realistic harm. Not Tier 2: the §11.4 constraint existed elsewhere in the same document. |
+| Tier | 3 (at finding) — a governance document read by all four repos' seats stated "FAO's exists now" with no execution-status information, inviting cross-repo readers to believe the contract flow was live while the sink leg was unbuilt, the Hop-B guard undeployed (**views-faoapi C-161**), and FAO serving empty. Misleading a seat into acting on that (e.g. uploading before the guard) was the realistic harm. Not Tier 2: the §11.4 constraint existed elsewhere in the same document. |
 | Source | `falsify` (2026-07-19) — maintainer-commissioned audit of the claim "§0 alone suffices to understand the flow"; verdict FALSIFIED (2 hard, 5 soft) |
 | Trigger | (historical) A cross-repo seat reading §0 as its only source before acting on the wire |
 | Location | `docs/ADRs/013_sampled_forecast_wire_contract.md` §0 |
@@ -754,7 +863,7 @@ Hard: (P4) no current-execution-status anywhere in §0 + "FAO's exists now" misd
 
 **RESOLVED 2026-07-19 (same day):** §0.2a "Execution status" block added (dated, points at the Post-adoption record as the running log; states plainly what is built, unbuilt, undeployed, and that FAO serving is currently empty); commit-marker sentence in role 1; no-collapse gloss, legacy-vs-contract clarification, and historical-bypass note in role 2; §0.2/role-5 tension reconciled in place; PFE + hops anchored in the table legend; both undated "today"s dated. Enforcement: `tests/test_falsify_adr013_s0.py` — the 5 audit stubs converted to permanent guards, all green.
 
-Cross-refs: C-161 (the deploy constraint §0.2a now surfaces), C-42/C-47 (prior doc-vs-reality drift instances), D-12 (§0.3 generalization work in the same section).
+Cross-refs: **views-faoapi C-161** (the deploy constraint §0.2a now surfaces — foreign register, namespaced during review-rr 2026-07-31), C-42/C-47 (prior doc-vs-reality drift instances), D-12 (§0.3 generalization work in the same section).
 
 ---
 
@@ -1068,6 +1177,11 @@ Concretely: **(1)** producer-published facts (e.g. `last_valid_month_id`, region
 
 - **ID format:** `C-xx` for concerns, `D-xx` for disagreements. IDs are permanent — gaps in numbering indicate merged or resolved entries
 - **Sources:** `repo-assimilation`, `expert-review`, `test-review`, `falsification-audit`, `clean-architecture-review`, `pr-review`, `tech-debt-audit`, `incident`, `manual`
-- **Resolution:** Move to "Resolved Concerns" or "Resolved Disagreements" with date and summary
-- **Header counts:** Manually maintained — update whenever a concern is added or resolved
+- **Resolution:** Move to "Resolved Concerns" or "Resolved Disagreements" with date and summary. **Moving is physical** — an entry whose body says RESOLVED must not remain under `## Open Concerns` (this drift caused the 2026-07-31 header mismatch)
+- **Relocated (added 2026-07-31):** when the *code* an entry describes leaves this repo, resolve the entry **here** with a forwarding pointer to the owning repo — do not keep it open as a ghost tracker with a trigger no local action can satisfy. The concern stays live in the destination register. Precedent: C-08 → views-datafactory, C-37/C-38 → views-frames
+- **Merged (added 2026-07-31):** when two entries share one implementation *and* one verification event, merge into the lower ID and leave the higher as a forwarding stub in Resolved, so existing cross-references still resolve. Precedent: C-34 → C-30
+- **Foreign register IDs (added 2026-07-31):** always namespace IDs belonging to another repo's register — `views-faoapi C-161`, `views-pipeline-core C-59` — never a bare `C-161`, which a reader will search for in this file and not find
+- **`[backlog]` tag (added 2026-07-31):** Tier 4 entries kept for completeness rather than active risk management, typically mirrored by a GitHub issue. Skip them when prioritising
+- **Expired triggers (added 2026-07-31):** a trigger whose event has already occurred is worse than a vague one — it reads identically to a pending trigger and silently misreports state. On firing, rewrite the trigger and re-tier in the same pass
+- **Header counts:** Manually maintained — update whenever a concern is added, merged, relocated or resolved. Verify Open + Resolved = Total against the actual `### C-` counts per section
 - **Governed by:** ADR-010
