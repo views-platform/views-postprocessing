@@ -2,16 +2,21 @@
 story's primitives unit tests.
 
 ``UNFAOPostProcessorManager`` cannot be instantiated here (it needs views-pipeline-core +
-Appwrite env — register C-40), so — exactly as ``test_append_metadata.py`` and
-``test_validation.py`` do — each test **replicates the manager's own extraction→invariant
-chain** on a synthetic delivery frame and proves the guard fires. Keep these in lockstep
-with ``views_postprocessing/unfao/managers/unfao.py``:
+Appwrite env — register C-40), so — exactly as ``test_validation.py`` does — each test
+**replicates the delivery's extraction→invariant chain** on a synthetic frame and proves
+the guard fires.
 
-    S1 coverage          _check_coverage          cells_of  -> assert_complete_coverage
-    S2 observed range    _clip_observed_history   months_of -> fabricated_months -> drop_months_above
-    S3 forecast identity _read_forecast_data      file_metadata -> assert_forecast_identity
-    S4 land_gaul         _check_coverage          cells_of  -> assert_no_excluded_cells
-    S5 provenance        _delivery_description    build_provenance(<- cells_of/unmapped_cell_count)
+What these prove is the **invariants in** ``views_postprocessing/delivery/``, which is
+why they survived #149 untouched: the rules are representation-free, so retiring the
+pandas delivery changed which module *calls* them, not whether they hold. The mapping to
+manager methods below is therefore informational, and updated for the post-#149 tree:
+
+    S1 coverage          _check_coverage             cells_of  -> assert_complete_coverage
+    S2 observed range    _read_historical_frame      months_of -> fabricated_months -> drop_months_above
+    S3 forecast identity (RETIRED with the legacy reader, #149 — selection is by run
+                          manifest; `delivery/identity.py` itself is retired in #150)
+    S4 land_gaul         _check_coverage             cells_of  -> assert_no_excluded_cells
+    S5 provenance        _historical_frame_description  build_provenance(<- cells_of/unmapped_cell_count)
 """
 
 import json

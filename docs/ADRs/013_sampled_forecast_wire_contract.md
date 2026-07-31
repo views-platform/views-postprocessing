@@ -1116,6 +1116,34 @@ record execution progress against it.
   and the provenance keyset closed (PR #136). **P3/#138** — §7(d) added: this ADR
   now cross-references PLATFORM-001 by URL, never by copy.
 
+- **2026-07-31 — the Hop-A LEGACY READER IS RETIRED; §11.4's transition is over on
+  this side (#149, epic #148).** §11.4 required a type-aware guard live at each
+  store **before the first contract artifact was uploaded there**. Both guards
+  merged 2026-07-15 and run-0 uploaded 2026-07-27, so the sequencing constraint was
+  satisfied. The legacy reader it protected has now been **deleted**: this repo
+  reads forecasts only through the contract path (manifest selection,
+  `unfao/wire/source_selection.py`) and historical actuals only as a
+  `views_frames.FeatureFrame` (#126).
+
+  **The retired guard, recorded here because the code that carried it is gone.**
+  The legacy reader selected `{"category": "forecast", "type": "ensemble"}` —
+  pinning the legacy `type` was what made pipeline-core#269's contract uploads
+  (`sampled_forecast_shard` / `_manifest` / `_sidecar`) unselectable by it. That
+  disjointness is the fact §11.4 turned on, and it held for the whole transition.
+
+  **Consequence for §11.4:** its Hop-A clause is now historical. **Its Hop-B clause
+  still binds** — views-faoapi's deployed selector is a separate deployment on its
+  own schedule (views-faoapi C-161). Nothing in this entry relaxes the consumer
+  side.
+
+  **The delivery mode is now DECLARED, not inferred.** Previously
+  `configs.get("wire_contract")` returning `None` because a launcher never mentioned
+  the key was indistinguishable from a deliberate `False`, and either quietly
+  selected the retired path. A launcher that does not declare `wire_contract: True`
+  and `data_format: feature_frame` is now **refused by name**
+  (`unfao/launch_config.py`) — ADR-003 applied to the launch config, and register
+  C-63 closed.
+
 ---
 
 ## Appendix A — Version history (review archaeology; non-normative)

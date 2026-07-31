@@ -20,7 +20,7 @@ def test_falsify_fao_02_schema_country_identifier_m49_vs_iso_a3():
     Probe 2 (Category H): FAO contract specifies UN M49; postprocessor uses ISO A3
 
     Finding: Release Note 01 Topic C states "PRIO/VIEWS will use UN M49
-    as the standard country identifier." The postprocessor's _append_metadata
+    as the standard country identifier." The postprocessor's geography attachment
     enriches with 'country_iso_a3' (ISO Alpha-3). If the postprocessor output
     feeds into the API that FAO accesses, there is a coding system mismatch.
 
