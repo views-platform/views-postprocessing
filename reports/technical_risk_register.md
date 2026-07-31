@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-31                           |
-| Total Concerns    | 61                                   |
-| Open Concerns     | 24                                   |
+| Total Concerns    | 62                                   |
+| Open Concerns     | 25                                   |
 | Resolved Concerns | 37                                   |
 
 ---
@@ -31,7 +31,7 @@ covered a single open entry (see Historical clusters below).
 
 ### Cluster G: Inherited pipeline-core surface
 **Root cause:** this repo *is-a* pipeline-core postprocessor by double inheritance, so it inherits that project's data loader, container, store I/O, and dependency tree — defects in that surface land in FAO delivery without this repo owning the fix.
-**Entries:** C-40 (root), C-07, C-13, C-26, C-27, C-28, C-29, C-44, C-58
+**Entries:** C-40 (root), C-07, C-13, C-26, C-27, C-28, C-29, C-44, C-58, C-62
 **Highest tier:** 1 (C-26)
 **Fix strategy:** the thin-shell de-inheritance C-40 prescribes — and which is **half-built**: the sink side landed (`_ContractStorePort`, `unfao.py:37-78`) and the invariants are already pipeline-core-free modules the manager calls (`delivery/*`, `unfao/historical.py`, `unfao/wire/`). The remaining half is the **input** side (loader + `PGMDataset`), gated on pipeline-core Epic #186/#207.
 **Resolution scope:** Partial — C-26/C-27/C-28 are upstream-owned; de-inheritance makes them visible and testable, not fixed.
@@ -585,6 +585,41 @@ What remains true, and why the entry stays open at Tier 3: the invariant block w
 **Mitigation — landed 2026-07-31:** all three invariants converted from bare `assert` to explicit `LookupBuildError` raises with diagnostic messages. The `-1` raise is retained deliberately as a backstop should the filter ever change, and is **deliberately left untested** — reaching it requires stubbing pandas internals, and a test that fragile is worse than the invariant it guards. What *is* pinned is the behaviour that actually protects the partner: `tests/test_gaul_lookup_fidelity.py::test_a_sentinel_code_is_dropped_rather_than_shipped` (the cell is excluded, so it later fails loud as *absent* rather than shipping as wrong-but-non-null) and `test_lookup_carries_no_sentinel_codes` on the committed artifact.
 
 Cross-refs: C-35 (RESOLVED — the `-1` defect class this guards against), C-59 (same invariant block), C-43 (the fidelity test that would catch a bad artifact regardless), **Cluster K**.
+
+---
+
+### C-62: The pinned pipeline-core release still installs geopandas and torch into a repo that architecturally excised them
+
+| Field | Value |
+|-------|-------|
+| ID | C-62 |
+| Tier | 3 — no correctness or reliability impact: the packages are installed but never imported. The cost is **measured at 2.8 GB of virtualenv** for a repo that writes parquet files, plus an architectural excision that is **real in the source but incomplete in the environment**, landing on the first-ever release. |
+| Source | `manual` (2026-07-31) — maintainer challenge during the development→main sweep ("Is geopandas back? Is it still here?"), verified against `poetry.lock` and the sibling checkouts |
+| Trigger | When cutting this repo's first release (**#125**), or when taking the views-pipeline-core 3.0.0 bump (**C-44**) — verify `geopandas` and `torch` have left the resolved dependency tree. Until 3.0.0 is published, they cannot. |
+| Location | `poetry.lock` (`geopandas 1.0.1`, `optional = false`); `pyproject.toml:13` (`views-pipeline-core = ">=2.1.3,<3.0.0"`, which resolves to 2.3.0) |
+
+This repo declares exactly three dependencies — `views-pipeline-core`, `views-frames`, `pyarrow` — and imports **zero** geospatial libraries. Verified 2026-07-31: the only three mentions of `geopandas`/`shapely` in `.py`/`.toml` are assertions of its *absence* (`enrichment.py:9`, `build_gaul_lookup.py:11`) and a doc-accuracy test that **bans the word** (`tests/test_doc_accuracy.py:29`). C-39's deletion held completely at the source level.
+
+**The lockfile tells a different story, and the installed venv confirms it.** `poetry.lock` resolves `geopandas 1.0.1` with `optional = false`. The carrier is the pinned release: **views-pipeline-core 2.3.0** (PyPI) declares `geopandas >=1.0.1,<2.0.0`, `torch >=2.6.0,<3.0.0`, plus `scipy`, `seaborn`, `plotly` and `plotly-express`.
+
+**Measured in the live project virtualenv on 2026-07-31** (`views-postprocessing-8UwQDgw_-py3.13`), which is **2.8 GB** in total:
+
+| Installed, never imported | Size |
+|---|---|
+| `nvidia/` (torch's CUDA runtime) | **2.5 GB** |
+| `plotly` | 42 MB |
+| `matplotlib` | 25 MB |
+| `geopandas` | 1.6 MB |
+
+**⚠ Framing correction, recorded because it inverts the intuition that opened this investigation.** The audit began as "is geopandas back?" — and geopandas is the *architectural* violation (this repo spent PR #42 removing it). But it is **1.6 MB**. The *material* cost is **torch's NVIDIA CUDA stack at 2.5 GB — 89% of the entire virtualenv — in a delivery repo with no GPU code, no model training, and no tensor operations of any kind.** Optimising for the offensive dependency rather than the expensive one would have missed almost the whole bill.
+
+**This is not a live fight — it is a released-version lag.** views-pipeline-core's `development` branch already declares no geopandas and imports none, and its own falsification tests name the problem explicitly (*"geopandas, seaborn, plotly, matplotlib — ~2.5 GB) for 298 LOC of optional…"*, their `tests/test_falsification_extraction_docs_packaging.py:59`). The fix exists upstream and is gated purely on **publishing 3.0.0** (their #319 / #313).
+
+**Why it matters here specifically.** PR #42 deleted a 3,171-line geopandas mapper and a 774 MB shapefile bundle to get geopandas out of this repo (ADR-011 / C-39). That excision is currently source-only. And it lands on this repo's **first-ever release** (#125, no tags exist): publishing a delivery package that resolves 2.5 GB of CUDA libraries is a materially different artifact from one that does not — and the first release is where that expectation gets set.
+
+**⚠ This entry pulls in the OPPOSITE direction to C-44 — deliberately, and the tension should stay visible.** C-44 says *do not take the 3.0.0 bump* until the platform runs smoothly on `development` across all repos (a standing maintainer constraint, and the right call). C-62 records what *waiting* costs: every day on the 2.3.0 pin is a day this repo ships an environment contradicting its own architecture. Neither entry overrides the other; together they say "the bump is held on purpose, and here is the bill." Registered separately rather than folded into C-44 precisely so the bill is not hidden inside the entry arguing for the delay.
+
+Cross-refs: **C-44** (the held bump — same action, opposing rationale), **C-39** (RESOLVED — the source-level deletion this shows is environment-incomplete), **C-07** (the sibling dependency-declaration concern: undeclared *direct* imports, where this is unwanted *transitive* installs), **C-40** (Cluster G — the inherited pipeline-core surface this arrives through), #125 (the release this bites at), views-pipeline-core #319 / #313 (the publish that resolves it), views-datafactory#387 (the same audit's cross-repo finding). **Cluster G.**
 
 ---
 
