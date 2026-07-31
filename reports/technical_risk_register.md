@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-31                           |
-| Total Concerns    | 62                                   |
-| Open Concerns     | 25                                   |
+| Total Concerns    | 70                                   |
+| Open Concerns     | 33                                   |
 | Resolved Concerns | 37                                   |
 
 ---
@@ -64,6 +64,13 @@ covered a single open entry (see Historical clusters below).
 **Highest tier:** 3 (C-59, C-60, C-61 — C-59 recalibrated 2→3 on 2026-07-31 mutation evidence)
 **Fix strategy:** one test file — `tests/test_gaul_lookup_fidelity.py` — split into an always-on half (gid uniqueness, region-set equality, coordinate formula against a committed ground-truth sample, no nulls, no `-1` codes) and a `skipif`-gated half comparing all 7 GAUL columns against the datafactory sibling. Plus two one-line hardenings in `scripts/build_gaul_lookup.py`: assert index uniqueness, and convert the bare `assert`s to explicit raises.
 **Resolution scope:** Full for C-59/C-61/C-43's residual guard; partial for C-60 (needs the flat declared `lookup_version` key) and C-46 (needs the hardcoded path removed).
+
+### Cluster L: The won migration was never cleaned up
+**Root cause:** the frame-native contract path replaced the pandas path and **won** — run-0 delivered global-land on 2026-07-27 and FAO has been served from it since. The replaced path was deliberately kept behind a config fork "until run 0 proves the contract path live" (C-40) and was then never removed. Everything below is residue of that one omission, not independent defects.
+**Entries:** C-63 (the fork is silent), C-64 (an invariant nothing calls), C-65 (a seam four-fifths dead), C-66 (an object built and unused), C-68 (a private name holding the survivors together) — plus **#145** (the retired path's uploads discard their failure result) and **C-40**'s residual scope.
+**Highest tier:** 2 (C-63)
+**Fix strategy:** one deletion, not five fixes. Remove the retired path and replace the silent fork with a loud refusal; C-64/C-65/C-66/C-68 collapse as consequences. D-11 ratified exactly this shape ("concrete siblings + delete") and named the missing step: *"only correct if the legacy forecast branch is actually deleted… If it lingers, three-way duplication becomes the permanent shape."*
+**Resolution scope:** Full for C-63/C-65/C-66/C-68 and #145; partial for C-64 (the identity rule's *home* still needs deciding) and C-40 (the double-inheritance shell is separate work).
 
 ### Historical clusters (mapper era — all resolved or moot)
 
@@ -224,6 +231,8 @@ This concern became visible during the cross-repo investigation (`docs/cross_rep
 
 **Mitigation landed (S3, 2026-06-26, `sprint/fao-input-integrity`):** `_read_forecast_data` now resolves the file id, fetches its metadata, and asserts identity (`delivery/identity.assert_forecast_identity`) against the configured ensemble (`{name: ensemble_path_manager.model_name, loa: "pgm"}`) **before** download — a stray `category="forecast"` upload now fails loud instead of shipping silently. **Residual (verify before relying on it):** the guard assumes the producer's uploaded `name`/`loa` equal `model_name`/`"pgm"`; this is checked against pipeline-core's code but **not a live Appwrite upload**. If the contract differs, the guard fails loud on *every* run — caught at the first smoke-test delivery (option A / S6 #57), **not** silently — so the residual is an availability / false-positive risk, not a corruption one. Confirm the field match at the option-A run; until then C-25 stays open.
 
+**Update 2026-07-31 (`repo-assimilation`) — the registered mitigation is LEGACY-ONLY; the live path is protected differently.** The identity assertion recorded above (`delivery/identity.assert_forecast_identity`) is called at `unfao.py:260`, inside the **legacy** `_read_forecast_data` leg. Production runs the contract path, which selects by **run manifest** (`unfao/wire/source_selection.py`) and never calls it. That is a *stronger* guarantee — a manifest is a commit marker with hash-verified contents, not a metadata field match — so the concern is better mitigated than this entry states, but **not by the mechanism this entry names**. Re-read accordingly; and note the mitigation's stated residual ("confirm the field match at the option-A run") is now moot for the live path. See **C-64**.
+
 See also C-13 (no timeout on the same calls), C-15 (upload metadata lacks provenance to detect this downstream), C-43 (the same "verify at the first live run" debt pattern on the enrichment swap).
 
 ---
@@ -366,6 +375,13 @@ See also C-24 (schema contract per store), D-09 (the deferral, now expired), #97
 **Wire contract posted (2026-07-03) — the S6/#45 circular wait is dissolved.** A three-way audit (pipeline-core / producers / consumer+substrate, all on `origin/development` + maintainer-authored issues) established: (i) there are **two wire hops** (producer→store; vpp→faoapi) and the roadmap's arrow work covered only the second; (ii) **no publish path from PFE to the prediction store exists at all** — models#143's "no pipeline-core change required" is **falsified** (PFE's `use_prediction_store` is stored then only logged, `prediction_frame_ensemble.py:141/:799`; `PredictionIOManager._upload_to_prediction_store` raises `NotImplementedError`, `io.py:117`); (iii) full global draws ≈ **9.5 GB/target**, so the wire mandates per-month sharding; (iv) the "platform ADR-046" cited as the format authority **does not exist** (phantom). **ADOPTED 2026-07-15 as ADR-013** *(post-adoption: F1 invisibility confirmed live — six stranded orange_ensemble forecast docs in unfao_bucket, forecast serving has been empty all along; both §11.4 legacy guards merged same day, Hop-B guard must reach production before vpp's first contract upload — **views-faoapi C-161**)* after five reviewed iterations (two seat reviews, reconciliation, owner-ratified F1) — maintainer sign-off on views-models#149. The v1 proposal history: Hop A = Track A zip archive per (run,target,month) + manifest-last commit marker (new **pipeline-core#269**); Hop B = per-month `views_frames.io.arrow` (#91/faoapi#100); interior = per-target 2-D `PredictionFrame`; the 9 GAUL columns move to a **gid-keyed sidecar**; the **#149 no-collapse boundary is named: vpp `delivery/draws.py`** (a new invariant, sibling of coverage/identity — follow-on vpp work with the durable vpp ADR after explicit sign-off); target vocabulary **decided: `lr_ged_sb/ns/os`**, producers rename at publish (models#146).
 
 **Update 2026-07-31 (review-rr — the prescribed DIP mitigation has half landed, uncredited).** This entry's mitigation was: "*keep the subclass as a thin shell but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager calls, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP).*" The **sink half exists**: `_ContractStorePort` (`unfao.py:37-78`) wraps `DatastoreModule` behind a four-method port (`latest_file_id` / `file_metadata` / `download` / `upload`), and the contract delivery path drives the store through it. The **invariant half also largely exists** as pipeline-core-free modules the manager calls: `delivery/coverage.py`, `identity.py`, `draws.py`, `parity.py`, `provenance.py`, `observed_range.py` (the package docstring pins them representation-free), plus `unfao/historical.py` and `unfao/wire/`. **Residual scope of this entry is now the input side and the shell itself:** the double inheritance at `:80` (consequences a/c/d), the inherited `ViewsDataLoader`/`PGMDataset` on the legacy branch, and the fact that the FAO logic still cannot be instantiated without the framework. Tier held at 2 — the blast radius argument is unchanged for what remains. This is the root of **Cluster G**.
+
+**Update 2026-07-31 (`repo-assimilation`, clone-readiness pass — the coupling is CONTAINED, and this file is the only clone blocker).** Two measurements that change how this entry should be read:
+
+1. **`views_pipeline_core` is imported by exactly ONE module in the repository — this one** (`managers/unfao.py:1-20`, 8 import sites). Every other module is pipeline-core-free: `delivery/*`, `unfao/wire/*`, `frames.py`, `historical.py`, `gaul_schema.py`, `track_a_source.py`. The blast radius this entry describes is real but **one file wide**, which is materially better than the narrative above conveys and makes the thin-shell extraction a bounded job rather than an open-ended one.
+2. **The file is 636 lines — 25% of the package's 2,528** — and holds: the pipeline-core adapter, an inner `_ContractStorePort` class, two read strategies, two save strategies, provenance formatting, coverage orchestration, and env assembly. **Every SRP/CCP violation in the repository is in this one file**, and it is the only file a clone (views-crafdapi, views-productionapi) cannot reuse as-is.
+
+**Consequence for the clone work:** the reusable core already exists and is clean — `delivery/` is partner-agnostic by its own declaration and `unfao/wire/` takes its consumer name as a parameter. What blocks reuse is this manager, plus the packaging problem registered separately as **C-69**. Note also that ADR-012 still calls this class **"the *thin* `UNFAOPostProcessorManager`"** (**C-67**).
 
 See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper cleanup that precedes any unfao restructuring), **#45** (the delivery-side draw carrier — ship `(N, S)` uncollapsed as a native frame, the producer half of this same problem), and **epic #85** (the migration backlog).
 
@@ -642,6 +658,157 @@ This repo declares exactly three dependencies — `views-pipeline-core`, `views-
 **⚠ This entry pulls in the OPPOSITE direction to C-44 — deliberately, and the tension should stay visible.** C-44 says *do not take the 3.0.0 bump* until the platform runs smoothly on `development` across all repos (a standing maintainer constraint, and the right call). C-62 records what *waiting* costs: every day on the 2.3.0 pin is a day this repo ships an environment contradicting its own architecture. Neither entry overrides the other; together they say "the bump is held on purpose, and here is the bill." Registered separately rather than folded into C-44 precisely so the bill is not hidden inside the entry arguing for the delay.
 
 Cross-refs: **C-44** (the held bump — same action, opposing rationale), **C-39** (RESOLVED — the source-level deletion this shows is environment-incomplete), **C-07** (the sibling dependency-declaration concern: undeclared *direct* imports, where this is unwanted *transitive* installs), **C-40** (Cluster G — the inherited pipeline-core surface this arrives through), #125 (the release this bites at), views-pipeline-core #319 / #313 (the publish that resolves it), views-datafactory#387 (the same audit's cross-repo finding). **Cluster G.**
+
+---
+
+### C-63: A launch config that omits `wire_contract` silently routes into retired code instead of failing
+
+| Field | Value |
+|-------|-------|
+| ID | C-63 |
+| Tier | 2 — the repo that authored ADR-003 ("authority of declarations over inference") infers its own delivery mode from the *absence* of a config key. A clone, a config refactor, or a typo selects the retired pandas path with no signal; that path's uploads also discard their failure result (#145), so the second failure is silent too. Not Tier 1: the retired path still produces a valid artifact, so this is wrong-path-taken, not wrong-data-shipped. |
+| Source | `repo-assimilation` (2026-07-31) — clone-readiness pass |
+| Trigger | When writing the launch config for **views-crafdapi** or **views-productionapi**, or when refactoring views-models' `config_meta.py` — verify the manager *raises* on a missing `wire_contract`/`data_format` rather than falling back. It does not today. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:233`, `:294`, `:323`, `:409`, `:520` (the `wire_contract` forks); `:130` (the `data_format` fork); views-models `postprocessors/un_fao/configs/config_meta.py:26-27`, `config_queryset.py:62` (the only place both are declared) |
+
+Two **independent** dispatch axes give four theoretical delivery modes, of which production uses exactly one: `declared_data_format(queryset) == "feature_frame"` (`:130`) selects the frame-native historical read, and `configs.get("wire_contract")` (five sites) selects the ADR-013 contract delivery. Production declares both. **Omitting either silently selects the retired half** — `.get()` returning `None` is indistinguishable from a deliberate `False`.
+
+This is the inference this repo's own ADR-003 forbids, in the manager that orchestrates the delivery. The correct shape is one path plus a loud refusal naming the missing key.
+
+Cross-refs: **C-40** (the manager this lives in), **#145** (the retired path's silent upload failures — the second half of the same hazard), **D-11** (the concrete-siblings-and-delete decision whose "delete" step is outstanding), **Cluster L**.
+
+---
+
+### C-64: `delivery/identity.py` is an authoritative delivery invariant that production never calls
+
+| Field | Value |
+|-------|-------|
+| ID | C-64 |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When **views-crafdapi**/**views-productionapi** copy `delivery/` as the reusable invariant core — verify whether the identity rule is enforced on the path the clone actually uses, or inherited as documentation only |
+| Location | `views_postprocessing/delivery/identity.py` (53 lines); sole caller `views_postprocessing/unfao/managers/unfao.py:260` — inside the **legacy** `_read_forecast_data` leg; `docs/ADRs/012_revised_ontology.md` (lists it under "Delivery Invariants — Authoritative") |
+
+`assert_forecast_identity` verifies that a selected forecast document's `name`/`loa` match the configured ensemble before download. It is reachable **only** from the legacy reader. The contract path selects by **manifest** (`wire/source_selection.py`) and never consults it — which is a *stronger* guarantee, not a gap. The risk is the mismatch between ADR-012 naming it authoritative and the code never running it: a clone inherits a rule that looks enforced and is not.
+
+**This also updates C-25's status** — that entry's registered mitigation *is* this function, so the mitigation applies to the legacy path only. C-25's actual protection on the live path is manifest selection, which is why the entry should be re-read rather than assumed still-mitigated-as-written.
+
+Cross-refs: **C-25** (whose mitigation this is), **C-67** (the ADR-012 drift this instantiates), **Cluster L**.
+
+---
+
+### C-65: `unfao/extraction.py` is four-fifths unreachable and duplicates `frame_extraction.py`
+
+| Field | Value |
+|-------|-------|
+| ID | C-65 |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When #89 (numpy/pyarrow keyed gather) or #90 lands, or when a clone copies the representation seam — decide which of the two extraction modules is *the* seam rather than carrying both |
+| Location | `views_postprocessing/unfao/extraction.py` (103 lines; only `file_metadata` is contract-reachable, via `managers/unfao.py:48`); the legacy-only functions `months_of`, `drop_months_above`, `cells_of`, `unmapped_cell_count` are called at `:383`, `:393`, `:417`, `:589`, `:633`, `:634`; frame-native equivalents live in `views_postprocessing/unfao/frame_extraction.py` (`:116`, `:122`, `:584`, `:600`) |
+
+ADR-012 designates `extraction.py` as **"the single pandas-aware module"** — the one place a representation change lands. In practice the representation change already landed *beside* it: `frame_extraction.py` implements the same four operations frame-natively and is what production calls. `extraction.py` retains one live function and four dead ones.
+
+Two seams for one concept is the CRP violation D-11 predicted: WET-before-DRY was correct during the migration and expires when the migration completes.
+
+Cross-refs: **C-40** (which calls these the "retired-in-place legacy seams"), **D-11**, **C-67**, epic **#85** / **#89** / **#90**, **Cluster L**.
+
+---
+
+### C-66: The GAUL lookup is loaded three times per run, once into an object production never uses
+
+| Field | Value |
+|-------|-------|
+| ID | C-66 |
+| Tier | 4 — startup cost and confusion, no correctness impact |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When profiling delivery startup, or when the lookup grows beyond `land_gaul` (a multi-region product would multiply the waste) |
+| Location | `views_postprocessing/unfao/managers/unfao.py:98` (`self._enricher = GaulLookupEnricher()` — eager, unconditional, unused in contract mode), `:460` and `:612` (`pq.read_table(_DEFAULT_LOOKUP)`) |
+
+`__init__` eagerly constructs `GaulLookupEnricher`, which reads the 888 KB parquet into pandas at `enrichment.py:48`. The contract path never uses that instance — it reads the same file twice more through pyarrow. So every production run pays three reads of one artifact, one of them into a representation the delivery no longer uses.
+
+Cross-refs: **C-65** (same retired-seam cluster), **C-68** (the private-name import used for two of the three reads), **Cluster L**.
+
+---
+
+### C-67: ADR-012 misdescribes the system in two load-bearing ways
+
+| Field | Value |
+|-------|-------|
+| ID | C-67 |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When the **views-crafdapi**/**views-productionapi** authors read ADR-012 as the specification for what to copy — both false claims describe exactly the structures a clone must decide about |
+| Location | `docs/ADRs/012_revised_ontology.md` — the "Pipeline Manager" and "Representation Seam" rows of the ontology table |
+
+Two claims no longer hold:
+
+1. **"the thin `UNFAOPostProcessorManager`"** — it is **636 lines**, 25% of the package, holding two read strategies, two save strategies, an inner port class, provenance formatting, coverage orchestration and env assembly (**C-40**).
+2. **"the *single* pandas-aware module (`unfao/extraction.py`)"** — pandas is imported by **three** modules: `extraction.py`, `enrichment.py`, and `managers/unfao.py:14` (**C-65**).
+
+Both drifted the same way and for the same reason: the ADR describes the intended end state of a migration that then stopped one step short. Same disease as the C-48–C-55 ADR-013 series, which was fixed by pinning prose to mechanically-checked facts.
+
+Cross-refs: **C-40**, **C-65**, **C-64**, **Cluster I** (governance-artifact drift), C-48–C-55 (the precedent and its remedy).
+
+---
+
+### C-68: `_DEFAULT_LOOKUP` — a private name imported across three module boundaries
+
+| Field | Value |
+|-------|-------|
+| ID | C-68 |
+| Tier | 4 |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When splitting `enrichment.py` under #89, or when a clone needs the lookup path without the pandas enricher — the underscore says "internal", so a refactor is entitled to move or rename it and would break two live call sites |
+| Location | Defined `views_postprocessing/unfao/enrichment.py:33`; imported `views_postprocessing/unfao/managers/unfao.py:18`; used `:460`, `:612` |
+
+The contract path depends on the lookup *path constant* but not on the *enricher class* that owns it. The dependency is real and load-bearing; the leading underscore declares the opposite. Promoting it to a public name — or better, moving the artifact path to `product.py` where declarations live — costs one line and removes the trap.
+
+Cross-refs: **C-66**, **C-65**, **#89**, **Cluster L**.
+
+---
+
+### C-69: The `unfao/` package binds partner-neutral machinery to one partner's name
+
+| Field | Value |
+|-------|-------|
+| ID | C-69 |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-07-31) — clone-readiness pass |
+| Trigger | When **views-crafdapi** or **views-productionapi** is cut — the clone must import `unfao.wire`, `unfao.frames`, `unfao.gaul_schema` and `unfao.track_a_source` to get machinery that has nothing to do with FAO, or fork them and start a third copy |
+| Location | `views_postprocessing/unfao/` — partner-**specific**: `product.py`, `appwrite_env.py` (`UNFAO_ENV`), `managers/unfao.py`. Partner-**neutral**: `wire/*` (7 modules, 466 lines), `frames.py`, `frame_extraction.py`, `gaul_schema.py`, `track_a_source.py`, `historical.py`, `source_metadata.py` |
+
+`delivery/` got this right — its `__init__.py:3` states "Partner-agnostic: FAO and the coming UN-agency deliveries reuse these", and nothing in it names FAO. `unfao/` did not: roughly 800 of its 1,001 lines are partner-neutral and sit under a partner's name.
+
+**Update 2026-07-31 (`expert-code-review`, Martin lens) — partner identity has THREE homes, which is the same boundary problem stated at field level.** "Who is this delivery for" is declared in three unrelated places: `unfao/product.py:34` (`CONSUMER_DOCUMENT_NAME`), `unfao/appwrite_env.py:31-38` (the `UNFAO_*` env names), and `unfao/wire/sink.py:162` (`consumer_name`, correctly a *parameter*). The third is the right shape and proves the machinery is already parameterisable; the first two are declarations that a clone must find and replace. The separation below should consolidate them, not merely move them.
+
+This is a **CRP** violation (things not reused together forced together) with a concrete cost: the clone takes the FAO name to get the wire contract, or forks it. `product.py` is already the right shape for the partner-specific half — 4 declared constants — but nothing separates it structurally from the machinery.
+
+Distinct from **D-12**(1), which proposes renaming the *repository*; this is the *package interior*, and it bites first because the clone is cut before any rename.
+
+Cross-refs: **D-12** (the repo rename), **C-40**, **#96** (the rename issue), **#97** (second-store scoping), views-appwrite's clone preconditions.
+
+---
+
+### C-70: `METADATA_COLS` serves three contracts at once — reordering it silently changes delivered bytes
+
+| Field | Value |
+|-------|-------|
+| ID | C-70 |
+| Tier | 3 — no current defect (the byte-parity fixture catches a reorder loudly), but the list carries three independent meanings with only one of them named, so a reasonable edit for one purpose silently changes the other two |
+| Source | `expert-code-review` (2026-07-31) — Kleppmann and Hickey lenses, clone-readiness pass |
+| Trigger | When adding, removing or reordering a GAUL metadata column — for a new partner product, or under #89 — verify the wire column order is deliberate rather than inherited from the manager's selection order |
+| Location | `views_postprocessing/unfao/gaul_schema.py:14-24` (`METADATA_COLS`, `CODE_COLS`, `NAME_COLS`, `COORD_COLS`); consumed as an *ordering* contract at `unfao/wire/sidecar.py:62`, `unfao/historical.py:76`, and as a *set* contract at `managers/unfao.py:277`, `unfao/historical.py:50,90` |
+
+One list encodes three things: **which** columns exist (set membership), **in what order** they appear on the wire (§5.1 declares column order normative, pinned by the golden fixture), and **which** the null-gate covers. Its docstring names only the first — *"the 9-column contract (manager selection order)"* — so the wire-order meaning is undocumented at the definition site.
+
+Separately, the *type* policy is re-derived positionally from three sibling lists via `if col in CODE_COLS` branches in **three** modules (`build_gaul_lookup.py:139-144`, `wire/sidecar.py:64-71`, `unfao/historical.py:78-83`). The concept "a code column is float64 on the wire" is scattered rather than declared once.
+
+**Why it is only Tier 3:** the ADR-013 §10 golden fixture pins the bytes, so a reorder fails loudly in CI rather than shipping. The risk is cost-of-change and the trap a clone walks into, not silent corruption.
+
+**Mitigation (not urgent, and cheap when the packaging split happens):** declare the column contract as data — one table of `(name, role, wire_dtype)` — and derive `METADATA_COLS`, the role lists, the cast branches and the wire order from it. Naturally folded into the partner/machinery separation (**C-69**), since `gaul_schema.py` is partner-neutral machinery.
+
+Cross-refs: **C-69** (the packaging split this rides along with), **C-59**/**C-61** (the same file's build-time invariants), **#89**, ADR-013 §5.1 (the normative order), **Cluster L**.
 
 ---
 
