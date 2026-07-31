@@ -11,11 +11,11 @@ from views_pipeline_core.managers.model import ForecastingModelManager
 from views_pipeline_core.managers.ensemble import EnsemblePathManager
 from datetime import datetime
 import os
-from views_postprocessing.unfao.enrichment import _DEFAULT_LOOKUP, GaulLookupEnricher
 from views_pipeline_core.modules.dataloaders.datafactory_contract import declared_data_format
 from views_postprocessing.unfao import (
     appwrite_env,
     frame_extraction,
+    gaul_lookup,
     historical,
     launch_config,
     product,
@@ -86,7 +86,6 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         logger.info(f"Initializing {self.__class__.__name__}")
         self._forecast_resolution = None  # {target: TargetLease}, set by _read
         self._historical_frame = None  # views_frames.FeatureFrame, set by _read
-        self._enricher = GaulLookupEnricher()  # provenance lookup_version (C-15)
         self.ensemble_path_manager = None
 
     def _read_historical_frame(self):
@@ -303,17 +302,19 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         ``wire_upload_enabled`` launch-config key), artifacts are staged locally and
         ZERO store calls occur. First live enablement is gated on C-161 closure.
         """
-        import pyarrow.parquet as pq
-
         if self._forecast_resolution is None:
             raise ValueError(
                 "contract _save called without a resolved run — _read must run first."
             )
+        # ONE read of the 888 KB lookup per delivery (#152/C-66), threaded to both
+        # consumers — each takes it as a parameter (DIP), so neither reaches for the
+        # file itself.
+        lookup = gaul_lookup.load()
         upload_enabled = bool(self.configs.get("wire_upload_enabled", product.UPLOAD_ENABLED))
         store = _ContractStorePort(self._unfao_datastore()) if upload_enabled else None
         summary = wire_sink.deliver_run(
             self._forecast_resolution,
-            lookup=pq.read_table(_DEFAULT_LOOKUP),
+            lookup=lookup,
             staging_dir=Path(self._model_path.data_generated) / "wire_contract",
             store=store,
             upload_enabled=upload_enabled,
@@ -326,7 +327,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 "declare data_format: feature_frame (#126)."
             )
         hist_path, hist_description, _ = self._build_historical_artifact(
-            Path(summary["staging_dir"])
+            Path(summary["staging_dir"]), lookup
         )
         if upload_enabled:
             store.upload(
@@ -387,7 +388,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         """The C-15 provenance description for the frame-built historical artifact."""
         region = self.configs.get("region")
         prov = provenance.build_provenance(
-            lookup_version=self._enricher.lookup_version,
+            lookup_version=gaul_lookup.version(),
             region=region,
             expected_cell_count=coverage.expected_for(region),
             actual_cell_count=len(frame_extraction.cells_of(self._historical_frame)),
@@ -395,15 +396,14 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         )
         return provenance.compact_description(prov)
 
-    def _build_historical_artifact(self, directory) -> tuple:
+    def _build_historical_artifact(self, directory, lookup) -> tuple:
         """Frame-built historical artifact staged into ``directory``; returns
-        (path, description, timestamp). Null-gate enforced here (fail loud)."""
-        import pyarrow.parquet as pq
+        (path, description, timestamp). Null-gate enforced here (fail loud).
 
+        ``lookup`` is the already-read GAUL table (injected, not fetched — #152).
+        """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        table = historical.build_historical_table(
-            self._historical_frame, pq.read_table(_DEFAULT_LOOKUP)
-        )
+        table = historical.build_historical_table(self._historical_frame, lookup)
         historical.assert_metadata_complete(table)
         path = Path(directory) / f"historical_dataset_{timestamp}.parquet"
         historical.write_historical_artifact(table, path)
