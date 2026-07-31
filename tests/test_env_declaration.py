@@ -90,7 +90,10 @@ def test_declared_names_match_the_manager_reads():
         appwrite_env.CONNECTION_ENV + appwrite_env.PROD_FORECASTS_ENV + appwrite_env.UNFAO_ENV
     )
     assert read_names == declared
-    assert text.count("appwrite_env.assert_env_declared(") == 3  # both stores + legacy save
+    # One validation per store construction. Was 3 until #149 retired the legacy
+    # `_save`, whose Appwrite config duplicated `_unfao_appwrite_config` verbatim;
+    # the two survivors are the production_forecasts read and the unfao_bucket write.
+    assert text.count("appwrite_env.assert_env_declared(") == 2
 
 
 def test_secret_env_names_follow_the_platform_naming_rule():

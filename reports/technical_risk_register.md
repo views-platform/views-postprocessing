@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-31                           |
-| Total Concerns    | 70                                   |
-| Open Concerns     | 33                                   |
+| Total Concerns    | 71                                   |
+| Open Concerns     | 34                                   |
 | Resolved Concerns | 37                                   |
 
 ---
@@ -809,6 +809,26 @@ Separately, the *type* policy is re-derived positionally from three sibling list
 **Mitigation (not urgent, and cheap when the packaging split happens):** declare the column contract as data — one table of `(name, role, wire_dtype)` — and derive `METADATA_COLS`, the role lists, the cast branches and the wire order from it. Naturally folded into the partner/machinery separation (**C-69**), since `gaul_schema.py` is partner-neutral machinery.
 
 Cross-refs: **C-69** (the packaging split this rides along with), **C-59**/**C-61** (the same file's build-time invariants), **#89**, ADR-013 §5.1 (the normative order), **Cluster L**.
+
+---
+
+### C-71: `appwrite_env.assert_env_declared` raises without logging — ADR-008 non-compliance in an entry-validation seam
+
+| Field | Value |
+|-------|-------|
+| ID | C-71 |
+| Tier | 4 — the raise is loud and its message is fully diagnostic, so nothing is silently swallowed today. What is missing is the persistent record ADR-008 requires, in the one seam whose whole job is to make a misconfigured launch visible. |
+| Source | `review-diff` (2026-07-31) — S1/#149 review; found by mirroring this module when writing its sibling |
+| Trigger | When a delivery run refuses on a missing Appwrite variable and the operator goes looking for *why* in the logs rather than the traceback — or when the next entry-validation module is written against this one as the pattern, as `unfao/launch_config.py` was |
+| Location | `views_postprocessing/unfao/appwrite_env.py:44-51` (`assert_env_declared`) |
+
+**ADR-008:48** requires that *"raised structural failures must be logged at `ERROR` level or higher"*, and **:51** that *"raising is not a substitute for logging."* `assert_env_declared` raises `EnvironmentError` naming every missing variable but never logs. A launcher misconfiguration is a structural failure by any reading of that ADR.
+
+**How it was found, and why that matters:** `unfao/launch_config.py` (S1) was deliberately written to mirror this module — same shape, same failure style, same dependency-light constraint. It **inherited the flaw**, and the S1 diff review caught it in the new code. The new module was fixed to log-before-raise; this one was left alone for scope discipline, which means the pair is now **inconsistent** — the sibling written to match it no longer does.
+
+Registered rather than fixed in #149 because it is pre-existing (shipped in þing-01 P1 / #134) and outside that story's boundary. It is a two-line change and the natural place to take it is **S8** (#156, epic closeout) or any PR that next touches `appwrite_env.py`.
+
+Cross-refs: **C-19** (RESOLVED — the ADR-008 log-before-raise sweep whose convention this predates), **C-63** (the declaration-over-inference concern S1 closed), ADR-008, #134, #149, #156.
 
 ---
 
