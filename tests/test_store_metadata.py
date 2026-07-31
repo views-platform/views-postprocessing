@@ -7,7 +7,7 @@ document* and touches no representation at all. The frame-reader tests went with
 module; these survive with the function that outlived it.
 """
 
-from views_postprocessing.unfao import store_metadata
+from views_postprocessing.contract import store_metadata
 
 
 class _FakeResult:

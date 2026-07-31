@@ -8,7 +8,7 @@ screaming rubric if the implementation honours three tightenings:
   ① TWO homes, not one:
        views_postprocessing/delivery/        -> representation-free invariants +
                                                  constants (partner-agnostic, reusable)
-       views_postprocessing/unfao/frame_extraction.py -> the representation seam
+       views_postprocessing/contract/frame_extraction.py -> the representation seam
                                                  (frame->primitives; was extraction.py
                                                  until #151 — see below)
   ② Primitives are the abstraction (DIP); the seam isolated in one module (OCP).
@@ -64,8 +64,8 @@ def test_extraction_seam_is_isolated_in_one_module():
     come back alongside it. Two seams for one concept is the CRP violation D-11
     predicted if the migration were left unfinished.
     """
-    assert (_PKG / "unfao" / "frame_extraction.py").exists()
-    assert not (_PKG / "unfao" / "extraction.py").exists(), (
+    assert (_PKG / "contract" / "frame_extraction.py").exists()
+    assert not (_PKG / "contract" / "extraction.py").exists(), (
         "the retired pandas seam is back — #151 deleted it when #149 made it "
         "unreachable; frame_extraction.py is the seam."
     )
@@ -80,7 +80,7 @@ def test_manager_does_not_inherit_forecasting_model_manager():
 
 # housekeeping --------------------------------------------------------------
 def test_enrichment_does_not_call_a_dataframe_a_prediction_frame():
-    src = (_PKG / "unfao" / "enrichment.py").read_text().lower()
+    src = (_PKG / "contract" / "enrichment.py").read_text().lower()
     assert "prediction frame" not in src
 
 

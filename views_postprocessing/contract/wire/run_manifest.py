@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 
-from views_postprocessing.unfao.wire.header import CONTRACT_VERSION
+from views_postprocessing.contract.wire.header import CONTRACT_VERSION
 
 
 class RunManifestError(ValueError):

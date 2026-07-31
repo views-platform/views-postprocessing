@@ -38,11 +38,11 @@ from pathlib import Path
 from views_postprocessing.delivery.draws import assert_draws_uncollapsed
 from views_postprocessing.delivery.parity import assert_gid_set_parity
 from views_postprocessing.unfao import product
-from views_postprocessing.unfao.frame_extraction import cells_of, month_slice
-from views_postprocessing.unfao.wire.naming import run_manifest_name
-from views_postprocessing.unfao.wire.run_manifest import build_run_manifest
-from views_postprocessing.unfao.wire.shard import write_shard
-from views_postprocessing.unfao.wire.sidecar import build_sidecar, write_table
+from views_postprocessing.contract.frame_extraction import cells_of, month_slice
+from views_postprocessing.contract.wire.naming import run_manifest_name
+from views_postprocessing.contract.wire.run_manifest import build_run_manifest
+from views_postprocessing.contract.wire.shard import write_shard
+from views_postprocessing.contract.wire.sidecar import build_sidecar, write_table
 
 logger = logging.getLogger(__name__)
 

@@ -32,7 +32,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from views_postprocessing.unfao.gaul_schema import (
+from views_postprocessing.contract.gaul_schema import (
     CODE_COLS,
     COORD_COLS,
     METADATA_COLS,

@@ -32,8 +32,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from views_postprocessing.delivery import coverage
-from views_postprocessing.unfao import track_a_source
-from views_postprocessing.unfao.frame_extraction import cells_of, drop_units
+from views_postprocessing.contract import track_a_source
+from views_postprocessing.contract.frame_extraction import cells_of, drop_units
 
 # pipeline-core's shipped vocabulary (§3.1/§3.2/§3.3) — golden-string tested.
 HOP_A_SHARD_FILTERS = {"category": "forecast", "type": "sampled_forecast_shard"}

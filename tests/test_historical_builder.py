@@ -10,9 +10,9 @@ import pyarrow.parquet as pq
 import pytest
 from views_frames import FeatureFrame, SpatialLevel, SpatioTemporalIndex
 
-from views_postprocessing.unfao import historical
-from views_postprocessing.unfao.frame_extraction import drop_months_above
-from views_postprocessing.unfao.gaul_schema import METADATA_COLS
+from views_postprocessing.contract import historical
+from views_postprocessing.contract.frame_extraction import drop_months_above
+from views_postprocessing.contract.gaul_schema import METADATA_COLS
 
 import sys
 

@@ -24,8 +24,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from views_postprocessing.unfao import gaul_lookup
-from views_postprocessing.unfao.gaul_schema import METADATA_COLS
+from views_postprocessing.contract import gaul_lookup
+from views_postprocessing.contract.gaul_schema import METADATA_COLS
 
 logger = logging.getLogger(__name__)
 

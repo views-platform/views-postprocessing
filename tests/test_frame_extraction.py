@@ -18,8 +18,8 @@ downstream assume `months_of` returns ascending int64 regardless of input order.
 
 import numpy as np
 
-from views_postprocessing.unfao import frame_extraction
-from views_postprocessing.unfao.frames import build_prediction_frame
+from views_postprocessing.contract import frame_extraction
+from views_postprocessing.contract.frames import build_prediction_frame
 
 # 3 cells × 2 months, rows deliberately unsorted.
 _ROWS = [(101, 3), (100, 1), (100, 2), (101, 1), (100, 3), (101, 2)]
@@ -51,8 +51,8 @@ def test_months_of_is_int64_ascending():
 def test_drop_units_removes_only_declared_cells():
     import numpy as np
 
-    from views_postprocessing.unfao.frame_extraction import drop_units
-    from views_postprocessing.unfao.frames import build_prediction_frame
+    from views_postprocessing.contract.frame_extraction import drop_units
+    from views_postprocessing.contract.frames import build_prediction_frame
 
     values = np.arange(12, dtype=np.float32).reshape(6, 2)
     time = np.full(6, 543, dtype=np.int64)

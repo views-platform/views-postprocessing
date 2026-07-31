@@ -20,9 +20,9 @@ import pytest
 
 from views_postprocessing.delivery.draws import DrawsCollapseError
 from views_postprocessing.unfao import product
-from views_postprocessing.unfao.frames import build_prediction_frame
-from views_postprocessing.unfao.wire import sink
-from views_postprocessing.unfao.wire import source_selection as sel
+from views_postprocessing.contract.frames import build_prediction_frame
+from views_postprocessing.contract.wire import sink
+from views_postprocessing.contract.wire import source_selection as sel
 
 _FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
 _MANIFEST_NAME = "fixture_run_0__lr_ged_sb__manifest.json"

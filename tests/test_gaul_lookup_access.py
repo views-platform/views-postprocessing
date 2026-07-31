@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from views_postprocessing.unfao import gaul_lookup
+from views_postprocessing.contract import gaul_lookup
 
 
 def test_the_lookup_path_is_a_public_declared_name():
@@ -53,8 +53,8 @@ def test_the_delivery_reads_the_lookup_exactly_once(monkeypatch):
     """
     import inspect
 
-    from views_postprocessing.unfao import historical
-    from views_postprocessing.unfao.wire import sink
+    from views_postprocessing.contract import historical
+    from views_postprocessing.contract.wire import sink
 
     assert "lookup" in inspect.signature(sink.deliver_run).parameters, (
         "wire.sink.deliver_run must take the lookup as a parameter (DIP)"
@@ -93,6 +93,6 @@ def test_the_enricher_still_works_and_agrees_on_the_stamp():
     ``lookup_version`` must still report exactly what ``gaul_lookup.version`` does, or
     provenance would differ depending on which path produced it.
     """
-    from views_postprocessing.unfao.enrichment import GaulLookupEnricher
+    from views_postprocessing.contract.enrichment import GaulLookupEnricher
 
     assert GaulLookupEnricher().lookup_version == gaul_lookup.version()

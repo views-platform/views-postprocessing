@@ -3,7 +3,7 @@ fixture's actual file names (the templates' executable pin)."""
 
 from pathlib import Path
 
-from views_postprocessing.unfao.wire import naming
+from views_postprocessing.contract.wire import naming
 
 _FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
 

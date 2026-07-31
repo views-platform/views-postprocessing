@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from views_postprocessing.unfao import track_a_source as tas
+from views_postprocessing.contract import track_a_source as tas
 
 FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
 SHARD = (FIX / "fixture_run_0__lr_ged_sb__m000543.tap.zip").read_bytes()

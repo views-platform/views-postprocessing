@@ -17,7 +17,7 @@ import pytest
 from views_frames import PredictionFrame, TargetFrame
 from views_frames.conformance import assert_frame_contract
 
-from views_postprocessing.unfao.frames import build_prediction_frame, build_target_frame
+from views_postprocessing.contract.frames import build_prediction_frame, build_target_frame
 
 # Declared identifiers for a small PGM block: 3 cells across 2 months (N = 6).
 _TIME = np.array([100, 100, 100, 101, 101, 101], dtype=np.int64)

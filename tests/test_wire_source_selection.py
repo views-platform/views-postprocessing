@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from views_postprocessing.unfao.wire import source_selection as sel
+from views_postprocessing.contract.wire import source_selection as sel
 
 _FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
 _MANIFEST_NAME = "fixture_run_0__lr_ged_sb__manifest.json"
@@ -124,7 +124,7 @@ def test_lease_applies_declared_curation():
     leases = _resolve(excluded_gids=frozenset({100006}))
     frame, _ = leases["lr_ged_sb"].load()
     assert frame.n_rows == 5  # the declared exclusion is gone from the product frame
-    from views_postprocessing.unfao.frame_extraction import cells_of
+    from views_postprocessing.contract.frame_extraction import cells_of
 
     assert 100006 not in cells_of(frame)
 

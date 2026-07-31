@@ -12,18 +12,10 @@ from views_pipeline_core.managers.ensemble import EnsemblePathManager
 from datetime import datetime
 import os
 from views_pipeline_core.modules.dataloaders.datafactory_contract import declared_data_format
-from views_postprocessing.unfao import (
-    appwrite_env,
-    frame_extraction,
-    gaul_lookup,
-    historical,
-    launch_config,
-    product,
-    source_metadata,
-    store_metadata,
-)
-from views_postprocessing.unfao.wire import sink as wire_sink
-from views_postprocessing.unfao.wire import source_selection
+from views_postprocessing.contract import frame_extraction, gaul_lookup, historical, launch_config, source_metadata, store_metadata
+from views_postprocessing.unfao import appwrite_env, product
+from views_postprocessing.contract.wire import sink as wire_sink
+from views_postprocessing.contract.wire import source_selection
 from views_postprocessing.delivery import coverage, observed_range, provenance
 from pathlib import Path
 

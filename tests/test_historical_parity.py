@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from views_postprocessing.unfao.gaul_schema import METADATA_COLS
+from views_postprocessing.contract.gaul_schema import METADATA_COLS
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "historical_golden" / "legacy_historical_slice.parquet"
 REAL_TARGETS = ["lr_ged_sb", "lr_ged_ns", "lr_ged_os"]
