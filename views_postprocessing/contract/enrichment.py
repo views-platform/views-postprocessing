@@ -13,7 +13,7 @@ rather than shipping a hole. This is intentional and matches the old mapper's
 behaviour (it returned ``None`` for such cells).
 
 Produces exactly the 9-column contract enforced at
-``unfao.py`` (``_append_metadata`` filter_cols / ``_validate``) and at
+the delivery's artifact builders and at
 views-faoapi ``handlers.py`` (``FAO_PGMDataset._METADATA_COLS``).
 """
 
@@ -24,8 +24,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from views_postprocessing.unfao import gaul_lookup
-from views_postprocessing.unfao.gaul_schema import METADATA_COLS
+from views_postprocessing.contract import gaul_lookup
+from views_postprocessing.contract.gaul_schema import METADATA_COLS
 
 logger = logging.getLogger(__name__)
 

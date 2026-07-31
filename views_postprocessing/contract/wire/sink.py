@@ -17,7 +17,7 @@ under the §4.1a fields with the pinned consumer name. Staging goes into a
 per-run_id subdirectory; each upload is ledger-logged.
 
 **The §11.4 interlock:** ``upload_enabled`` defaults to
-``product.UPLOAD_ENABLED`` (False) — the default configuration stages locally
+``upload_enabled=False`` — the default configuration stages locally
 and makes ZERO store calls; enabling requires an explicit launch declaration,
 first live enablement gated on faoapi's C-161 closure.
 
@@ -37,12 +37,11 @@ from pathlib import Path
 
 from views_postprocessing.delivery.draws import assert_draws_uncollapsed
 from views_postprocessing.delivery.parity import assert_gid_set_parity
-from views_postprocessing.unfao import product
-from views_postprocessing.unfao.frame_extraction import cells_of, month_slice
-from views_postprocessing.unfao.wire.naming import run_manifest_name
-from views_postprocessing.unfao.wire.run_manifest import build_run_manifest
-from views_postprocessing.unfao.wire.shard import write_shard
-from views_postprocessing.unfao.wire.sidecar import build_sidecar, write_table
+from views_postprocessing.contract.frame_extraction import cells_of, month_slice
+from views_postprocessing.contract.wire.naming import run_manifest_name
+from views_postprocessing.contract.wire.run_manifest import build_run_manifest
+from views_postprocessing.contract.wire.shard import write_shard
+from views_postprocessing.contract.wire.sidecar import build_sidecar, write_table
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +59,10 @@ def deliver_run(
     *,
     lookup,
     staging_dir: Path,
+    consumer_name: str,
+    s_min: int,
     store=None,
-    upload_enabled: bool = product.UPLOAD_ENABLED,
-    consumer_name: str = product.CONSUMER_DOCUMENT_NAME,
-    s_min: int = product.S_MIN,
+    upload_enabled: bool = False,
 ) -> dict:
     """Deliver one run to `unfao_bucket` (or stage it, when the interlock holds).
 

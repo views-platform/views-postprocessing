@@ -8,7 +8,7 @@ that swapping it in for the runtime mapper (Stage 3) is invisible downstream.
 import pandas as pd
 import pytest
 
-from views_postprocessing.unfao.enrichment import (
+from views_postprocessing.contract.enrichment import (
     GaulLookupEnricher,
     METADATA_COLS,
 )

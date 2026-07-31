@@ -18,8 +18,8 @@ frames — so these run anywhere.
 
 import pytest
 
-from views_postprocessing.unfao import launch_config
-from views_postprocessing.unfao.launch_config import LaunchConfigError
+from views_postprocessing.contract import launch_config
+from views_postprocessing.contract.launch_config import LaunchConfigError
 
 
 # ── the forecast axis: wire_contract ────────────────────────────────────────

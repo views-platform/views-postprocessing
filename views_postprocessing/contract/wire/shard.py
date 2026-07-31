@@ -19,7 +19,7 @@ from pathlib import Path
 
 from views_frames.io import arrow as vf_arrow
 
-from views_postprocessing.unfao.wire.naming import shard_name
+from views_postprocessing.contract.wire.naming import shard_name
 
 
 def write_shard(values, time, unit, *, header: dict, directory: Path) -> tuple[str, str]:

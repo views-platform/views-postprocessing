@@ -20,9 +20,18 @@ import pytest
 
 from views_postprocessing.delivery.draws import DrawsCollapseError
 from views_postprocessing.unfao import product
-from views_postprocessing.unfao.frames import build_prediction_frame
-from views_postprocessing.unfao.wire import sink
-from views_postprocessing.unfao.wire import source_selection as sel
+
+from views_postprocessing.contract.frames import build_prediction_frame
+from views_postprocessing.contract.wire import sink
+from views_postprocessing.contract.wire import source_selection as sel
+
+# The wire takes the partner's product facts as ARGUMENTS since #153 — it no longer
+# reaches into `unfao.product` for defaults. These tests exercise the FAO product, so
+# they pass FAO's facts, exactly as the manager does.
+_PRODUCT = {
+    "consumer_name": product.CONSUMER_DOCUMENT_NAME,
+    "s_min": product.S_MIN,
+}
 
 _FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
 _MANIFEST_NAME = "fixture_run_0__lr_ged_sb__manifest.json"
@@ -100,7 +109,7 @@ def test_interlock_default_config_makes_zero_store_calls(tmp_path):
     # (d) — the default configuration is provably unable to touch the bucket.
     log = UploadLog()
     summary = sink.deliver_run(
-        _leases(), lookup=_synthetic_lookup(), staging_dir=tmp_path, store=log
+        _leases(), lookup=_synthetic_lookup(), staging_dir=tmp_path, **_PRODUCT, store=log
     )
     assert product.UPLOAD_ENABLED is False
     assert summary["uploaded"] is False
@@ -120,7 +129,7 @@ def test_gate_fires_before_any_write(tmp_path):
         sink.deliver_run(
             {"lr_ged_sb": FakeLease("fixture_run_0", frame, headers)},
             lookup=_synthetic_lookup(),
-            staging_dir=tmp_path,
+            staging_dir=tmp_path, **_PRODUCT,
         )
     assert list(tmp_path.iterdir()) == []  # gate first: no bytes staged, no subdir
 
@@ -131,7 +140,7 @@ def test_upload_order_and_document_fields(tmp_path):
     summary = sink.deliver_run(
         _leases(),
         lookup=_synthetic_lookup(),
-        staging_dir=tmp_path,
+        staging_dir=tmp_path, **_PRODUCT,
         store=log,
         upload_enabled=True,  # explicit declaration (test scope only)
     )
@@ -160,7 +169,7 @@ def test_ragged_run_refused_and_first_target_released(tmp_path):
                 "lr_ged_ns": FakeLease("fixture_run_0", frame, [other]),
             },
             lookup=_synthetic_lookup(),
-            staging_dir=tmp_path,
+            staging_dir=tmp_path, **_PRODUCT,
         )
     # first target's shards were staged (harmless: no manifest = invisible, §4.2)
     staged = list((tmp_path / "fixture_run_0").iterdir())
@@ -179,7 +188,7 @@ def test_targets_disagreeing_on_cells_refused(tmp_path):
                 "lr_ged_ns": FakeLease("fixture_run_0", small, headers),
             },
             lookup=_synthetic_lookup(),
-            staging_dir=tmp_path,
+            staging_dir=tmp_path, **_PRODUCT,
         )
 
 
@@ -192,7 +201,7 @@ def test_e2e_byte_parity_with_the_fixture(tmp_path):
         f"pinned toolchain violated (fixture README): found {pyarrow.__version__}."
     )
     summary = sink.deliver_run(
-        _leases(), lookup=_synthetic_lookup(), staging_dir=tmp_path
+        _leases(), lookup=_synthetic_lookup(), staging_dir=tmp_path, **_PRODUCT
     )
     staging = Path(summary["staging_dir"])
     for name in (

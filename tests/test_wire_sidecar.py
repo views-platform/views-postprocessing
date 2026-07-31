@@ -9,8 +9,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from views_postprocessing.unfao.gaul_schema import CODE_COLS, METADATA_COLS
-from views_postprocessing.unfao.wire import sidecar
+from views_postprocessing.contract.gaul_schema import CODE_COLS, METADATA_COLS
+from views_postprocessing.contract.wire import sidecar
 
 _FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
 _GIDS = [100001, 100002, 100003, 100004, 100005, 100006]

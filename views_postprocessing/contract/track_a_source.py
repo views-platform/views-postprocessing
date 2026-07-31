@@ -32,7 +32,7 @@ import zipfile
 import numpy as np
 from views_frames import PredictionFrame
 
-from views_postprocessing.unfao.frames import build_prediction_frame
+from views_postprocessing.contract.frames import build_prediction_frame
 
 _ARCHIVE_MEMBERS = {"y_pred.npy", "identifiers.npz", "metadata.json"}
 _SUPPORTED_CONTRACT_MAJOR = "1"

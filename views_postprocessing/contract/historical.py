@@ -30,7 +30,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from views_postprocessing.unfao.gaul_schema import CODE_COLS, COORD_COLS, METADATA_COLS
+from views_postprocessing.contract.gaul_schema import CODE_COLS, COORD_COLS, METADATA_COLS
 
 
 class HistoricalArtifactError(ValueError):

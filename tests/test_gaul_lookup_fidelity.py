@@ -40,7 +40,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from views_postprocessing.delivery import coverage
-from views_postprocessing.unfao.gaul_schema import (
+from views_postprocessing.contract.gaul_schema import (
     CODE_COLS,
     COORD_COLS,
     METADATA_COLS,
@@ -212,7 +212,7 @@ def test_lookup_declares_its_provenance(lookup_meta):
 
 def test_lookup_version_stamp_resolves(lookup):
     """The stamp the delivery provenance carries (C-15) must not be 'unknown'."""
-    from views_postprocessing.unfao.enrichment import GaulLookupEnricher
+    from views_postprocessing.contract.enrichment import GaulLookupEnricher
 
     version = GaulLookupEnricher(_LOOKUP).lookup_version
     assert version != "unknown", (

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from views_frames.io import arrow as vf_arrow
 
-from views_postprocessing.unfao.wire import header
+from views_postprocessing.contract.wire import header
 
 _FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
 

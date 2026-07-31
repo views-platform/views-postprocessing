@@ -70,7 +70,7 @@ def drop_units(frame: PredictionFrame, excluded: frozenset) -> PredictionFrame:
     if keep.all():
         return frame
     time = np.asarray(frame.index.time, dtype=np.int64)
-    from views_postprocessing.unfao.frames import build_prediction_frame
+    from views_postprocessing.contract.frames import build_prediction_frame
 
     return build_prediction_frame(frame.values[keep], time[keep], unit[keep])
 

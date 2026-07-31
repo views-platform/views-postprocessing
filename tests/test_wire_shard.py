@@ -11,10 +11,10 @@ from pathlib import Path
 import pyarrow
 import pytest
 
-from views_postprocessing.unfao import track_a_source
-from views_postprocessing.unfao.frame_extraction import month_slice
-from views_postprocessing.unfao.wire import header as wire_header
-from views_postprocessing.unfao.wire import shard as wire_shard
+from views_postprocessing.contract import track_a_source
+from views_postprocessing.contract.frame_extraction import month_slice
+from views_postprocessing.contract.wire import header as wire_header
+from views_postprocessing.contract.wire import shard as wire_shard
 
 _FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
 _PINNED_PYARROW = "16.1.0"

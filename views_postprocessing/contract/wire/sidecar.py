@@ -26,8 +26,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from views_postprocessing.unfao.gaul_schema import CODE_COLS, COORD_COLS, METADATA_COLS
-from views_postprocessing.unfao.wire.naming import sidecar_name
+from views_postprocessing.contract.gaul_schema import CODE_COLS, COORD_COLS, METADATA_COLS
+from views_postprocessing.contract.wire.naming import sidecar_name
 
 
 class SidecarError(ValueError):

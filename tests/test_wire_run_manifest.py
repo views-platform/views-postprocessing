@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from views_postprocessing.unfao.wire import run_manifest
+from views_postprocessing.contract.wire import run_manifest
 
 _FIX = Path(__file__).resolve().parent / "fixtures" / "wire_contract"
 
