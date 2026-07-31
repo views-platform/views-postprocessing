@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-31                           |
 | Total Concerns    | 71                                   |
-| Open Concerns     | 34                                   |
-| Resolved Concerns | 37                                   |
+| Open Concerns     | 32                                   |
+| Resolved Concerns | 39                                   |
 
 ---
 
@@ -212,28 +212,6 @@ The FAO API contract (Release Note 01, Topic C, confirmed and locked) specifies:
 See also C-17 (RESOLVED — implicit column naming between mapper and manager), D-06 (resolved: no renaming layer exists).
 
 **Tier recalibrated from 2 to 3 during review-rr (2026-07-31):** the entry's own conclusion is that this is **not this repo's defect to fix** and that the correct action here is *inaction* (keep the current names). Tier 2 asserts structural fragility in this repo; what actually exists is a tracking stub for a views-faoapi contract gap, with a real but externally-owned consequence. Tier 3 (coordination / cost-of-change) matches. No change to the substance or the standing instruction.
-
----
-
-### C-25: Forecast input selected by category-only filter — newest file wins regardless of producer
-
-| Field | Value |
-|-------|-------|
-| ID | C-25 |
-| Tier | 2 |
-| Source | `cross-repo-investigation` (2026-06-12) |
-| Trigger | When any new producer uploads to the prod_forecasts bucket with `category: "forecast"`, verify the postprocessor still picks up the intended ensemble's file — selection is newest-`$createdAt`-wins with no loa, model-name, or run-id filter |
-| Location | `views_postprocessing/unfao/managers/unfao.py:247` (legacy selection, `LEGACY_FORECAST_FILTERS` at `:34`), `:260` (identity assertion); contract path selects by manifest instead — `unfao/wire/source_selection.py:39`; views-pipeline-core `modules/datastore/datastore.py:475-511` |
-
-`_read_forecast_data()` calls `download_latest_file(filters={"category": "forecast"})`. "Latest" is resolved by sorting metadata documents on `$createdAt` descending and taking the first (datastore.py:475-511). There is no filter on `loa`, `name`, `targets`, or any run identifier. Today only the production ensemble uploads with this category, so the newest file is the right file by circumstance, not by contract. If a second model, a test run, or a backfill ever uploads to the same bucket with `category: "forecast"`, the postprocessor silently enriches and ships the wrong predictions to FAO. The same single-filter pattern exists downstream: views-faoapi selects from the unfao_bucket by category only (views-faoapi `api.py:488`), so a stray upload there reaches FAO directly. Compounding factor: Appwrite has no retention — every historical upload remains a candidate forever; correctness depends entirely on upload discipline.
-
-This concern became visible during the cross-repo investigation (`docs/cross_repo_integration_report.md` §2.4, §4.2); it was previously implicit in the C-13 narrative (timeouts) but is a distinct failure mode: C-13 is "the call hangs," C-25 is "the call succeeds with the wrong file."
-
-**Mitigation landed (S3, 2026-06-26, `sprint/fao-input-integrity`):** `_read_forecast_data` now resolves the file id, fetches its metadata, and asserts identity (`delivery/identity.assert_forecast_identity`) against the configured ensemble (`{name: ensemble_path_manager.model_name, loa: "pgm"}`) **before** download — a stray `category="forecast"` upload now fails loud instead of shipping silently. **Residual (verify before relying on it):** the guard assumes the producer's uploaded `name`/`loa` equal `model_name`/`"pgm"`; this is checked against pipeline-core's code but **not a live Appwrite upload**. If the contract differs, the guard fails loud on *every* run — caught at the first smoke-test delivery (option A / S6 #57), **not** silently — so the residual is an availability / false-positive risk, not a corruption one. Confirm the field match at the option-A run; until then C-25 stays open.
-
-**Update 2026-07-31 (`repo-assimilation`) — the registered mitigation is LEGACY-ONLY; the live path is protected differently.** The identity assertion recorded above (`delivery/identity.assert_forecast_identity`) is called at `unfao.py:260`, inside the **legacy** `_read_forecast_data` leg. Production runs the contract path, which selects by **run manifest** (`unfao/wire/source_selection.py`) and never calls it. That is a *stronger* guarantee — a manifest is a commit marker with hash-verified contents, not a metadata field match — so the concern is better mitigated than this entry states, but **not by the mechanism this entry names**. Re-read accordingly; and note the mitigation's stated residual ("confirm the field match at the option-A run") is now moot for the live path. See **C-64**.
-
-See also C-13 (no timeout on the same calls), C-15 (upload metadata lacks provenance to detect this downstream), C-43 (the same "verify at the first live run" debt pattern on the enrichment swap).
 
 ---
 
@@ -679,24 +657,6 @@ Cross-refs: **C-40** (the manager this lives in), **#145** (the retired path's s
 
 ---
 
-### C-64: `delivery/identity.py` is an authoritative delivery invariant that production never calls
-
-| Field | Value |
-|-------|-------|
-| ID | C-64 |
-| Tier | 3 |
-| Source | `repo-assimilation` (2026-07-31) |
-| Trigger | When **views-crafdapi**/**views-productionapi** copy `delivery/` as the reusable invariant core — verify whether the identity rule is enforced on the path the clone actually uses, or inherited as documentation only |
-| Location | `views_postprocessing/delivery/identity.py` (53 lines); sole caller `views_postprocessing/unfao/managers/unfao.py:260` — inside the **legacy** `_read_forecast_data` leg; `docs/ADRs/012_revised_ontology.md` (lists it under "Delivery Invariants — Authoritative") |
-
-`assert_forecast_identity` verifies that a selected forecast document's `name`/`loa` match the configured ensemble before download. It is reachable **only** from the legacy reader. The contract path selects by **manifest** (`wire/source_selection.py`) and never consults it — which is a *stronger* guarantee, not a gap. The risk is the mismatch between ADR-012 naming it authoritative and the code never running it: a clone inherits a rule that looks enforced and is not.
-
-**This also updates C-25's status** — that entry's registered mitigation *is* this function, so the mitigation applies to the legacy path only. C-25's actual protection on the live path is manifest selection, which is why the entry should be re-read rather than assumed still-mitigated-as-written.
-
-Cross-refs: **C-25** (whose mitigation this is), **C-67** (the ADR-012 drift this instantiates), **Cluster L**.
-
----
-
 ### C-65: `unfao/extraction.py` is four-fifths unreachable and duplicates `frame_extraction.py`
 
 | Field | Value |
@@ -897,6 +857,50 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-25: Forecast input selected by category-only filter — newest file wins regardless of producer — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-25 |
+| Resolved | 2026-07-31 |
+| Resolution | **Superseded by mechanism (#150, epic #148) — not merely mitigated.** This entry's hazard was "newest `category=forecast` upload wins regardless of producer". Its recorded mitigation was `delivery.identity.assert_forecast_identity`, which #150 retired. The hazard nonetheless cannot occur: since #149 the contract path is the only path, and it selects by **run manifest** — a commit marker whose contents are hash-verified — so recency-based selection is not an operation the code can perform. Declared identity is additionally checked per shard header at `wire/source_selection.py:73-81`. Closed as structurally impossible rather than guarded. |
+| Tier | 2 |
+| Source | `cross-repo-investigation` (2026-06-12) |
+| Trigger | When any new producer uploads to the prod_forecasts bucket with `category: "forecast"`, verify the postprocessor still picks up the intended ensemble's file — selection is newest-`$createdAt`-wins with no loa, model-name, or run-id filter |
+| Location | `views_postprocessing/unfao/managers/unfao.py:247` (legacy selection, `LEGACY_FORECAST_FILTERS` at `:34`), `:260` (identity assertion); contract path selects by manifest instead — `unfao/wire/source_selection.py:39`; views-pipeline-core `modules/datastore/datastore.py:475-511` |
+
+`_read_forecast_data()` calls `download_latest_file(filters={"category": "forecast"})`. "Latest" is resolved by sorting metadata documents on `$createdAt` descending and taking the first (datastore.py:475-511). There is no filter on `loa`, `name`, `targets`, or any run identifier. Today only the production ensemble uploads with this category, so the newest file is the right file by circumstance, not by contract. If a second model, a test run, or a backfill ever uploads to the same bucket with `category: "forecast"`, the postprocessor silently enriches and ships the wrong predictions to FAO. The same single-filter pattern exists downstream: views-faoapi selects from the unfao_bucket by category only (views-faoapi `api.py:488`), so a stray upload there reaches FAO directly. Compounding factor: Appwrite has no retention — every historical upload remains a candidate forever; correctness depends entirely on upload discipline.
+
+This concern became visible during the cross-repo investigation (`docs/cross_repo_integration_report.md` §2.4, §4.2); it was previously implicit in the C-13 narrative (timeouts) but is a distinct failure mode: C-13 is "the call hangs," C-25 is "the call succeeds with the wrong file."
+
+**Mitigation landed (S3, 2026-06-26, `sprint/fao-input-integrity`):** `_read_forecast_data` now resolves the file id, fetches its metadata, and asserts identity (`delivery/identity.assert_forecast_identity`) against the configured ensemble (`{name: ensemble_path_manager.model_name, loa: "pgm"}`) **before** download — a stray `category="forecast"` upload now fails loud instead of shipping silently. **Residual (verify before relying on it):** the guard assumes the producer's uploaded `name`/`loa` equal `model_name`/`"pgm"`; this is checked against pipeline-core's code but **not a live Appwrite upload**. If the contract differs, the guard fails loud on *every* run — caught at the first smoke-test delivery (option A / S6 #57), **not** silently — so the residual is an availability / false-positive risk, not a corruption one. Confirm the field match at the option-A run; until then C-25 stays open.
+
+**Update 2026-07-31 (`repo-assimilation`) — the registered mitigation is LEGACY-ONLY; the live path is protected differently.** The identity assertion recorded above (`delivery/identity.assert_forecast_identity`) is called at `unfao.py:260`, inside the **legacy** `_read_forecast_data` leg. Production runs the contract path, which selects by **run manifest** (`unfao/wire/source_selection.py`) and never calls it. That is a *stronger* guarantee — a manifest is a commit marker with hash-verified contents, not a metadata field match — so the concern is better mitigated than this entry states, but **not by the mechanism this entry names**. Re-read accordingly; and note the mitigation's stated residual ("confirm the field match at the option-A run") is now moot for the live path. See **C-64**.
+
+See also C-13 (no timeout on the same calls), C-15 (upload metadata lacks provenance to detect this downstream), C-43 (the same "verify at the first live run" debt pattern on the enrichment swap).
+
+---
+
+### C-64: `delivery/identity.py` is an authoritative delivery invariant that production never calls — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-64 |
+| Resolved | 2026-07-31 |
+| Resolution | **Retired, by decision rather than by side effect (#150, epic #148).** `delivery/identity.py` was deleted along with `tests/test_identity.py` and the two S3 cases in `test_input_integrity_e2e.py`. The rule survives in a stronger form: `unfao/wire/source_selection.py:73-81` checks **every shard header's declared `provenance.ensemble`** against the launched ensemble inside `TargetLease.load()`, so identity is established from the artifact's own content rather than one store document's metadata field, and per shard rather than once per run. Covered by `test_wire_source_selection.py::test_wrong_declared_ensemble_refuses_at_load`. Recorded as a dated amendment to ADR-012, whose "Delivery Invariants" row had listed forecast identity as authoritative — the entry existed precisely to stop that row silently describing deleted code. |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When **views-crafdapi**/**views-productionapi** copy `delivery/` as the reusable invariant core — verify whether the identity rule is enforced on the path the clone actually uses, or inherited as documentation only |
+| Location | `views_postprocessing/delivery/identity.py` (53 lines); sole caller `views_postprocessing/unfao/managers/unfao.py:260` — inside the **legacy** `_read_forecast_data` leg; `docs/ADRs/012_revised_ontology.md` (lists it under "Delivery Invariants — Authoritative") |
+
+`assert_forecast_identity` verifies that a selected forecast document's `name`/`loa` match the configured ensemble before download. It is reachable **only** from the legacy reader. The contract path selects by **manifest** (`wire/source_selection.py`) and never consults it — which is a *stronger* guarantee, not a gap. The risk is the mismatch between ADR-012 naming it authoritative and the code never running it: a clone inherits a rule that looks enforced and is not.
+
+**This also updates C-25's status** — that entry's registered mitigation *is* this function, so the mitigation applies to the legacy path only. C-25's actual protection on the live path is manifest selection, which is why the entry should be re-read rather than assumed still-mitigated-as-written.
+
+Cross-refs: **C-25** (whose mitigation this is), **C-67** (the ADR-012 drift this instantiates), **Cluster L**.
+
+---
 
 ### C-56: Run-0 was OOM-killed at 23.8 GB — the pandas delivery path could not fit global volume on the 31 GB host — RESOLVED
 

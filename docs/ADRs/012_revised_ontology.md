@@ -35,7 +35,7 @@ clearly belong to one is out of scope and must be redesigned or rejected.
 
 | Category | Purpose | Authority | Stability |
 |----------|---------|-----------|-----------|
-| **Delivery Invariants** | Representation-free rules over primitives that a delivery must satisfy (coverage, forecast identity, observed-range, provenance). Live in `views_postprocessing/delivery/`. | Authoritative — they define what a valid delivery is | Stable — changes are governance decisions |
+| **Delivery Invariants** | Representation-free rules over primitives that a delivery must satisfy (coverage, no-collapse, gid parity, observed-range, provenance). Live in `views_postprocessing/delivery/`. *Forecast identity was one of these until 2026-07-31 — see the amendment below.* | Authoritative — they define what a valid delivery is | Stable — changes are governance decisions |
 | **Representation Seam** | The single pandas-aware module (`unfao/extraction.py`) that turns the delivery's external representation into the primitives the invariants consume. | Derived — isolates the representation so invariants stay representation-free | Evolving — the one place a representation change (e.g. pandas → frames, C-40) lands |
 | **Enrichment Asset + Engine** | The precomputed GAUL lookup (`data/gaul_lookup.parquet`) and the merge that joins it (`GaulLookupEnricher`). | Authoritative for geographic metadata | Stable — the lookup is rebuilt only when the producer (datafactory) releases new GAUL data |
 | **Pipeline Manager** | The thin `UNFAOPostProcessorManager` — a concrete pipeline-core postprocessor (Template-Method subclass) that *orchestrates* read/transform/validate/save and **calls** the invariants (never inherits them). | Derived — implements delivery using the categories above | Evolving — changes as partner requirements change |
@@ -81,3 +81,38 @@ Seam" wording will need a light touch (the seam stays; its internals change).
 - Stability is a design constraint, not a preference (inherited from ADR-001 §Stability Rules).
 - Dependency direction and cross-repo topology are governed by [ADR-002](002_topology_and_dependency_rules.md).
 - Class-level contracts are governed by ADR-006 (see `docs/CICs/`).
+
+---
+
+## Amendment 2026-07-31 — forecast identity re-homed to the wire layer (#150, epic #148)
+
+**`views_postprocessing/delivery/identity.py` is retired.** The "Delivery Invariants" row
+above listed *forecast identity* among the authoritative rules; that module no longer
+exists, and this amendment records where the rule went so a reader of the row is not
+looking for deleted code.
+
+**The rule is not weaker — it is enforced from better evidence.** The retired
+`assert_forecast_identity` compared one selected store document's `name`/`loa` against the
+configured ensemble. Since the ADR-013 contract path became the only path (#149), the same
+guarantee is enforced in `unfao/wire/source_selection.py:73-81`: `TargetLease.load()`
+checks **every shard header's declared `provenance.ensemble`** against the launched
+ensemble, and refuses the run on a mismatch. Identity now comes from the artifact's own
+declared content rather than from a metadata field on a single document, and it is checked
+per shard rather than once per run.
+
+**Why it was retired rather than kept.** Its only caller was the legacy reader deleted in
+#149. An invariant module that nothing calls is documentation shaped like code — and
+`delivery/` is precisely the package the coming clones (views-crafdapi,
+views-productionapi) will copy wholesale, so an unenforced rule there would be inherited as
+if it were live. Register **C-64** existed to force this decision rather than let the
+deletion happen silently as a side effect of #149.
+
+**Consequence for register C-25** ("forecast input selected by category-only filter —
+newest file wins regardless of producer"): its recorded mitigation *was* this function, so
+on paper the entry loses its guard. In fact its hazard is now structurally impossible — the
+contract path selects by **run manifest**, a commit marker with hash-verified contents, so
+"newest upload wins" is not a thing the selection can do. C-25 is closed as **superseded by
+mechanism**, not as *mitigated*.
+
+**Coverage:** `tests/test_wire_source_selection.py::test_wrong_declared_ensemble_refuses_at_load`.
+

@@ -13,8 +13,12 @@ manager methods below is therefore informational, and updated for the post-#149 
 
     S1 coverage          _check_coverage             cells_of  -> assert_complete_coverage
     S2 observed range    _read_historical_frame      months_of -> fabricated_months -> drop_months_above
-    S3 forecast identity (RETIRED with the legacy reader, #149 — selection is by run
-                          manifest; `delivery/identity.py` itself is retired in #150)
+    S3 forecast identity RE-HOMED, not lost (#150). The rule — "the delivery must
+                          refuse a forecast that is not the launched ensemble's" — now
+                          lives in `wire/source_selection.py:73-81`, checked per shard
+                          header against the DECLARED provenance rather than one
+                          document's metadata field. Covered by
+                          `test_wire_source_selection.py::test_wrong_declared_ensemble_refuses_at_load`.
     S4 land_gaul         _check_coverage             cells_of  -> assert_no_excluded_cells
     S5 provenance        _historical_frame_description  build_provenance(<- cells_of/unmapped_cell_count)
 """
@@ -24,7 +28,7 @@ import json
 import pandas as pd
 import pytest
 
-from views_postprocessing.delivery import coverage, identity, observed_range, provenance
+from views_postprocessing.delivery import coverage, observed_range, provenance
 from views_postprocessing.unfao import extraction
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
 
@@ -84,20 +88,16 @@ def test_s2_month_beyond_boundary_is_not_delivered_as_zero():
     assert 102 not in delivered and 103 not in delivered  # not shipped as observed zero
 
 
-# S3 — forecast identity (C-25) -----------------------------------------------------
-def test_s3_decoy_forecast_file_is_rejected_through_seam():
-    decoy = _FakeMetaResult({"name": "stray_model", "loa": "pgm", "category": "forecast"})
-    selected = extraction.file_metadata(decoy)
-    expected = {"name": "fatalities_ensemble", "loa": "pgm"}
-    with pytest.raises(identity.ForecastIdentityError, match="stray_model"):
-        identity.assert_forecast_identity(selected, expected)
-
-
-def test_s3_matching_forecast_file_passes_through_seam():
-    good = _FakeMetaResult({"name": "fatalities_ensemble", "loa": "pgm", "category": "forecast"})
-    selected = extraction.file_metadata(good)
-    expected = {"name": "fatalities_ensemble", "loa": "pgm"}
-    assert identity.assert_forecast_identity(selected, expected) is None
+# S3 — forecast identity: RE-HOMED to the wire layer (#150) -------------------------
+# The invariant is not gone and is not weaker. It moved to where the evidence is:
+# `TargetLease.load()` checks EVERY shard header's declared `provenance.ensemble`
+# against the launched ensemble (`wire/source_selection.py:73-81`), so identity is
+# established from the artifact's own content rather than from one store document's
+# metadata field. Exercised by
+# `test_wire_source_selection.py::test_wrong_declared_ensemble_refuses_at_load`.
+#
+# `extraction.file_metadata` — the seam these tests used — survives and is still
+# covered by `test_extraction.py`.
 
 
 # S4 — land_gaul exclusions (C-30) --------------------------------------------------
