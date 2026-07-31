@@ -593,7 +593,7 @@ Cross-refs: C-35 (RESOLVED — the `-1` defect class this guards against), C-59 
 | Field | Value |
 |-------|-------|
 | ID | C-62 |
-| Tier | 3 — no correctness or reliability impact: the packages are installed but never imported. The cost is **measured at 2.8 GB of virtualenv** for a repo that writes parquet files, plus an architectural excision that is **real in the source but incomplete in the environment**, landing on the first-ever release. |
+| Tier | 3 — no correctness or reliability impact: the packages are installed but never imported. The cost is **measured at 3.4 GB of virtualenv** for a repo that writes parquet files, plus an architectural excision that is **real in the source but incomplete in the environment**, landing on the first-ever release. |
 | Source | `manual` (2026-07-31) — maintainer challenge during the development→main sweep ("Is geopandas back? Is it still here?"), verified against `poetry.lock` and the sibling checkouts |
 | Trigger | When cutting this repo's first release (**#125**), or when taking the views-pipeline-core 3.0.0 bump (**C-44**) — verify `geopandas` and `torch` have left the resolved dependency tree. Until 3.0.0 is published, they cannot. |
 | Location | `poetry.lock` (`geopandas 1.0.1`, `optional = false`); `pyproject.toml:13` (`views-pipeline-core = ">=2.1.3,<3.0.0"`, which resolves to 2.3.0) |
@@ -602,16 +602,25 @@ This repo declares exactly three dependencies — `views-pipeline-core`, `views-
 
 **The lockfile tells a different story, and the installed venv confirms it.** `poetry.lock` resolves `geopandas 1.0.1` with `optional = false`. The carrier is the pinned release: **views-pipeline-core 2.3.0** (PyPI) declares `geopandas >=1.0.1,<2.0.0`, `torch >=2.6.0,<3.0.0`, plus `scipy`, `seaborn`, `plotly` and `plotly-express`.
 
-**Measured in the live project virtualenv on 2026-07-31** (`views-postprocessing-8UwQDgw_-py3.13`), which is **2.8 GB** in total:
+**Measured in the live project virtualenv** (`views-postprocessing-8UwQDgw_-py3.13` — the only poetry venv on the machine; views-pipeline-core has none of its own, it is a *package inside this one*). **Corrected figures, 2026-07-31**: the first measurement was taken mid-install and understated it.
 
 | Installed, never imported | Size |
 |---|---|
-| `nvidia/` (torch's CUDA runtime) | **2.5 GB** |
+| `nvidia/` — CUDA runtime (`cu13`, `cudnn`, `cusparselt`, `nccl`, `nvshmem`) | **2.7 GB** |
 | `plotly` | 42 MB |
 | `matplotlib` | 25 MB |
 | `geopandas` | 1.6 MB |
+| **venv total** | **3.4 GB** |
+
+**And `torch` itself is not installed at all** — no `torch/` directory, no dist-info, with no install running. Only its five `nvidia-*` dependencies landed (they are marked `platform_system == "Linux"`, i.e. this machine). The repo is therefore carrying **2.7 GB of GPU support libraries for a package that is absent**. Cause unknown — a failed wheel, an interrupted install, or a marker torch carries that its dependencies do not; recorded as unexplained rather than guessed at.
 
 **⚠ Framing correction, recorded because it inverts the intuition that opened this investigation.** The audit began as "is geopandas back?" — and geopandas is the *architectural* violation (this repo spent PR #42 removing it). But it is **1.6 MB**. The *material* cost is **torch's NVIDIA CUDA stack at 2.5 GB — 89% of the entire virtualenv — in a delivery repo with no GPU code, no model training, and no tensor operations of any kind.** Optimising for the offensive dependency rather than the expensive one would have missed almost the whole bill.
+
+**Dependency chain, traced 2026-07-31.** `views-pipeline-core` is the **sole** requirer: `torch = ">=2.6.0,<3.0.0"` in the 2.3.0 metadata; torch 2.12.1 then pulls the five `nvidia-*` wheels on Linux. Nothing else in the tree asks for torch, and this repo imports it zero times.
+
+**Removal path — there is no correct fix inside this repo.** views-pipeline-core `development` (already versioned **3.0.0**) declares **no torch, no geopandas, no scipy, no seaborn, no plotly**, and imports torch nowhere; their own test asserts the absence of `import torch`. The fix is complete upstream and purely a publishing gate. Their release runbook (#313) pins the order: **views-frames (done) → views-evaluation 0.5.0 → views-pipeline-core 3.0.0 → views-reporting 0.3.0 → models/postprocessing envs**, executing on the maintainer's platform-wide signal. So this entry closes when C-44's bump becomes takeable — not before, and not by local action.
+
+*A local workaround exists and is deliberately NOT recommended: declaring `torch` here against the PyTorch CPU wheel index would shed the `nvidia-*` tree immediately, but it makes this repo declare a dependency it never imports, and the whole change would be reverted at the 3.0.0 bump. Churn for a footprint that is already scheduled to vanish. Recorded so the option is not rediscovered and mistaken for free.*
 
 **This is not a live fight — it is a released-version lag.** views-pipeline-core's `development` branch already declares no geopandas and imports none, and its own falsification tests name the problem explicitly (*"geopandas, seaborn, plotly, matplotlib — ~2.5 GB) for 298 LOC of optional…"*, their `tests/test_falsification_extraction_docs_packaging.py:59`). The fix exists upstream and is gated purely on **publishing 3.0.0** (their #319 / #313).
 
