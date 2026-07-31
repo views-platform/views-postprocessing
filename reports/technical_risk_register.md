@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-31                           |
-| Total Concerns    | 58                                   |
-| Open Concerns     | 21                                   |
+| Total Concerns    | 61                                   |
+| Open Concerns     | 24                                   |
 | Resolved Concerns | 37                                   |
 
 ---
@@ -57,6 +57,13 @@ covered a single open entry (see Historical clusters below).
 **Fix strategy:** the C-22 correction procedure (issue #15) plus pipeline-core #245's structured metadata field to retire the description-as-carrier abuse.
 **Resolution scope:** Partial (process, not code).
 **Newly acute 2026-07-31:** every entry here was written conditionally — "*if* wrong data ever reaches FAO." Run-0 shipped 108 arrow shards, a sidecar, a manifest and 28.3M historical rows to `unfao_bucket`, and its integrity verification is still open. The conditional is spent.
+
+### Cluster K: The committed lookup artifact is trusted but unverified in CI
+**Root cause:** `views_postprocessing/data/gaul_lookup.parquet` is a 64,742-row binary that the enricher, the historical builder and the wire sidecar all treat as ground truth — yet no test in the suite checks it against views-datafactory, and the build script's own guarantees are enforced by strippable `assert`s. Everything downstream verifies *presence* (nulls, counts, gid-set equality); nothing verified *values* until the 2026-07-31 forward-check.
+**Entries:** C-59, C-61 (build-time guarantees unenforced), C-60 (provenance stamp can silently degrade), C-46 (the one cross-repo check is CI-skipped on a hardcoded path), C-43 (the value-correctness debt this cluster's fix discharges)
+**Highest tier:** 3 (C-59, C-60, C-61 — C-59 recalibrated 2→3 on 2026-07-31 mutation evidence)
+**Fix strategy:** one test file — `tests/test_gaul_lookup_fidelity.py` — split into an always-on half (gid uniqueness, region-set equality, coordinate formula against a committed ground-truth sample, no nulls, no `-1` codes) and a `skipif`-gated half comparing all 7 GAUL columns against the datafactory sibling. Plus two one-line hardenings in `scripts/build_gaul_lookup.py`: assert index uniqueness, and convert the bare `assert`s to explicit raises.
+**Resolution scope:** Full for C-59/C-61/C-43's residual guard; partial for C-60 (needs the flat declared `lookup_version` key) and C-46 (needs the hardcoded path removed).
 
 ### Historical clusters (mapper era — all resolved or moot)
 
@@ -388,6 +395,29 @@ This is the most important consequence of the run-0 cluster (Cluster H). Run-0 d
 
 **Recommended action (unchanged, now overdue rather than pre-emptive):** forward-check a sample of delivered `land_gaul` cell assignments directly against the datafactory GAUL parquet — cheap, and it is the mitigation this entry proposed from the start. Folds naturally into #131 q1 (run-0 delivery-integrity verification).
 
+---
+
+**TRANSCRIPTION FIDELITY DISCHARGED 2026-07-31 (`expert-code-review`) — the forward-check was run, offline, against committed artifacts. Four checks, zero mismatches:**
+
+| Link in the chain | Ground truth | Result |
+|---|---|---|
+| Coordinate formula (`gaul_schema.xcoord`/`ycoord`) | views-datafactory `data/raw/priogrid/shapefile/priogrid_cell.dbf` — **all 259,200 cells** | **max abs error 0.00e+00**, 0 mismatches |
+| Lookup values, all 7 GAUL columns | the 7 `data/raw/gaul_admin/*.parquet` | **0 mismatches** across 64,742 cells |
+| Lookup gid set + key uniqueness | `src/datafactory_query/land_gaul_pgids.json` | **exactly equal**; 64,742 unique of 64,742 |
+| **The delivered run-0 sidecar** (`rusty_bucket_forecasting_20260727_095355__sidecar.parquet` — the real bytes on FAO's shelf) | the lookup | **0 mismatches** on all 9 columns; SHA-256 matches the manifest's declaration |
+
+The chain producer → lookup → delivered bytes is verified end to end. Note the leading hypothesis going in — that the gid→lat/lon formula might be flipped or off-by-one, producing wrong-but-non-null coordinates on *every* cell, invisible to every existing gate — was **falsified**: the formula is exact for the entire global grid.
+
+**SCOPE — what this does and does not prove** (the Kleppmann-vs-Nygard split in the 2026-07-31 review, adjudicated to *both, scoped*)**.** It proves **transcription fidelity**: this repo faithfully carries the producer's area-majority GAUL assignment through to the partner. It does **not** prove **assignment correctness** — if views-datafactory's area-majority join puts a cell in the wrong country, every check above still passes and FAO still receives a confidently wrong label. That is a separate concern belonging to **views-datafactory** — the degree-based (square-degree) area math its area-majority join uses, which distorts by up to ~2× at 60°N and could flip the winning polygon for high-latitude border cells now that the region is global. This distinction must survive retelling: C-43 was registered as *a lost old-vs-new cross-check inside this repo*, and that is what has been discharged.
+
+**⚠ CORRECTION, same day (2026-07-31).** This paragraph originally asserted the upstream half was *"a separate, already-registered concern (C-08, relocated to views-datafactory)."* **That was false and is corrected here.** Verified by direct inspection: views-datafactory's register carries 32 concerns and mentions "area-majority" nine times, but has **no entry** for the degree-based area calculation. C-08 was resolved *here* on 2026-06-24 with the note *"Tracked there, not here"* — and nobody ever opened it there. **The concern has been untracked platform-wide since that date**, and run-0 shipped the affected high-latitude cells to FAO on 2026-07-27.
+
+Filed upstream as **views-platform/views-datafactory#387** so it is tracked where the code and the geopandas toolchain actually live. This repo cannot verify it: the forward-check above confirms faithful *transcription* of the producer's answer and is structurally incapable of judging whether that answer is right.
+
+This is a textbook instance of **C-42**'s registered hazard (acting on a mis-stated cross-repo state) and of **Cluster I** — and it was reproduced *while writing the very paragraph describing it*. Concrete lesson for the "relocated" convention added to the Register Conventions this same day: **relocation is not complete until the destination issue or entry exists and is cited by number.** A relocation note naming only a repo is an assumption, not a handoff.
+
+**Residual (why this entry stays open):** the verification was a one-off session result, not a standing guarantee. Nothing in CI re-runs it, so a future lookup rebuild against a wrong or stale datafactory would ship silently exactly as before. **C-43 closes when `tests/test_gaul_lookup_fidelity.py` is committed and green** — the entry should then cite the test, not the session. Tracked as **Cluster K**; the same test discharges C-59 and C-61.
+
 See also C-03 (the sibling enrich→validate test-coverage gap), C-22 (no post-delivery correction/recall process — **now acute: the consequence path is live**), C-39 / C-31 / C-23 (the resolved mapper-deletion cluster this emerged from), C-30 (coverage — discharged by the same run that left this standing), C-32 / C-34 (RESOLVED — the go-global scale risks that fired cleanly), D-08 (the swap-to-lookup-first decision whose verification debt this is), #131 (run-0 delivery-integrity verification).
 
 ---
@@ -490,6 +520,74 @@ Cross-refs: C-57 (registry drift — the most likely way a coordinate goes wrong
 
 ---
 
+### C-59: The GAUL lookup build asserts no key uniqueness — a duplicate gid silently inflates the legacy delivery
+
+| Field | Value |
+|-------|-------|
+| ID | C-59 |
+| Tier | 3 — **recalibrated from 2 the same day, see the correction below.** A duplicated key would multiply rows through the legacy pandas merge invisibly to every gate, but reaching the artifact requires `--region all`: the production `--region land_gaul` path de-duplicates first. Unguarded fragility on a non-default code path, not present corruption. |
+| Source | `expert-code-review` (2026-07-31) — Kleppmann lens; verified empirically in the same pass |
+| Trigger | When views-datafactory regenerates the `gaul_admin` parquets, or when `build_gaul_lookup.py` is re-run against a new datafactory version — verify the resulting lookup index is unique before committing the artifact; nothing checks it today |
+| Location | `scripts/build_gaul_lookup.py:146-154` (the invariant block, which checks nulls and `-1` but never uniqueness); consumed at `views_postprocessing/unfao/enrichment.py:117` (pandas left-merge — the inflating path), `unfao/historical.py:60` and `unfao/wire/sidecar.py:56` (deterministic-pick paths) |
+
+`build(...)` sets `df.index = df.index.astype("int64")`, names it `priogrid_gid`, sorts, and then asserts only that no nulls and no `-1` sentinels survive. It never asserts `df.index.is_unique`. The seven source parquets are joined via `pd.DataFrame({...})` over gid-indexed Series (`build_gaul_lookup.py:59-73`), so uniqueness is inherited from upstream data rather than enforced here.
+
+Downstream, `GaulLookupEnricher.enrich_dataframe_with_pg_info` does `base.merge(self._lookup, left_on=pg_id_col, right_index=True, how="left")`. A duplicated key produces **N rows per affected cell**. The delivery then carries more rows than cells, with every metadata value present and correct — invisible to the null gate, invisible to the distinct-cell coverage gate, and invisible to the `country_iso_a3` proxy at `enrichment.py:122`.
+
+**⚠ TIER RECALIBRATED 2 → 3, same day (2026-07-31), on empirical evidence.** Registering this at Tier 2 assumed a duplicate could reach the committed artifact through the normal build. Mutation-testing the builder showed it cannot, on the production path: `build()` applies `src.loc[src.index.intersection(sorted(region_gids))]` (`build_gaul_lookup.py:114-116`), and pandas' `Index.intersection` **de-duplicates**, so an injected duplicate is silently removed before the invariant block ever sees it. The guard is reachable only with `--region all`, which bypasses that filter — verified: it raises there, and raises under `python -O` too.
+
+Two consequences, both kept: the explicit raise still earns its place, because the de-duplication is an *accidental pandas behaviour* rather than a declared guard (and silently absorbing upstream duplication is itself undesirable — it hides a producer defect); and the tier drops to 3, because the realistic exposure is a non-default flag, not routine regeneration. *Recalibrated during the same session that registered it — the original Tier 2 rationale was written from code reading before the mutation test was run.*
+
+**Mitigation — landed 2026-07-31:** explicit `LookupBuildError` on a non-unique index in `build_gaul_lookup.py` (not `assert`, per C-61), pinned by `tests/test_gaul_lookup_fidelity.py::test_builder_rejects_a_duplicate_gid`, plus a standing uniqueness check on the committed artifact (`test_lookup_key_is_unique`).
+
+Cross-refs: C-43 (the value-correctness debt this shares a fix with), C-61 (the same invariant block's strippable asserts), C-30 (the distinct-cell coverage gate that cannot see this), C-40 (the legacy pandas path whose deletion would remove the inflating consumer), **Cluster K**.
+
+---
+
+### C-60: The lookup provenance stamp reaches into the producer's ledger schema and degrades to `"unknown"` on a bare except
+
+| Field | Value |
+|-------|-------|
+| ID | C-60 |
+| Tier | 3 |
+| Source | `expert-code-review` (2026-07-31) — Ousterhout lens (information leakage / silent degradation) |
+| Trigger | When views-datafactory renames or restructures its ingestion-ledger entries (`dataset` key, `content_digest` field, or the `land_gaul_region` entry name) — verify `lookup_version` still resolves to a real value rather than the string `"unknown"`; nothing fails if it does not |
+| Location | `views_postprocessing/unfao/enrichment.py:61-79` (`_read_version`); written at `scripts/build_gaul_lookup.py:89-107` (`_provenance`) and `:163-164`; consumed as the C-15 provenance field via the manager's delivery description |
+
+`_read_version` reconstructs the stamp by traversing three levels of the producer's schema — parquet metadata → `source_provenance` JSON → `land_gaul_region` → `content_digest` — and wraps the traversal in `except (ValueError, AttributeError): pass`, returning `"unknown"` when anything along the path is absent. This is a **declare-don't-infer violation at the consumer**: the value that ties a delivered artifact to the exact lookup build (C-15's traceability provenance) can silently become a placeholder, and no gate notices.
+
+No wrong data results — this is a traceability failure, not a correctness one → **Tier 3**. But it defeats the specific question C-15 exists to answer *after* a suspect delivery ("which lookup produced this?"), and C-22 has no correction procedure that could compensate.
+
+**Mitigation:** have `build_gaul_lookup.py` write a **flat, declared `lookup_version` key** into the parquet metadata, and have `_read_version` read that one key and **raise** if absent. The consumer stops knowing the producer's nested ledger schema, and the stamp stops being able to vanish quietly. Separately worth stamping `lookup_version` into the sidecar's own parquet metadata so a delivered artifact is self-describing without the store document.
+
+Cross-refs: C-15 (the provenance this field serves), C-22 (the recall process that would need it), C-57 (the same class — a cross-repo fact this repo reads without a way to detect drift), **Cluster K**.
+
+---
+
+### C-61: The lookup build's hard invariants are bare `assert`s — stripped under `python -O`, and `-1` sentinels are caught nowhere else
+
+| Field | Value |
+|-------|-------|
+| ID | C-61 |
+| Tier | 3 |
+| Source | `expert-code-review` (2026-07-31) — Feathers lens |
+| Trigger | When `build_gaul_lookup.py` is run under `python -O` (or from a wheel/CI step that sets `PYTHONOPTIMIZE`), or when the build is wrapped in any tooling that optimizes bytecode — verify the invariant block still executed; a stripped run writes an unvalidated lookup that looks identical |
+| Location | `scripts/build_gaul_lookup.py:152-154` (`assert df.isna().sum().sum() == 0`, `assert (df[c] != -1).all()`) |
+
+The builder's docstring and the enricher both rely on the lookup being "clean by construction" — no nulls, no `-1` sentinels. That guarantee is enforced by three bare `assert` statements, which Python removes entirely under `-O`.
+
+The asymmetry the original registration leaned on: **nulls have a downstream backstop** (`_validate`, `historical.assert_metadata_complete`) but **`-1` codes have none** — `-1` is non-null, so it would pass every delivery gate, which is the resolved **C-35** defect (invalid country codes shipped to FAO for Somaliland cells) returning through a different door.
+
+**⚠ EXPOSURE CORRECTED, same day (2026-07-31), on empirical evidence.** That framing overstated the risk. Mutation-testing the builder showed the **primary protection against `-1` is not the `assert` at all** — it is the completeness filter at `build_gaul_lookup.py:125-131` (`complete &= df[c].notna() & (df[c] != -1)`), which drops sentinel rows outright. That filter is **plain code, untouched by `python -O`**, so the strippable-assert exposure never applied to the `-1` case. In practice the `assert` was unreachable: no ordinary input can get past the filter to reach it.
+
+What remains true, and why the entry stays open at Tier 3: the invariant block was the only *explicit statement* of "this artifact is clean," it was strippable, and the same block also carried the null and (now) uniqueness checks where the argument does bite. Stating invariants in a form the interpreter can delete is the defect; the `-1` severity was not.
+
+**Mitigation — landed 2026-07-31:** all three invariants converted from bare `assert` to explicit `LookupBuildError` raises with diagnostic messages. The `-1` raise is retained deliberately as a backstop should the filter ever change, and is **deliberately left untested** — reaching it requires stubbing pandas internals, and a test that fragile is worse than the invariant it guards. What *is* pinned is the behaviour that actually protects the partner: `tests/test_gaul_lookup_fidelity.py::test_a_sentinel_code_is_dropped_rather_than_shipped` (the cell is excluded, so it later fails loud as *absent* rather than shipping as wrong-but-non-null) and `test_lookup_carries_no_sentinel_codes` on the committed artifact.
+
+Cross-refs: C-35 (RESOLVED — the `-1` defect class this guards against), C-59 (same invariant block), C-43 (the fidelity test that would catch a bad artifact regardless), **Cluster K**.
+
+---
+
 ## Disagreements
 
 ### D-12: Post-Run-0 infrastructure & naming intents — repo rename, internal-store transport, compute co-location
@@ -527,7 +625,14 @@ The pandas→views-frames migration (epic #85) deliberately swaps each seam by a
 
 **Decision: A**, consistent with the maintainer's WET-before-DRY rule and the "migration not coexistence" reality. **Re-open trigger (the one acute case):** S6 (#91) introduces a temporary **dual-write** (legacy parquet + arrow sample-frame) for parity during the faoapi cutover — *if that coexistence proves long-lived* (rather than a brief cutover window), a small abstraction may then earn its place; revisit only then. Until then, concrete-and-delete stands.
 
-**SETTLED 2026-07-31 (review-rr — the re-open trigger resolved without firing).** The sole re-open condition was a long-lived S6/#91 dual-write. **#91 is CLOSED**, and the contract path shipped frame-native end-to-end (PRs #115–#129, wire delivered in run-0) without a durable dual-representation window. Position A is vindicated by events: concrete siblings + delete is what actually happened, the pandas path is confined to the legacy branch pending its named post-run-0 deletion, and no polymorphic representation port was ever needed. No live tension remains — this entry is kept as decision provenance for the remaining seam work (#89, #90) rather than as an open question.
+**RE-INSTANTIATED 2026-07-31 (`expert-code-review`) — same tension, new subject; merged here rather than registered as its own disagreement entry.** The review surfaced the identical disagreement one level down, about the **keyed gather** rather than the representation seam. "Given gids, fetch their lookup rows" now exists **three times, all simultaneously live**: a pandas left-merge (`unfao/enrichment.py:117`), an argsort/searchsorted gather (`unfao/historical.py:57-68`), and an isin/filter/sort (`unfao/wire/sidecar.py:47-57`).
+
+- **Position A (GoF, Hickey) — unify now.** Three implementations of one join is a correctness surface, not a migration artifact. They differ in failure semantics: two raise in place naming the absent gids; the pandas one yields NaN and defers to a downstream gate. That divergence is invisible at the call sites.
+- **Position B (Feathers, Beck) — defer to #89.** The differing failure semantics are *deliberate*, each implementation is separately tested, and unification means changing three call sites while the legacy branch is still live. The duplication is scheduled to die with that branch.
+
+**Adjudication: B — but conditionally, and the condition is now named.** B is only correct *if the legacy forecast branch is actually deleted*. It currently has no scheduled deletion PR — only a "named post-run-0 follow-up" (C-40). If it lingers, three-way duplication becomes the permanent shape and Position A wins retroactively. **Re-open trigger: if the legacy forecast branch still exists when #89 (numpy/pyarrow keyed gather) lands, unify all three consumers onto one fail-loud gather primitive as part of that story rather than deferring again.** Cross-refs C-59 (the duplicate-key hazard that lands differently in each of the three), C-40, #89.
+
+**SETTLED 2026-07-31 (review-rr — the original re-open trigger resolved without firing).** The sole re-open condition was a long-lived S6/#91 dual-write. **#91 is CLOSED**, and the contract path shipped frame-native end-to-end (PRs #115–#129, wire delivered in run-0) without a durable dual-representation window. Position A is vindicated by events: concrete siblings + delete is what actually happened, the pandas path is confined to the legacy branch pending its named post-run-0 deletion, and no polymorphic representation port was ever needed. No live tension remains — this entry is kept as decision provenance for the remaining seam work (#89, #90) rather than as an open question.
 
 See also C-40 (the inheritance/representation coupling this migration unwinds), #85 (the migration epic), #45 (the faoapi wire / S6 dual-write).
 

@@ -43,6 +43,10 @@ from views_postprocessing.unfao.gaul_schema import (
 )
 
 
+class LookupBuildError(ValueError):
+    """The lookup cannot be built as declared — never write a half-valid artifact."""
+
+
 def _resolve_datafactory() -> Path:
     """Locate the views-datafactory checkout without a machine-specific path.
 
@@ -149,9 +153,33 @@ def build(datafactory: Path, region: str, out: Path) -> pd.DataFrame:
     df = df.sort_index()
 
     # Hard invariants — the lookup must be clean by construction.
-    assert df.isna().sum().sum() == 0, "lookup contains nulls"
+    #
+    # These are explicit raises, NOT `assert`: `python -O` strips assert statements
+    # entirely, and a stripped run would write an unvalidated lookup that looks
+    # identical on disk (register C-61). The -1 check in particular has no downstream
+    # backstop — -1 is non-null, so every gate in the delivery chain would pass it
+    # straight through to FAO, which is exactly the resolved C-35 defect recurring.
+    if not df.index.is_unique:
+        dupes = df.index[df.index.duplicated()].unique().tolist()
+        raise LookupBuildError(
+            f"{len(dupes)} duplicate gid(s) in the lookup index: {dupes[:10]}. "
+            "A duplicated key multiplies rows through the enricher's left-merge with "
+            "every value non-null, so no downstream gate can see it (C-59)."
+        )
+    n_null = int(df.isna().sum().sum())
+    if n_null:
+        raise LookupBuildError(
+            f"lookup contains {n_null} null value(s); only fully-complete cells may "
+            "enter it, so that an ABSENT cell (never a partial one) is what fails "
+            "downstream."
+        )
     for c in CODE_COLS:
-        assert (df[c] != -1).all(), f"{c} contains -1 sentinel"
+        n_sentinel = int((df[c] == -1).sum())
+        if n_sentinel:
+            raise LookupBuildError(
+                f"{c} contains {n_sentinel} -1 sentinel(s). -1 is non-null, so it would "
+                "reach FAO through every gate as a country/admin code (cf. C-35)."
+            )
 
     out.parent.mkdir(parents=True, exist_ok=True)
     table = pa.Table.from_pandas(df, preserve_index=True)
