@@ -8,10 +8,16 @@ screaming rubric if the implementation honours three tightenings:
   ① TWO homes, not one:
        views_postprocessing/delivery/        -> representation-free invariants +
                                                  constants (partner-agnostic, reusable)
-       views_postprocessing/unfao/extraction.py -> the pandas->primitives seam
-                                                 (FAO-local, representation-specific)
-  ② Primitives are the abstraction (DIP); extraction isolated in one module (OCP).
+       views_postprocessing/unfao/frame_extraction.py -> the representation seam
+                                                 (frame->primitives; was extraction.py
+                                                 until #151 — see below)
+  ② Primitives are the abstraction (DIP); the seam isolated in one module (OCP).
        No premature Extractor Protocol (YAGNI/ISP) — a migration, not a coexistence.
+       VINDICATED (#151): the migration completed and the coexistence ended. The
+       pandas seam `extraction.py` and the frame seam `frame_extraction.py` ran as
+       WET siblings through the transition; when the pandas delivery was retired
+       (#149) the pandas seam became unreachable and was deleted rather than
+       abstracted over. A Protocol would have outlived the second implementation.
   ③ Guards are CALLED by the manager, never METHODS of it — so C-40's eventual
        de-inheritance does not touch them. Manager LSP/SDP/SAP is DEFERRED to C-40.
 
@@ -52,7 +58,17 @@ def test_delivery_invariants_are_pandas_free():
 
 
 def test_extraction_seam_is_isolated_in_one_module():
-    assert (_PKG / "unfao" / "extraction.py").exists()
+    """One seam, and it is the frame-native one.
+
+    Both halves matter: the seam must exist, and its retired pandas sibling must not
+    come back alongside it. Two seams for one concept is the CRP violation D-11
+    predicted if the migration were left unfinished.
+    """
+    assert (_PKG / "unfao" / "frame_extraction.py").exists()
+    assert not (_PKG / "unfao" / "extraction.py").exists(), (
+        "the retired pandas seam is back — #151 deleted it when #149 made it "
+        "unreachable; frame_extraction.py is the seam."
+    )
 
 
 # ③ — called, never inherited (deferred to C-40) ----------------------------

@@ -15,12 +15,12 @@ from views_postprocessing.unfao.enrichment import _DEFAULT_LOOKUP, GaulLookupEnr
 from views_pipeline_core.modules.dataloaders.datafactory_contract import declared_data_format
 from views_postprocessing.unfao import (
     appwrite_env,
-    extraction,
     frame_extraction,
     historical,
     launch_config,
     product,
     source_metadata,
+    store_metadata,
 )
 from views_postprocessing.unfao.wire import sink as wire_sink
 from views_postprocessing.unfao.wire import source_selection
@@ -41,7 +41,7 @@ class _ContractStorePort:
         return self._dsm.get_latest_file_id(filters=filters)
 
     def file_metadata(self, file_id: str) -> dict:
-        return extraction.file_metadata(self._dsm.get_file_metadata(file_id))
+        return store_metadata.file_metadata(self._dsm.get_file_metadata(file_id))
 
     def download(self, file_id: str) -> bytes:
         return (

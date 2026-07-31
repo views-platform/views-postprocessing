@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-31                           |
 | Total Concerns    | 71                                   |
-| Open Concerns     | 32                                   |
-| Resolved Concerns | 39                                   |
+| Open Concerns     | 31                                   |
+| Resolved Concerns | 40                                   |
 
 ---
 
@@ -657,24 +657,6 @@ Cross-refs: **C-40** (the manager this lives in), **#145** (the retired path's s
 
 ---
 
-### C-65: `unfao/extraction.py` is four-fifths unreachable and duplicates `frame_extraction.py`
-
-| Field | Value |
-|-------|-------|
-| ID | C-65 |
-| Tier | 3 |
-| Source | `repo-assimilation` (2026-07-31) |
-| Trigger | When #89 (numpy/pyarrow keyed gather) or #90 lands, or when a clone copies the representation seam — decide which of the two extraction modules is *the* seam rather than carrying both |
-| Location | `views_postprocessing/unfao/extraction.py` (103 lines; only `file_metadata` is contract-reachable, via `managers/unfao.py:48`); the legacy-only functions `months_of`, `drop_months_above`, `cells_of`, `unmapped_cell_count` are called at `:383`, `:393`, `:417`, `:589`, `:633`, `:634`; frame-native equivalents live in `views_postprocessing/unfao/frame_extraction.py` (`:116`, `:122`, `:584`, `:600`) |
-
-ADR-012 designates `extraction.py` as **"the single pandas-aware module"** — the one place a representation change lands. In practice the representation change already landed *beside* it: `frame_extraction.py` implements the same four operations frame-natively and is what production calls. `extraction.py` retains one live function and four dead ones.
-
-Two seams for one concept is the CRP violation D-11 predicted: WET-before-DRY was correct during the migration and expires when the migration completes.
-
-Cross-refs: **C-40** (which calls these the "retired-in-place legacy seams"), **D-11**, **C-67**, epic **#85** / **#89** / **#90**, **Cluster L**.
-
----
-
 ### C-66: The GAUL lookup is loaded three times per run, once into an object production never uses
 
 | Field | Value |
@@ -857,6 +839,26 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-65: `unfao/extraction.py` is four-fifths unreachable and duplicates `frame_extraction.py` — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-65 |
+| Resolved | 2026-07-31 |
+| Resolution | **One seam, and it is the frame-native one (#151, epic #148).** `unfao/extraction.py` is deleted. Its four frame readers (`cells_of`, `months_of`, `drop_months_above`, `unmapped_cell_count`) became unreachable when #149 retired the pandas delivery and were already implemented frame-natively in `frame_extraction.py`. Its one surviving function, `file_metadata`, was never extraction at all — it unpacks a *store document* and touches no representation — so it moved to a new `unfao/store_metadata.py`, sibling of `source_metadata.py` (producer facts / store facts), leaving each module with one concept. Tests followed the code rather than being deleted: `test_extraction.py` → `test_store_metadata.py`; `test_frame_extraction.py`'s seam-vs-seam **parity** assertions became **absolute** assertions of the same expected values, since parity has nothing left to compare against; `test_input_integrity_e2e.py` now feeds the invariants **primitives directly**, which is how the delivery actually calls them — it had been building pandas fixtures to reach representation-free rules. `test_input_integrity_design_contract.py` ① updated and now asserts both halves: the seam exists **and** its retired pandas sibling has not come back. |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When #89 (numpy/pyarrow keyed gather) or #90 lands, or when a clone copies the representation seam — decide which of the two extraction modules is *the* seam rather than carrying both |
+| Location | `views_postprocessing/unfao/extraction.py` (103 lines; only `file_metadata` is contract-reachable, via `managers/unfao.py:48`); the legacy-only functions `months_of`, `drop_months_above`, `cells_of`, `unmapped_cell_count` are called at `:383`, `:393`, `:417`, `:589`, `:633`, `:634`; frame-native equivalents live in `views_postprocessing/unfao/frame_extraction.py` (`:116`, `:122`, `:584`, `:600`) |
+
+ADR-012 designates `extraction.py` as **"the single pandas-aware module"** — the one place a representation change lands. In practice the representation change already landed *beside* it: `frame_extraction.py` implements the same four operations frame-natively and is what production calls. `extraction.py` retains one live function and four dead ones.
+
+Two seams for one concept is the CRP violation D-11 predicted: WET-before-DRY was correct during the migration and expires when the migration completes.
+
+Cross-refs: **C-40** (which calls these the "retired-in-place legacy seams"), **D-11**, **C-67**, epic **#85** / **#89** / **#90**, **Cluster L**.
+
+---
 
 ### C-25: Forecast input selected by category-only filter — newest file wins regardless of producer — RESOLVED
 
