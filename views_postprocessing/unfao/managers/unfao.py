@@ -304,10 +304,14 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         lookup = gaul_lookup.load()
         upload_enabled = bool(self.configs.get("wire_upload_enabled", product.UPLOAD_ENABLED))
         store = _ContractStorePort(self._unfao_datastore()) if upload_enabled else None
+        # The wire is partner-neutral (#153): the manager supplies FAO's product
+        # facts explicitly rather than the mechanism reaching for them.
         summary = wire_sink.deliver_run(
             self._forecast_resolution,
             lookup=lookup,
             staging_dir=Path(self._model_path.data_generated) / "wire_contract",
+            consumer_name=product.CONSUMER_DOCUMENT_NAME,
+            s_min=product.S_MIN,
             store=store,
             upload_enabled=upload_enabled,
         )

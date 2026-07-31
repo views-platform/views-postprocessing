@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-07-31                           |
+| Last Updated      | 2026-08-01                           |
 | Total Concerns    | 71                                   |
-| Open Concerns     | 29                                   |
-| Resolved Concerns | 42                                   |
+| Open Concerns     | 27                                   |
+| Resolved Concerns | 44                                   |
 
 ---
 
@@ -678,50 +678,6 @@ Cross-refs: **C-40**, **C-65**, **C-64**, **Cluster I** (governance-artifact dri
 
 ---
 
-### C-69: The `unfao/` package binds partner-neutral machinery to one partner's name
-
-| Field | Value |
-|-------|-------|
-| ID | C-69 |
-| Tier | 3 |
-| Source | `repo-assimilation` (2026-07-31) — clone-readiness pass |
-| Trigger | When **views-crafdapi** or **views-productionapi** is cut — the clone must import `unfao.wire`, `unfao.frames`, `unfao.gaul_schema` and `unfao.track_a_source` to get machinery that has nothing to do with FAO, or fork them and start a third copy |
-| Location | `views_postprocessing/unfao/` — partner-**specific**: `product.py`, `appwrite_env.py` (`UNFAO_ENV`), `managers/unfao.py`. Partner-**neutral**: `wire/*` (7 modules, 466 lines), `frames.py`, `frame_extraction.py`, `gaul_schema.py`, `track_a_source.py`, `historical.py`, `source_metadata.py` |
-
-`delivery/` got this right — its `__init__.py:3` states "Partner-agnostic: FAO and the coming UN-agency deliveries reuse these", and nothing in it names FAO. `unfao/` did not: roughly 800 of its 1,001 lines are partner-neutral and sit under a partner's name.
-
-**Update 2026-07-31 (`expert-code-review`, Martin lens) — partner identity has THREE homes, which is the same boundary problem stated at field level.** "Who is this delivery for" is declared in three unrelated places: `unfao/product.py:34` (`CONSUMER_DOCUMENT_NAME`), `unfao/appwrite_env.py:31-38` (the `UNFAO_*` env names), and `unfao/wire/sink.py:162` (`consumer_name`, correctly a *parameter*). The third is the right shape and proves the machinery is already parameterisable; the first two are declarations that a clone must find and replace. The separation below should consolidate them, not merely move them.
-
-This is a **CRP** violation (things not reused together forced together) with a concrete cost: the clone takes the FAO name to get the wire contract, or forks it. `product.py` is already the right shape for the partner-specific half — 4 declared constants — but nothing separates it structurally from the machinery.
-
-Distinct from **D-12**(1), which proposes renaming the *repository*; this is the *package interior*, and it bites first because the clone is cut before any rename.
-
-Cross-refs: **D-12** (the repo rename), **C-40**, **#96** (the rename issue), **#97** (second-store scoping), views-appwrite's clone preconditions.
-
----
-
-### C-70: `METADATA_COLS` serves three contracts at once — reordering it silently changes delivered bytes
-
-| Field | Value |
-|-------|-------|
-| ID | C-70 |
-| Tier | 3 — no current defect (the byte-parity fixture catches a reorder loudly), but the list carries three independent meanings with only one of them named, so a reasonable edit for one purpose silently changes the other two |
-| Source | `expert-code-review` (2026-07-31) — Kleppmann and Hickey lenses, clone-readiness pass |
-| Trigger | When adding, removing or reordering a GAUL metadata column — for a new partner product, or under #89 — verify the wire column order is deliberate rather than inherited from the manager's selection order |
-| Location | `views_postprocessing/unfao/gaul_schema.py:14-24` (`METADATA_COLS`, `CODE_COLS`, `NAME_COLS`, `COORD_COLS`); consumed as an *ordering* contract at `unfao/wire/sidecar.py:62`, `unfao/historical.py:76`, and as a *set* contract at `managers/unfao.py:277`, `unfao/historical.py:50,90` |
-
-One list encodes three things: **which** columns exist (set membership), **in what order** they appear on the wire (§5.1 declares column order normative, pinned by the golden fixture), and **which** the null-gate covers. Its docstring names only the first — *"the 9-column contract (manager selection order)"* — so the wire-order meaning is undocumented at the definition site.
-
-Separately, the *type* policy is re-derived positionally from three sibling lists via `if col in CODE_COLS` branches in **three** modules (`build_gaul_lookup.py:139-144`, `wire/sidecar.py:64-71`, `unfao/historical.py:78-83`). The concept "a code column is float64 on the wire" is scattered rather than declared once.
-
-**Why it is only Tier 3:** the ADR-013 §10 golden fixture pins the bytes, so a reorder fails loudly in CI rather than shipping. The risk is cost-of-change and the trap a clone walks into, not silent corruption.
-
-**Mitigation (not urgent, and cheap when the packaging split happens):** declare the column contract as data — one table of `(name, role, wire_dtype)` — and derive `METADATA_COLS`, the role lists, the cast branches and the wire order from it. Naturally folded into the partner/machinery separation (**C-69**), since `gaul_schema.py` is partner-neutral machinery.
-
-Cross-refs: **C-69** (the packaging split this rides along with), **C-59**/**C-61** (the same file's build-time invariants), **#89**, ADR-013 §5.1 (the normative order), **Cluster L**.
-
----
-
 ### C-71: `appwrite_env.assert_env_declared` raises without logging — ADR-008 non-compliance in an entry-validation seam
 
 | Field | Value |
@@ -807,6 +763,54 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-70: `METADATA_COLS` serves three contracts at once — reordering it silently changes delivered bytes — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-70 |
+| Resolved | 2026-08-01 |
+| Resolution | **The column contract is declared as data (#153, epic #148).** `gaul_schema.COLUMNS` states each column's `(name, role, wire_dtype)` once; `METADATA_COLS`, `CODE_COLS`, `NAME_COLS`, `COORD_COLS` and the new `WIRE_DTYPE` map are all **derived** from it. The three `if col in CODE_COLS` branches now read a stated policy rather than re-deriving one positionally. The docstring says plainly what the old comment did not: **reordering `COLUMNS` is a wire change** (ADR-013 §5.1 order is normative, §10 byte-pins it), and two new tests in `test_wire_naming.py` pin the derivation and spell the normative order out literally — so a reorder fails with a readable diff rather than only as a fixture byte mismatch. Landed with C-69's move because `gaul_schema` is partner-neutral machinery and this was the one time it was being handled. |
+| Tier | 3 — no current defect (the byte-parity fixture catches a reorder loudly), but the list carries three independent meanings with only one of them named, so a reasonable edit for one purpose silently changes the other two |
+| Source | `expert-code-review` (2026-07-31) — Kleppmann and Hickey lenses, clone-readiness pass |
+| Trigger | When adding, removing or reordering a GAUL metadata column — for a new partner product, or under #89 — verify the wire column order is deliberate rather than inherited from the manager's selection order |
+| Location | `views_postprocessing/unfao/gaul_schema.py:14-24` (`METADATA_COLS`, `CODE_COLS`, `NAME_COLS`, `COORD_COLS`); consumed as an *ordering* contract at `unfao/wire/sidecar.py:62`, `unfao/historical.py:76`, and as a *set* contract at `managers/unfao.py:277`, `unfao/historical.py:50,90` |
+
+One list encodes three things: **which** columns exist (set membership), **in what order** they appear on the wire (§5.1 declares column order normative, pinned by the golden fixture), and **which** the null-gate covers. Its docstring names only the first — *"the 9-column contract (manager selection order)"* — so the wire-order meaning is undocumented at the definition site.
+
+Separately, the *type* policy is re-derived positionally from three sibling lists via `if col in CODE_COLS` branches in **three** modules (`build_gaul_lookup.py:139-144`, `wire/sidecar.py:64-71`, `unfao/historical.py:78-83`). The concept "a code column is float64 on the wire" is scattered rather than declared once.
+
+**Why it is only Tier 3:** the ADR-013 §10 golden fixture pins the bytes, so a reorder fails loudly in CI rather than shipping. The risk is cost-of-change and the trap a clone walks into, not silent corruption.
+
+**Mitigation (not urgent, and cheap when the packaging split happens):** declare the column contract as data — one table of `(name, role, wire_dtype)` — and derive `METADATA_COLS`, the role lists, the cast branches and the wire order from it. Naturally folded into the partner/machinery separation (**C-69**), since `gaul_schema.py` is partner-neutral machinery.
+
+Cross-refs: **C-69** (the packaging split this rides along with), **C-59**/**C-61** (the same file's build-time invariants), **#89**, ADR-013 §5.1 (the normative order), **Cluster L**.
+
+---
+
+### C-69: The `unfao/` package binds partner-neutral machinery to one partner's name — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-69 |
+| Resolved | 2026-08-01 |
+| Resolution | **The boundary is drawn (#153, epic #148).** `views_postprocessing/` now has three top-level packages, each answering a different question: `delivery/` (what makes a delivery valid — the invariants), **`contract/` (how a delivery is built — the ADR-013 machinery, NEW)**, and `unfao/` (who a delivery is for — reduced to `product.py`, `appwrite_env.py` and `managers/`). ~800 lines moved out from under the partner's name. The move surfaced a real coupling that was invisible while everything shared a package: **`wire/sink.py` imported `unfao.product`** — not in its logic, but as *default argument values* for `upload_enabled`, `consumer_name` and `s_min`. The parameters already existed (DIP was satisfied); the defaults reached into the partner. They are now required arguments the manager supplies explicitly, so the mechanism declares what it needs and the partner provides it. `contract/` contains no code reference to `unfao`; #155 makes that mechanical rather than conventional. |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-07-31) — clone-readiness pass |
+| Trigger | When **views-crafdapi** or **views-productionapi** is cut — the clone must import `unfao.wire`, `unfao.frames`, `unfao.gaul_schema` and `unfao.track_a_source` to get machinery that has nothing to do with FAO, or fork them and start a third copy |
+| Location | `views_postprocessing/unfao/` — partner-**specific**: `product.py`, `appwrite_env.py` (`UNFAO_ENV`), `managers/unfao.py`. Partner-**neutral**: `wire/*` (7 modules, 466 lines), `frames.py`, `frame_extraction.py`, `gaul_schema.py`, `track_a_source.py`, `historical.py`, `source_metadata.py` |
+
+`delivery/` got this right — its `__init__.py:3` states "Partner-agnostic: FAO and the coming UN-agency deliveries reuse these", and nothing in it names FAO. `unfao/` did not: roughly 800 of its 1,001 lines are partner-neutral and sit under a partner's name.
+
+**Update 2026-07-31 (`expert-code-review`, Martin lens) — partner identity has THREE homes, which is the same boundary problem stated at field level.** "Who is this delivery for" is declared in three unrelated places: `unfao/product.py:34` (`CONSUMER_DOCUMENT_NAME`), `unfao/appwrite_env.py:31-38` (the `UNFAO_*` env names), and `unfao/wire/sink.py:162` (`consumer_name`, correctly a *parameter*). The third is the right shape and proves the machinery is already parameterisable; the first two are declarations that a clone must find and replace. The separation below should consolidate them, not merely move them.
+
+This is a **CRP** violation (things not reused together forced together) with a concrete cost: the clone takes the FAO name to get the wire contract, or forks it. `product.py` is already the right shape for the partner-specific half — 4 declared constants — but nothing separates it structurally from the machinery.
+
+Distinct from **D-12**(1), which proposes renaming the *repository*; this is the *package interior*, and it bites first because the clone is cut before any rename.
+
+Cross-refs: **D-12** (the repo rename), **C-40**, **#96** (the rename issue), **#97** (second-store scoping), views-appwrite's clone preconditions.
+
+---
 
 ### C-68: `_DEFAULT_LOOKUP` — a private name imported across three module boundaries — RESOLVED
 
