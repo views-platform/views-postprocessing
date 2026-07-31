@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-07-31                           |
 | Total Concerns    | 71                                   |
-| Open Concerns     | 31                                   |
-| Resolved Concerns | 40                                   |
+| Open Concerns     | 29                                   |
+| Resolved Concerns | 42                                   |
 
 ---
 
@@ -657,22 +657,6 @@ Cross-refs: **C-40** (the manager this lives in), **#145** (the retired path's s
 
 ---
 
-### C-66: The GAUL lookup is loaded three times per run, once into an object production never uses
-
-| Field | Value |
-|-------|-------|
-| ID | C-66 |
-| Tier | 4 — startup cost and confusion, no correctness impact |
-| Source | `repo-assimilation` (2026-07-31) |
-| Trigger | When profiling delivery startup, or when the lookup grows beyond `land_gaul` (a multi-region product would multiply the waste) |
-| Location | `views_postprocessing/unfao/managers/unfao.py:98` (`self._enricher = GaulLookupEnricher()` — eager, unconditional, unused in contract mode), `:460` and `:612` (`pq.read_table(_DEFAULT_LOOKUP)`) |
-
-`__init__` eagerly constructs `GaulLookupEnricher`, which reads the 888 KB parquet into pandas at `enrichment.py:48`. The contract path never uses that instance — it reads the same file twice more through pyarrow. So every production run pays three reads of one artifact, one of them into a representation the delivery no longer uses.
-
-Cross-refs: **C-65** (same retired-seam cluster), **C-68** (the private-name import used for two of the three reads), **Cluster L**.
-
----
-
 ### C-67: ADR-012 misdescribes the system in two load-bearing ways
 
 | Field | Value |
@@ -691,22 +675,6 @@ Two claims no longer hold:
 Both drifted the same way and for the same reason: the ADR describes the intended end state of a migration that then stopped one step short. Same disease as the C-48–C-55 ADR-013 series, which was fixed by pinning prose to mechanically-checked facts.
 
 Cross-refs: **C-40**, **C-65**, **C-64**, **Cluster I** (governance-artifact drift), C-48–C-55 (the precedent and its remedy).
-
----
-
-### C-68: `_DEFAULT_LOOKUP` — a private name imported across three module boundaries
-
-| Field | Value |
-|-------|-------|
-| ID | C-68 |
-| Tier | 4 |
-| Source | `repo-assimilation` (2026-07-31) |
-| Trigger | When splitting `enrichment.py` under #89, or when a clone needs the lookup path without the pandas enricher — the underscore says "internal", so a refactor is entitled to move or rename it and would break two live call sites |
-| Location | Defined `views_postprocessing/unfao/enrichment.py:33`; imported `views_postprocessing/unfao/managers/unfao.py:18`; used `:460`, `:612` |
-
-The contract path depends on the lookup *path constant* but not on the *enricher class* that owns it. The dependency is real and load-bearing; the leading underscore declares the opposite. Promoting it to a public name — or better, moving the artifact path to `product.py` where declarations live — costs one line and removes the trap.
-
-Cross-refs: **C-66**, **C-65**, **#89**, **Cluster L**.
 
 ---
 
@@ -839,6 +807,42 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-68: `_DEFAULT_LOOKUP` — a private name imported across three module boundaries — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-68 |
+| Resolved | 2026-07-31 |
+| Resolution | **Promoted to a public declared name (#152, epic #148).** `_DEFAULT_LOOKUP` became `gaul_lookup.LOOKUP_PATH` — the artifact's identity now has a home of its own rather than living behind an underscore in the enricher that happened to consume it. `enrichment.py` keeps a `_DEFAULT_LOOKUP` alias pointing at it so `GaulLookupEnricher`'s own default is unchanged, and its `_read_version` delegates rather than duplicating. The manager no longer imports either private name. Guarded by `test_gaul_lookup_access.py::test_the_manager_reads_the_lookup_once_and_threads_it`. |
+| Tier | 4 |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When splitting `enrichment.py` under #89, or when a clone needs the lookup path without the pandas enricher — the underscore says "internal", so a refactor is entitled to move or rename it and would break two live call sites |
+| Location | Defined `views_postprocessing/unfao/enrichment.py:33`; imported `views_postprocessing/unfao/managers/unfao.py:18`; used `:460`, `:612` |
+
+The contract path depends on the lookup *path constant* but not on the *enricher class* that owns it. The dependency is real and load-bearing; the leading underscore declares the opposite. Promoting it to a public name — or better, moving the artifact path to `product.py` where declarations live — costs one line and removes the trap.
+
+Cross-refs: **C-66**, **C-65**, **#89**, **Cluster L**.
+
+---
+
+### C-66: The GAUL lookup is loaded three times per run, once into an object production never uses — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-66 |
+| Resolved | 2026-07-31 |
+| Resolution | **One artifact, one read (#152, epic #148).** The eager `GaulLookupEnricher()` is gone from the manager's `__init__` — it existed only to supply `lookup_version`, which was a `@staticmethod` that never touched the instance, i.e. a fact about the *artifact*. That fact now lives in a new `unfao/gaul_lookup.py` alongside the artifact's path and a single `load()`. `_save_contract` reads the table **once** and threads it to both consumers, each of which already took it as a parameter (DIP). Net: three reads per delivery → one, and the pandas enricher leaves the delivery path entirely. Pinned by `tests/test_gaul_lookup_access.py` — including a source-scan asserting exactly one `gaul_lookup.load()` in the manager, and a signature check that both consumers still *accept* the table rather than fetching it. |
+| Tier | 4 — startup cost and confusion, no correctness impact |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When profiling delivery startup, or when the lookup grows beyond `land_gaul` (a multi-region product would multiply the waste) |
+| Location | `views_postprocessing/unfao/managers/unfao.py:98` (`self._enricher = GaulLookupEnricher()` — eager, unconditional, unused in contract mode), `:460` and `:612` (`pq.read_table(_DEFAULT_LOOKUP)`) |
+
+`__init__` eagerly constructs `GaulLookupEnricher`, which reads the 888 KB parquet into pandas at `enrichment.py:48`. The contract path never uses that instance — it reads the same file twice more through pyarrow. So every production run pays three reads of one artifact, one of them into a representation the delivery no longer uses.
+
+Cross-refs: **C-65** (same retired-seam cluster), **C-68** (the private-name import used for two of the three reads), **Cluster L**.
+
+---
 
 ### C-65: `unfao/extraction.py` is four-fifths unreachable and duplicates `frame_extraction.py` — RESOLVED
 

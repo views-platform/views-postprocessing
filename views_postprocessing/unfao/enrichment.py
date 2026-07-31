@@ -19,18 +19,19 @@ views-faoapi ``handlers.py`` (``FAO_PGMDataset._METADATA_COLS``).
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
 import pandas as pd
-import pyarrow.parquet as pq
 
+from views_postprocessing.unfao import gaul_lookup
 from views_postprocessing.unfao.gaul_schema import METADATA_COLS
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_LOOKUP = Path(__file__).resolve().parent.parent / "data" / "gaul_lookup.parquet"
+# The artifact's identity lives in `gaul_lookup` (#152, C-68) — this alias keeps the
+# enricher's own default working without re-deriving the path.
+_DEFAULT_LOOKUP = gaul_lookup.LOOKUP_PATH
 
 
 class GaulLookupEnricher:
@@ -60,23 +61,10 @@ class GaulLookupEnricher:
 
     @staticmethod
     def _read_version(path: Path) -> str:
-        """A short, stampable version id from the lookup's embedded provenance.
-
-        Format: ``<region>@<short source digest>`` (e.g. ``land_gaul@f74d3b2b``)
-        so a delivery can be traced to the exact lookup build. Falls back to
-        ``"unknown"`` if the parquet carries no provenance metadata.
-        """
-        meta = pq.read_metadata(path).metadata or {}
-        meta = {k.decode(): v.decode() for k, v in meta.items()}
-        region = meta.get("region", "?")
-        digest = "?"
-        try:
-            prov = json.loads(meta.get("source_provenance", "{}"))
-            digest = (prov.get("land_gaul_region", {})
-                      .get("content_digest", "?"))[:8]
-        except (ValueError, AttributeError):
-            pass
-        return "unknown" if region == "?" and digest == "?" else f"{region}@{digest}"
+        """The lookup's build stamp. Delegates to ``gaul_lookup.version`` (#152) —
+        this was a ``@staticmethod`` that never touched the instance, i.e. a fact
+        about the artifact, not about the enricher."""
+        return gaul_lookup.version(path)
 
     def enrich_dataframe_with_pg_info(
         self,
