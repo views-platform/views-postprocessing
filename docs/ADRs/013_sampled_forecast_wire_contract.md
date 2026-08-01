@@ -1144,6 +1144,29 @@ record execution progress against it.
   (`unfao/launch_config.py`) — ADR-003 applied to the launch config, and register
   C-63 closed.
 
+- **2026-08-01 — the delivery around the contract reduced to ONE path; the contract
+  itself untouched (epic #148, stories #149–#156).** Recorded here because a reader of
+  this ADR should know the surrounding code changed shape and the wire did not.
+
+  **What changed.** The pandas delivery this contract replaced was retired (#149) along
+  with the config fork that silently selected it; `delivery/identity.py` was retired
+  because the contract path enforces declared identity **per shard header** instead
+  (#150, §4.2a); the duplicate representation seam collapsed (#151); the GAUL lookup
+  became one artifact read once (#152); and the partner-neutral machinery — the whole
+  of `wire/` included — moved to a `contract/` package that contains **no reference to
+  any partner** (#153), so views-crafdapi and views-productionapi can reuse this
+  contract without inheriting FAO's product.
+
+  **What did not change: any byte on the wire.** The §10 golden fixture and every
+  byte-parity test were untouched throughout and green on CI at each of the seven
+  merges. That was the invariant the epic was run against, and it is the reason this
+  entry is a note rather than an amendment: **`contract_version` is unchanged.**
+
+  **One consequence for readers of §11.4.** Its Hop-A clause is now historical — the
+  legacy reader it sequenced is deleted (see the 2026-07-31 entry). **Its Hop-B clause
+  still binds**: views-faoapi's deployed selector is a separate deployment on its own
+  schedule (views-faoapi C-161).
+
 ---
 
 ## Appendix A — Version history (review archaeology; non-normative)
