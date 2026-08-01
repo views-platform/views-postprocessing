@@ -56,8 +56,8 @@ Assumptions that are not met **must cause failure**, not fallback behavior. **Kn
 ## 5. Outputs and Side Effects
 
 **Outputs:**
-- `_historical_dataframe`: Enriched pandas DataFrame with geographic metadata (multi-index: month_id, priogrid_gid)
-- `_forecast_dataframe`: Enriched pandas DataFrame with geographic metadata (multi-index: month_id, priogrid_gid)
+- `_historical_frame`: the historical actuals as a `views_frames.FeatureFrame` (#126). Geography is **not** joined into it — it attaches at artifact build (`contract/historical.py`)
+- `_forecast_resolution`: `{target: TargetLease}` — the resolved run. Manifests and pinned shard ids only; frames materialise one target at a time inside the sink (the run-0 OOM fix)
 
 **Side Effects:**
 - Downloads data from ViewsER (network I/O)
@@ -77,7 +77,8 @@ Assumptions that are not met **must cause failure**, not fallback behavior. **Kn
 - **Null values in required metadata columns:** Raises `ValueError` with null count and affected column name (C-01 resolved — validation active)
 - **Dataset initialization failure:** Raises `ValueError` in `_save()` if datasets are None
 - **Appwrite upload failure:** Propagates exception from `DatastoreModule`
-- **Wrong forecast file selected:** Raises `ForecastIdentityError` in `_read_forecast_data()` if the selected file's identity (name/loa) does not match the configured ensemble (S3/C-25 — a stray upload cannot be silently shipped). Selection pins `{category="forecast", type="ensemble"}` (`LEGACY_FORECAST_FILTERS`) — the ADR-013 §11.4 transition guard: contract artifacts (`sampled_forecast_*`) are unselectable by this legacy reader
+- **Wrong forecast selected:** structurally impossible since #149. Selection is by **run manifest** — a commit marker whose contents are hash-verified — not by scanning the bucket for the newest `category="forecast"` upload. Declared identity is additionally checked **per shard header** against the launched ensemble inside `TargetLease.load()` (`contract/wire/source_selection.py:73-81`), so identity comes from the artifact's own content. The metadata-field check this bullet used to describe (`delivery/identity.py`) was retired in #150 and the legacy reader it served in #149; register C-25 is closed as *superseded by mechanism*
+- **Launch config incomplete:** raises `LaunchConfigError` naming the missing key. A launcher that omits `wire_contract` or declares a `data_format` other than `feature_frame` is **refused**, never quietly routed into a fallback (ADR-003, register C-63)
 - **Region coverage mismatch:** Raises `CoverageError` in `_check_coverage()` (called from `_validate()`) if a pinned region's delivered cell count is wrong (S1/C-34) or a GAUL-uncovered excluded cell leaks into the delivery (S4/C-30)
 - **Fabricated historical tail:** `_clip_observed_history()` drops months beyond the producer's `last_valid_month_id` so unobserved zero-padding is not shipped as observed history (S2/C-26); **degrades open** (skips the clip with a WARNING) if the boundary cannot be resolved
 - **Upload provenance:** every upload's `description` carries structured provenance (lookup version, region, expected/actual cell counts, unmapped count) via `_delivery_description()` (S5/C-15)
@@ -104,7 +105,7 @@ The following **must never** fail silently:
 - PRIO-GRID geometry details
 - The internals of how the lookup table was built
 
-This anchors the class within ADR-002 (topology): it sits at the Pipeline Manager layer, above the enrichment layer, consuming its outputs without knowledge of its internals.
+This anchors the class within ADR-002 (topology): `unfao/` → `contract/` → `delivery/`, one way only. It is **the repository's only importer of `views_pipeline_core`** (mechanically pinned by `tests/test_doc_accuracy.py`), which is what makes C-40's blast radius one file wide. 406 lines as of epic #148, down from 636 — not yet *thin*, and held under a 450-line budget by the same test.
 
 ---
 
@@ -144,9 +145,9 @@ manager._save()
 - **Beige tests:** Missing ensemble name in config; None environment variables; empty forecast bucket; DataFrames with unexpected index structure
 - **Red tests:** Corrupted parquet downloads; network timeouts during upload; DataFrames where all cells map to None (all-ocean input)
 
-Currently: the manager cannot be instantiated without `views-pipeline-core`, so its stage logic is covered by **replica tests** that mirror the real methods — `tests/test_validation.py` (`_validate`) and `tests/test_append_metadata.py` (`_append_metadata`). A full end-to-end test against the live manager (C-03) still requires a production-like environment.
+Currently: the manager cannot be instantiated without `views-pipeline-core`, so its stage logic is covered by **source-scan and replica tests** — `tests/test_validation.py`, `tests/test_launch_config.py` (the refusals), `tests/test_gaul_lookup_access.py` (one lookup read, threaded). `tests/test_append_metadata.py` was deleted in #149 with the method it mirrored. A full end-to-end test against the live manager (C-03) still requires a production-like environment.
 
-The input-integrity guards (S0–S6, epic #51) are representation-free invariants in `views_postprocessing/delivery/` that the manager **calls** (never inherits). Each has primitives unit tests — `tests/test_delivery_coverage.py` (S1/S4), `tests/test_delivery_observed_range.py` (S2), `tests/test_identity.py` (S3), `tests/test_provenance.py` (S5), `tests/test_extraction.py` (the seam) — and `tests/test_input_integrity_e2e.py` replicates the manager's extract→invariant chain end-to-end. The design contract (representation-free, called-not-inherited) is pinned by `tests/test_input_integrity_design_contract.py`.
+The input-integrity guards (S0–S6, epic #51) are representation-free invariants in `views_postprocessing/delivery/` that the manager **calls** (never inherits). Each has primitives unit tests — `tests/test_delivery_coverage.py` (S1/S4), `tests/test_delivery_observed_range.py` (S2), `tests/test_provenance.py` (S5), `tests/test_frame_extraction.py` (the seam), `tests/test_store_metadata.py` (store identity) — and `tests/test_input_integrity_e2e.py` drives the invariants on **primitives**, which is how the manager calls them. S3's forecast-identity rule moved to the wire layer (#150) and is covered by `tests/test_wire_source_selection.py`. The design contract (representation-free, called-not-inherited) is pinned by `tests/test_input_integrity_design_contract.py`.
 
 ---
 

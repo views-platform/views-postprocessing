@@ -33,15 +33,36 @@ clearly belong to one is out of scope and must be redesigned or rejected.
 
 ### Core ontological categories (current)
 
+**The package layout IS the ontology** (restated 2026-08-01, epic #148). Three top-level
+packages answer three different questions, and every category below names the one it lives in:
+
+```
+delivery/    what makes a delivery VALID   — representation-free invariants
+contract/    how a delivery is BUILT       — partner-neutral machinery
+unfao/       who a delivery is FOR         — one partner's product and manager
+```
+
 | Category | Purpose | Authority | Stability |
 |----------|---------|-----------|-----------|
-| **Delivery Invariants** | Representation-free rules over primitives that a delivery must satisfy (coverage, no-collapse, gid parity, observed-range, provenance). Live in `views_postprocessing/delivery/`. *Forecast identity was one of these until 2026-07-31 — see the amendment below.* | Authoritative — they define what a valid delivery is | Stable — changes are governance decisions |
-| **Representation Seam** | The single pandas-aware module (`unfao/extraction.py`) that turns the delivery's external representation into the primitives the invariants consume. | Derived — isolates the representation so invariants stay representation-free | Evolving — the one place a representation change (e.g. pandas → frames, C-40) lands |
-| **Enrichment Asset + Engine** | The precomputed GAUL lookup (`data/gaul_lookup.parquet`) and the merge that joins it (`GaulLookupEnricher`). | Authoritative for geographic metadata | Stable — the lookup is rebuilt only when the producer (datafactory) releases new GAUL data |
-| **Pipeline Manager** | The thin `UNFAOPostProcessorManager` — a concrete pipeline-core postprocessor (Template-Method subclass) that *orchestrates* read/transform/validate/save and **calls** the invariants (never inherits them). | Derived — implements delivery using the categories above | Evolving — changes as partner requirements change |
-| **Producer Data-Facts** | Data-related facts sourced straight from the producer (datafactory) — e.g. `last_valid_month_id` — isolated in `unfao/source_metadata.py`. | Authoritative (the producer is the source of truth, D-07) | Evolving |
-| **External Service Configurations** | Appwrite connection configs / env vars / bucket references. | Operational | Evolving |
-| **Derived Outputs** | Enriched parquet files produced per run and delivered to the partner store. | Ephemeral | Ephemeral |
+| **Delivery Invariants** | Representation-free rules over primitives that a delivery must satisfy: coverage, no-collapse, gid parity, observed-range, provenance. Live in `delivery/` — **nothing there imports pandas or views_frames**. *Forecast identity was one of these until 2026-07-31 — see the amendment below.* | Authoritative — they define what a valid delivery is | Stable — changes are governance decisions |
+| **Representation Seam** | `contract/frame_extraction.py` — turns a `views_frames` frame into the primitives the invariants consume. **One seam.** Its pandas sibling `unfao/extraction.py` was deleted in #151 once the pandas delivery was retired; the two ran as deliberate WET siblings through the migration. | Derived — isolates the representation so invariants stay representation-free | Evolving |
+| **Wire Mechanism** | `contract/wire/` — the ADR-013 contract: header, shard, sidecar, run manifest, sink, source selection. Partner-neutral: it takes its consumer name and collapse floor as **arguments** (#153). | Authoritative — the contract with the consumer | Stable — changes are contract amendments |
+| **Enrichment Asset** | The precomputed GAUL lookup (`data/gaul_lookup.parquet`), its identity in `contract/gaul_lookup.py`, its schema in `contract/gaul_schema.py`, and the pandas merge that joins it (`contract/enrichment.py`, the build/verification path). | Authoritative for geographic metadata | Stable — rebuilt only when the producer releases new GAUL data |
+| **Artifact Builders** | `contract/historical.py` — turns a frame plus the lookup into the partner-facing artifact. | Derived | Evolving |
+| **External Facts** | Facts read from systems this repo does not own: the producer's (`contract/source_metadata.py` — `last_valid_month_id`, D-07) and the store's (`contract/store_metadata.py`). | Authoritative (the owning system is the source of truth) | Evolving |
+| **Launch Declarations** | `contract/launch_config.py` — the delivery mode the launcher must declare. Omitting a key is **refused by name**, never inferred (ADR-003, register C-63). | Authoritative | Stable |
+| **Partner Product** | `unfao/product.py` (targets, consumer document name, collapse floor, upload interlock) and `unfao/appwrite_env.py` (the store coordinates). **This is what a clone replaces.** | Authoritative — one reason to change: the partner relationship | Evolving |
+| **Pipeline Manager** | `unfao/managers/unfao.py` — a concrete pipeline-core postprocessor (Template-Method subclass) that *orchestrates* read/transform/validate/save and **calls** the invariants, never inherits them. **It is the only module in the repository that imports `views_pipeline_core`** — the coupling C-40 describes is one file wide. It is not yet *thin*: 406 lines, down from 636 (#149). | Derived | Evolving |
+| **Derived Outputs** | Arrow shards, the GAUL sidecar, the run manifest and the historical parquet, produced per run and delivered to the partner store. | Ephemeral | Ephemeral |
+
+**Two claims this ADR made until 2026-08-01, both now corrected rather than quietly dropped**
+(register C-67). It called the manager *"the **thin** `UNFAOPostProcessorManager`"* when it was
+636 lines holding two of everything, and it called `unfao/extraction.py` *"the **single**
+pandas-aware module"* when pandas lived in three. Both drifted the same way: the ADR described
+the intended end state of a migration that then stopped one step short. Both are now true —
+pandas has exactly one importer again (`contract/enrichment.py`) — and the load-bearing ones are
+**mechanically checked** by `tests/test_doc_accuracy.py`, so the next drift fails CI instead of
+waiting for an audit.
 
 ### Explicitly *not* in this repository's ontology
 
