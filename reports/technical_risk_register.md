@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-01                           |
 | Total Concerns    | 71                                   |
-| Open Concerns     | 26                                   |
-| Resolved Concerns | 45                                   |
+| Open Concerns     | 25                                   |
+| Resolved Concerns | 46                                   |
 
 ---
 
@@ -71,6 +71,12 @@ covered a single open entry (see Historical clusters below).
 **Highest tier:** 2 (C-63)
 **Fix strategy:** one deletion, not five fixes. Remove the retired path and replace the silent fork with a loud refusal; C-64/C-65/C-66/C-68 collapse as consequences. D-11 ratified exactly this shape ("concrete siblings + delete") and named the missing step: *"only correct if the legacy forecast branch is actually deleted… If it lingers, three-way duplication becomes the permanent shape."*
 **Resolution scope:** Full for C-63/C-65/C-66/C-68 and #145; partial for C-64 (the identity rule's *home* still needs deciding) and C-40 (the double-inheritance shell is separate work).
+
+**✅ CLOSED 2026-08-01 (epic #148, stories #149–#156).** The prediction held: it was **one deletion, not five fixes**. Retiring the legacy delivery path (#149) collapsed the cluster — C-63 closed with it, and C-64, C-65, C-66 and C-68 followed as consequences rather than as separate repairs, each in its own story so the reasoning survives. #145 closed with the path that carried its silent uploads, and **C-29** turned out to be cluster residue too — its disk side-channel was the legacy leg. C-25 closed alongside as *superseded by mechanism*.
+
+**What the cluster cost, measured:** the manager went 636 → **406 lines**, 14 config forks → **0 plus one refusal**, pandas importers 3 → **1**, lookup reads per delivery 3 → **1**. Nine register entries closed.
+
+**The lesson worth carrying, and it is D-11's:** WET-before-DRY was applied *correctly* — the pandas and frame seams ran as deliberate siblings through the migration, and a premature abstraction would have outlived the implementation it existed to unify. What went wrong was not the duplication; it was that the removal condition (*"until run 0 proves the contract path live"*) was written down without a **named trigger to act on**, so the box expired on 2026-07-27 and nobody opened it. D-11 predicted exactly this. **A deferral needs an owner and a trigger, not just a reason.**
 
 ### Historical clusters (mapper era — all resolved or moot)
 
@@ -265,22 +271,6 @@ See also C-13.
 
 ---
 
-### C-29: Manager reads fetch result via disk side-channel instead of return value
-
-| Field | Value |
-|-------|-------|
-| ID | C-29 |
-| Tier | 2 — under a realistic pipeline-core caching refactor, the postprocessor silently reads a stale previous parquet and enriches outdated data |
-| Source | `expert-code-review` (2026-06-12) |
-| Trigger | When views-pipeline-core changes caching behavior (format, filename template, skip-write optimization), verify `_read_historical_data` still reads what `get_data()` just produced — the return value is discarded and the dataframe re-read from `cached_data_path` |
-| Location | `views_postprocessing/unfao/managers/unfao.py:134` (`get_data(...)` return discarded), `:141` (`cached_data_path` re-read); views-pipeline-core `modules/dataloaders/dataloaders.py:1490-1494` |
-
-`get_data()` returns `(df, alerts)`; the manager discards it and re-reads from `self._data_loader.cached_data_path`, a property set as a side effect of the fetch. Two sources of truth for "the data just fetched," coupled by an undocumented convention. If pipeline-core ever skips the disk write for `use_saved=False` (a legitimate optimization from its perspective), the manager reads a stale previous file silently — or crashes if none exists. The convention has already drifted once: the loader docstring (dataloaders.py:1466-1471) still documents `{partition}_viewser_df` naming while the code now formats `{partition}_{source}_df` (line 1490). Fix is one line: consume the return value. Related to views-pipeline-core register entries C-59/C-60 (cache filename convention).
-
-**Update 2026-07-31 (review-rr — scope narrowed to the legacy branch):** since #126 the historical path run-0 used is `_read_historical_frame` (`get_feature_frame`, `:101-124`), which returns a `FeatureFrame` **directly** and has no disk side-channel. The side-channel survives only in the legacy `_read_historical_data` branch (`:134`/`:141`), whose retirement is the named post-run-0 follow-up. Tier held at 2 while the branch exists and remains reachable; resolves with the branch.
-
----
-
 ### C-30: GAUL-uncovered land cells crash or corrupt global delivery (absorbs C-34: the coverage contract)
 
 | Field | Value |
@@ -360,6 +350,12 @@ See also C-24 (schema contract per store), D-09 (the deferral, now expired), #97
 2. **The file is 636 lines — 25% of the package's 2,528** — and holds: the pipeline-core adapter, an inner `_ContractStorePort` class, two read strategies, two save strategies, provenance formatting, coverage orchestration, and env assembly. **Every SRP/CCP violation in the repository is in this one file**, and it is the only file a clone (views-crafdapi, views-productionapi) cannot reuse as-is.
 
 **Consequence for the clone work:** the reusable core already exists and is clean — `delivery/` is partner-agnostic by its own declaration and `unfao/wire/` takes its consumer name as a parameter. What blocks reuse is this manager, plus the packaging problem registered separately as **C-69**. Note also that ADR-012 still calls this class **"the *thin* `UNFAOPostProcessorManager`"** (**C-67**).
+
+**Update 2026-08-01 (epic #148 closeout) — what the epic did and did NOT do to this entry.**
+
+*Did:* the surrounding surface shrank sharply. The manager is **406 lines** (from 636); it imports neither pandas nor `PGMDataset`; the partner-neutral machinery moved out to `contract/` (#153); and **`views_pipeline_core` is still imported by exactly one module — this one — now pinned mechanically** by `tests/test_doc_accuracy.py` and `tests/test_clone_readiness.py`. That property is what keeps this entry's blast radius one file wide, and it is no longer a claim anyone has to re-check by hand.
+
+*Did not:* the double inheritance at `unfao.py:80` stands, and so do consequences (a) — the FAO logic still cannot be instantiated without the framework — and (c)/(d). **This entry remains open on exactly that scope.** Its remaining fix is gated on views-pipeline-core's 3.0.0 (C-44/C-62), which is a release signal rather than engineering work.
 
 See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper cleanup that precedes any unfao restructuring), **#45** (the delivery-side draw carrier — ship `(N, S)` uncollapsed as a native frame, the producer half of this same problem), and **epic #85** (the migration backlog).
 
@@ -719,6 +715,8 @@ The pandas→views-frames migration (epic #85) deliberately swaps each seam by a
 - **Position A (GoF, Hickey) — unify now.** Three implementations of one join is a correctness surface, not a migration artifact. They differ in failure semantics: two raise in place naming the absent gids; the pandas one yields NaN and defers to a downstream gate. That divergence is invisible at the call sites.
 - **Position B (Feathers, Beck) — defer to #89.** The differing failure semantics are *deliberate*, each implementation is separately tested, and unification means changing three call sites while the legacy branch is still live. The duplication is scheduled to die with that branch.
 
+**✅ CONDITION MET 2026-08-01 (epic #148).** The legacy forecast branch **was** deleted (#149) — before #89 landed, so the re-open trigger below never fired. Position A is vindicated by events rather than by argument: concrete siblings were built, the migration completed, and the second implementation was deleted rather than abstracted over. A Protocol introduced at decision time would have outlived the thing it existed to unify. Recorded in `tests/test_input_integrity_design_contract.py` ② so the next seam decision has the precedent.
+
 **Adjudication: B — but conditionally, and the condition is now named.** B is only correct *if the legacy forecast branch is actually deleted*. It currently has no scheduled deletion PR — only a "named post-run-0 follow-up" (C-40). If it lingers, three-way duplication becomes the permanent shape and Position A wins retroactively. **Re-open trigger: if the legacy forecast branch still exists when #89 (numpy/pyarrow keyed gather) lands, unify all three consumers onto one fail-loud gather primitive as part of that story rather than deferring again.** Cross-refs C-59 (the duplicate-key hazard that lands differently in each of the three), C-40, #89.
 
 **SETTLED 2026-07-31 (review-rr — the original re-open trigger resolved without firing).** The sole re-open condition was a long-lived S6/#91 dual-write. **#91 is CLOSED**, and the contract path shipped frame-native end-to-end (PRs #115–#129, wire delivered in run-0) without a durable dual-representation window. Position A is vindicated by events: concrete siblings + delete is what actually happened, the pandas path is confined to the legacy branch pending its named post-run-0 deletion, and no polymorphic representation port was ever needed. No live tension remains — this entry is kept as decision provenance for the remaining seam work (#89, #90) rather than as an open question.
@@ -742,6 +740,24 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-29: Manager reads fetch result via disk side-channel instead of return value — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-29 |
+| Resolved | 2026-08-01 |
+| Resolution | **Resolved by deletion (#149, epic #148).** The side-channel was `_read_historical_data`'s pandas leg — `get_data()`'s return value discarded, the dataframe re-read from `cached_data_path`. That leg was retired when the frame-native read became the only read: `_read_historical_frame` takes `get_feature_frame`'s **return value** directly. There is no longer a disk hand-off between pipeline-core and this repo, so the failure this entry described (a caching change upstream silently serving a stale previous parquet) has no path. |
+| Tier | 2 — under a realistic pipeline-core caching refactor, the postprocessor silently reads a stale previous parquet and enriches outdated data |
+| Source | `expert-code-review` (2026-06-12) |
+| Trigger | When views-pipeline-core changes caching behavior (format, filename template, skip-write optimization), verify `_read_historical_data` still reads what `get_data()` just produced — the return value is discarded and the dataframe re-read from `cached_data_path` |
+| Location | `views_postprocessing/unfao/managers/unfao.py:134` (`get_data(...)` return discarded), `:141` (`cached_data_path` re-read); views-pipeline-core `modules/dataloaders/dataloaders.py:1490-1494` |
+
+`get_data()` returns `(df, alerts)`; the manager discards it and re-reads from `self._data_loader.cached_data_path`, a property set as a side effect of the fetch. Two sources of truth for "the data just fetched," coupled by an undocumented convention. If pipeline-core ever skips the disk write for `use_saved=False` (a legitimate optimization from its perspective), the manager reads a stale previous file silently — or crashes if none exists. The convention has already drifted once: the loader docstring (dataloaders.py:1466-1471) still documents `{partition}_viewser_df` naming while the code now formats `{partition}_{source}_df` (line 1490). Fix is one line: consume the return value. Related to views-pipeline-core register entries C-59/C-60 (cache filename convention).
+
+**Update 2026-07-31 (review-rr — scope narrowed to the legacy branch):** since #126 the historical path run-0 used is `_read_historical_frame` (`get_feature_frame`, `:101-124`), which returns a `FeatureFrame` **directly** and has no disk side-channel. The side-channel survives only in the legacy `_read_historical_data` branch (`:134`/`:141`), whose retirement is the named post-run-0 follow-up. Tier held at 2 while the branch exists and remains reachable; resolves with the branch.
+
+---
 
 ### C-67: ADR-012 misdescribes the system in two load-bearing ways — RESOLVED
 
