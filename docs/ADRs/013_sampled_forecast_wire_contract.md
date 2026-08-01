@@ -689,7 +689,7 @@ a "simplification."
   this contract governs the **data** crossing the Appwrite seam; the
   **identity/config** crossing the same seam (which key, which coordinates,
   sourced from where, named how) is governed by
-  **[PLATFORM-001 — Identity, Secrets & Configuration Contract (VIEWS Appwrite seam)](https://github.com/views-platform/views-appwrite/blob/main/docs/ADRs/platform/PLATFORM-001_identity_secrets_configuration_contract.md)**,
+  **[the Appwrite Seam Contract — Identity, Secrets & Configuration Contract (VIEWS Appwrite seam)](https://github.com/views-platform/views-appwrite/blob/main/docs/ADRs/platform/the Appwrite Seam Contract_identity_secrets_configuration_contract.md)**,
   homed in views-appwrite and referenced here **by URL, never by copy** — with its
   coordinate registry
   ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/main/docs/ADRs/platform/coordinate_registry.toml))
@@ -1105,7 +1105,7 @@ record execution progress against it.
   assignment and the concrete period remain OPEN and are deliberately deferred —
   they must close before the first full-S production run, not before.
 - **2026-07-28 — þing-01 verdict executed in this repo (seam's other half
-  contracted).** The platform ratified **PLATFORM-001** (identity/secrets/
+  contracted).** The platform ratified **the Appwrite Seam Contract** (identity/secrets/
   configuration for the Appwrite seam, homed in views-appwrite) — the plumbing
   half of the seam whose data half this ADR seals. This repo's follow-through,
   all merged: **P1/#134** — the implicit ensemble-dotenv borrow
@@ -1114,7 +1114,7 @@ record execution progress against it.
   every store construction (PR #137). **P2/#135** — delivery-log/provenance
   redaction audit: CLEAN; guards pin the wire/delivery packages credential-blind
   and the provenance keyset closed (PR #136). **P3/#138** — §7(d) added: this ADR
-  now cross-references PLATFORM-001 by URL, never by copy.
+  now cross-references the Appwrite Seam Contract by URL, never by copy.
 
 - **2026-07-31 — the Hop-A LEGACY READER IS RETIRED; §11.4's transition is over on
   this side (#149, epic #148).** §11.4 required a type-aware guard live at each
