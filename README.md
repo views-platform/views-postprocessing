@@ -145,7 +145,7 @@ convention. See [`docs/CLONING.md`](docs/CLONING.md).
 The FAO delivery reads Appwrite connection settings from the environment. The required
 names are **declared** in `unfao/appwrite_env.py` and validated fail-loud before any store
 is constructed — a missing or empty variable raises, naming every one that is absent,
-rather than half-configuring a client. Coordinates come from the PLATFORM-001 registry
+rather than half-configuring a client. Coordinates come from the Appwrite Seam Contract registry
 (referenced by URL, never copied); the API key is an operator slot:
 
 ```bash
@@ -157,9 +157,7 @@ APPWRITE_DATASTORE_API_KEY=...
 # Production-forecasts store (input)
 APPWRITE_PROD_FORECASTS_BUCKET_ID=production_forecasts
 APPWRITE_PROD_FORECASTS_BUCKET_NAME=Production Forecasts
-APPWRITE_PROD_FORECASTS_COLLECTION_ID=...   # TODO: verify against live Appwrite — the
-                                            # previously-documented `forecasts_metadata`
-                                            # was found NOT to exist (un_fao postmortem)
+APPWRITE_PROD_FORECASTS_COLLECTION_ID=production_forecasts
 APPWRITE_PROD_FORECASTS_COLLECTION_NAME=Production Forecasts
 
 # UN FAO store (output)

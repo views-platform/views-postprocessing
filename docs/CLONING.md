@@ -35,7 +35,7 @@ Four declarations, and nothing may be inferred:
 ### 2. Your store coordinates — `unfao/appwrite_env.py`
 
 The env-var names your delivery requires, validated fail-loud before any store is
-constructed. Names come from the **PLATFORM-001 coordinate registry** (homed in
+constructed. Names come from the **Appwrite Seam Contract's coordinate registry** (homed in
 views-appwrite) and are referenced **by URL at a pinned commit, never copied**. The
 secret stays an operator slot.
 
@@ -53,7 +53,7 @@ defect became three (register C-40); pipeline-core declines to offer the surface
 that refusal is deliberate. Write a thin client against the SDK, as views-faoapi did.
 
 **Get your own key before the first run, not after.**
-Free at t=0, a migration later. One key per identity per environment (PLATFORM-001
+Free at t=0, a migration later. One key per identity per environment (the Appwrite Seam Contract
 §5.3). Do not reuse another service's key — this repository ran for months under a key
 named for pipeline-core, and nobody could state its scopes from evidence.
 
