@@ -76,9 +76,11 @@ waiting for an audit.
 
 ## Rationale
 
-- **Screaming architecture:** the categories now match the package layout — `delivery/`
-  (invariants), `unfao/extraction.py` (seam), `unfao/enrichment.py` + `data/` (enrichment),
-  `unfao/managers/` (orchestration). A reader can infer responsibilities from the structure.
+- **Screaming architecture:** the categories match the package layout — `delivery/`
+  (invariants), `contract/` (the machinery: `wire/`, the `frame_extraction.py` seam, the
+  GAUL asset, artifact builders, external-fact readers), `unfao/` (the partner's product and
+  its manager). A reader can infer responsibilities from the structure, and the one-way
+  dependency `unfao/ → contract/ → delivery/` is enforced by test, not convention.
 - **DIP / OCP:** primitives are the abstraction the invariants depend on; the representation
   seam is the single point of change for a representation migration (C-40), so the invariants
   are closed against it.

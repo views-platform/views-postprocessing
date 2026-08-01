@@ -75,11 +75,10 @@ The post-forecast slot, for the FAO path, is **delivery + integrity** — not st
 
 | Stage | Method(s) | What actually happens |
 |-------|-----------|-----------------------|
-| Read | `_read_historical_data`, `_read_forecast_data` | Historical actuals from datafactory (via the inherited loader); the forecast file from the Appwrite prediction store. |
-| Transform | `_transform` → `_append_metadata` | **Joins GAUL metadata** onto each frame (`GaulLookupEnricher`, a parquet lookup). It does **not** transform prediction values. |
-| Validate | `_validate`, `_check_coverage` | Null-gate on the 9 metadata columns; region coverage + excluded-cell guards. |
-| Clip | `_clip_observed_history` | Drops fabricated zero-padded tail months from the *historical* actuals (the forecast is untouched). |
-| Save | `_save` | Writes parquet, uploads to the FAO bucket with structured provenance. |
+| Read | `_read_historical_data`, `_read_forecast_data` | Historical actuals as a `views_frames.FeatureFrame` from datafactory; the forecast **resolved** from the prediction store — manifests and pinned shard ids only, no heavy bytes. Both refuse a launch config that has not declared them. Fabricated tail months are clipped here, at the read. |
+| Transform | `_transform` | **A deliberate no-op.** Geography is not joined into either payload: the historical artifact attaches it at build time, and the forecast ships it as the §5 GAUL sidecar. The hook stays so the Template Method's phases remain truthful. |
+| Validate | `_validate`, `_check_coverage` | Asserts the read produced what the save needs, then region coverage + excluded-cell guards. The metadata null-gate fires at artifact build (`historical.assert_metadata_complete`); the forecast's guarantees are the wire's own verified chain. |
+| Save | `_save` | Streams the run one target at a time — shards, sidecar, then the manifest **last** as the commit marker — plus the historical artifact. |
 
 **The statistics live downstream — by design:**
 - **Draw collapse** (MAP / HDI / scenario summaries) happens in **views-faoapi**
@@ -102,16 +101,21 @@ The input-integrity guards are split into **two homes** on purpose:
 
 - `views_postprocessing/delivery/` — **representation-free invariants**. Primitives only
   (sets of ints, numpy arrays, scalars, dicts). **No pandas, no views_frames.** Each is a
-  pure rule that raises or passes: `coverage.py`, `identity.py`, `observed_range.py`,
-  `provenance.py`.
-- `views_postprocessing/unfao/extraction.py` — **the representation seam**. The *only*
-  pandas-aware module the invariants are fed from. It turns the pandas frame into the
-  primitives the invariants consume.
+  pure rule that raises or passes: `coverage.py`, `draws.py`, `parity.py`,
+  `observed_range.py`, `provenance.py`.
+- `views_postprocessing/contract/frame_extraction.py` — **the representation seam**. It
+  turns a `views_frames` frame into the primitives the invariants consume.
 
 The manager **calls** the invariants; it never makes them methods of itself. The pattern is
 always `extract (seam) → call invariant → raise`. This is why the guards are testable
-without the framework, and why they survive a representation change untouched (only the seam
-changes — see Seam B).
+without the framework, and why they survive a representation change untouched.
+
+**And they did survive one.** This seam was `unfao/extraction.py` (pandas) until #151.
+When the pandas delivery was retired, the invariants needed **no change at all** — only
+which module fed them. That is the design working exactly as this section claims, and it is
+the evidence for the claim rather than a restatement of it. `delivery/identity.py` was also
+retired (#150): the forecast-identity rule now lives in the wire layer, checked per shard
+header against declared provenance — see §5 Seam C.
 
 ### Seam B — the inherited pandas base, and the C-40 gate
 
@@ -122,14 +126,18 @@ pieces are inherited, not chosen:
 2. the dataset container (`PGMDataset`, a pandas `DataFrame` with object-dtype cells),
 3. the prediction-store parquet I/O.
 
-So **a views-frames frame cannot flow end-to-end through this repo today.** Data enters as
-parquet→pandas and leaves as parquet. The only views-frames code here is
-`unfao/frames.py` — an *unused conformance adapter* (it converts pandas → frame to prove
-the data satisfies the views-frames contract, but the live path never calls it).
+**This section described the state until 2026-07-27; it is no longer true and is kept
+because the shape of the fix is worth reading.** A views-frames frame now flows end-to-end:
+historical actuals arrive as a `FeatureFrame` via pipeline-core's `get_feature_frame`
+(#126 — this repo was its first production consumer), the forecast interior is
+`PredictionFrame`, and `contract/frames.py` is the **live constructor** every interior frame
+is built through — not the unused adapter it was when this was written, and it supports
+`S > 1`. pandas survives in exactly one module, `contract/enrichment.py`, on the
+build/verification path.
 
-This is **register C-40**. Closing it is upstream epic work in pipeline-core (a frame input
-loader, a frame container, frame store I/O) — not something this repo can do alone. The half
-*this* repo owns is keeping the invariants representation-free (Seam A), so the eventual swap
+What **remains** of **register C-40** is narrower than this paragraph implies: the manager is
+still a concrete pipeline-core subclass, and that de-inheritance is gated on pipeline-core
+3.0.0. The representation half is done. The half
 is a one-seam change.
 
 ### Seam C — points vs draws (uncertainty)
@@ -144,7 +152,7 @@ samples per cell). This is where representation matters most:
   every parquet/API boundary, a silent resize on mismatched sample counts).
 
 Today this repo ships **point-shaped** data (`pred_*_best` / `pred_*_prob`); its
-`unfao/frames.py` adapter even hardcodes `S=1`. Carrying real `(N, S)` draws **uncollapsed**
+`contract/frames.py` constructor takes a declared `(N, S)` array and refuses to infer or reshape — `S=1` is the caller's declaration of a point, not a hardcode. Carrying real `(N, S)` draws **uncollapsed**
 is tracked as **#45** (the producer half), and it is gated by Seam B (C-40). The uncertainty
 requirement is the strongest reason to close C-40.
 
@@ -155,17 +163,29 @@ requirement is the strongest reason to close C-40.
 ```
 views_postprocessing/
 ├── delivery/            representation-free invariants (primitives; no pandas)
-│   ├── coverage.py        region cell-count + excluded-cell guards (S1/S4)
-│   ├── identity.py        forecast-file identity guard (S3)
-│   ├── observed_range.py  fabricated-month decision (S2)
-│   └── provenance.py      structured upload provenance (S5)
-├── unfao/               FAO-specific delivery
-│   ├── extraction.py      THE pandas→primitives seam (Seam A)
-│   ├── enrichment.py      GaulLookupEnricher (the GAUL metadata join)
-│   ├── gaul_schema.py     the 9-column contract
-│   ├── source_metadata.py producer (datafactory) data-facts, e.g. last_valid_month_id
-│   ├── frames.py          views-frames conformance adapter (UNUSED by the live path)
-│   └── managers/unfao.py  UNFAOPostProcessorManager (the thin pipeline-core subclass)
+│   ├── coverage.py        region cell-count + excluded-cell guards
+│   ├── draws.py           the §6 no-collapse gate
+│   ├── parity.py          sidecar covers exactly the forecast's cells
+│   ├── observed_range.py  fabricated-month decision
+│   └── provenance.py      structured upload provenance
+├── contract/            HOW A DELIVERY IS BUILT — partner-neutral, reusable by a clone
+│   ├── wire/              the ADR-013 contract (header, shard, sidecar, run_manifest,
+│   │                        sink, source_selection, naming)
+│   ├── frames.py          PredictionFrame / TargetFrame constructors (LIVE)
+│   ├── frame_extraction.py  THE representation seam (Seam A)
+│   ├── track_a_source.py  Hop-A archive → frame
+│   ├── historical.py      the historical artifact, built pandas-free
+│   ├── gaul_lookup.py     the GAUL asset: path, version, one read per delivery
+│   ├── gaul_schema.py     the 9-column contract, declared as data
+│   ├── enrichment.py      GaulLookupEnricher (build/verification path; the last pandas)
+│   ├── source_metadata.py producer (datafactory) facts, e.g. last_valid_month_id
+│   ├── store_metadata.py  prediction-store facts
+│   └── launch_config.py   the delivery mode the launcher must declare
+├── unfao/               WHO A DELIVERY IS FOR — the only FAO-specific code
+│   ├── product.py         targets, consumer document name, S_MIN, upload interlock
+│   ├── appwrite_env.py    the declared store coordinates
+│   └── managers/unfao.py  UNFAOPostProcessorManager (406 lines; the only importer
+│                            of views_pipeline_core)
 └── data/gaul_lookup.parquet   the precomputed GAUL lookup (ADR-011)
 ```
 

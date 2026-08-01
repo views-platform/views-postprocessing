@@ -8,7 +8,7 @@ The **post-forecast delivery layer** for the **VIEWS** (Violence Early-Warning S
 pipeline. It takes finished VIEWS forecasts, enriches them with geographic metadata,
 guards their integrity, and delivers them to a partner store.
 
-The only live delivery today is the **UN FAO** path (`views_postprocessing/unfao/`).
+The only live delivery today is the **UN FAO** path — its product in `views_postprocessing/unfao/`, running on the partner-neutral machinery in `contract/`.
 
 > **New here? Read [`docs/architecture/role_and_seams.md`](docs/architecture/role_and_seams.md) first.**
 > It explains what this repo is, how it relates to pipeline-core / faoapi / datafactory,
@@ -50,7 +50,7 @@ Requires **Python 3.11–3.14**.
 | Package | Version | Why |
 |---------|---------|-----|
 | `views-pipeline-core` | `>=2.1.3,<3.0.0` | The framework: lifecycle base classes, data loader, dataset container, Appwrite/datastore tools |
-| `views-frames` | `>=1.0,<2` | The frame data contract (used by the conformance adapter; the live path is still pandas — see C-40) |
+| `views-frames` | `>=1.0,<2` | The frame data contract — **the live delivery representation** since #126. pandas survives only in `contract/enrichment.py` (the build/verification path) |
 
 ---
 
@@ -80,7 +80,7 @@ In practice the manager is constructed and run by **views-models**
 
 ### Output schema (geographic metadata columns)
 
-`GaulLookupEnricher` adds these 9 columns (the contract in `unfao/gaul_schema.py`):
+These 9 columns are the delivered geography contract (declared in `contract/gaul_schema.py`):
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -107,27 +107,46 @@ views-postprocessing/
 │   ├── ADRs/                             # decisions + rationale
 │   └── CICs/                             # class-level contracts
 └── views_postprocessing/
-    ├── delivery/                 # representation-free integrity invariants (no pandas)
+    ├── delivery/                 # WHAT MAKES A DELIVERY VALID — representation-free
     │   ├── coverage.py             # region cell-count + excluded-cell guards
-    │   ├── identity.py             # forecast-file identity guard
+    │   ├── draws.py                # the §6 no-collapse gate
+    │   ├── parity.py               # sidecar covers exactly the forecast's cells
     │   ├── observed_range.py       # fabricated-month decision
     │   └── provenance.py           # structured upload provenance
-    ├── unfao/                    # FAO-specific delivery
-    │   ├── extraction.py           # the pandas → primitives seam
-    │   ├── enrichment.py           # GaulLookupEnricher (the GAUL join)
-    │   ├── gaul_schema.py          # the 9-column metadata contract
-    │   ├── source_metadata.py      # producer (datafactory) data-facts
-    │   ├── frames.py               # views-frames conformance adapter (not on the live path)
-    │   └── managers/unfao.py       # UNFAOPostProcessorManager
+    ├── contract/                 # HOW A DELIVERY IS BUILT — partner-neutral
+    │   ├── wire/                    # the ADR-013 contract (header, shard, sidecar,
+    │   │                            #   run_manifest, sink, source_selection, naming)
+    │   ├── frames.py                # PredictionFrame / TargetFrame constructors
+    │   ├── frame_extraction.py      # THE representation seam (frame → primitives)
+    │   ├── track_a_source.py        # Hop-A archive → frame
+    │   ├── historical.py            # the historical artifact, built pandas-free
+    │   ├── gaul_lookup.py           # the GAUL asset: path, version, one read
+    │   ├── gaul_schema.py           # the 9-column contract, declared as data
+    │   ├── enrichment.py            # GaulLookupEnricher (build/verification path)
+    │   ├── source_metadata.py       # producer (datafactory) facts
+    │   ├── store_metadata.py        # prediction-store facts
+    │   └── launch_config.py         # the delivery mode the launcher must declare
+    ├── unfao/                    # WHO A DELIVERY IS FOR — the only FAO-specific code
+    │   ├── product.py               # targets, consumer name, S_MIN, upload interlock
+    │   ├── appwrite_env.py          # the declared store coordinates
+    │   └── managers/unfao.py        # UNFAOPostProcessorManager
     └── data/gaul_lookup.parquet  # the precomputed GAUL lookup (ADR-011)
 ```
+
+**Dependencies point one way only:** `unfao/` → `contract/` → `delivery/`. Nothing in
+`contract/` may import `unfao/` — that is what lets a new partner reuse the machinery
+without inheriting FAO, and it is enforced by `tests/test_clone_readiness.py`, not by
+convention. See [`docs/CLONING.md`](docs/CLONING.md).
 
 ---
 
 ## Configuration
 
-The FAO delivery reads Appwrite connection settings from the environment (the manager calls
-`os.getenv` — there is no startup validation yet, tracked in #11):
+The FAO delivery reads Appwrite connection settings from the environment. The required
+names are **declared** in `unfao/appwrite_env.py` and validated fail-loud before any store
+is constructed — a missing or empty variable raises, naming every one that is absent,
+rather than half-configuring a client. Coordinates come from the PLATFORM-001 registry
+(referenced by URL, never copied); the API key is an operator slot:
 
 ```bash
 # Appwrite connection (secrets)
@@ -163,7 +182,7 @@ APPWRITE_METADATA_DATABASE_NAME=...
 | [`docs/architecture/role_and_seams.md`](docs/architecture/role_and_seams.md) | **Start here** — role vs the sibling repos + internal seams |
 | [`docs/ADRs/`](docs/ADRs/) | Architecture decisions (esp. ADR-011 mapper→lookup; ADR-012 ontology) |
 | [`docs/CICs/`](docs/CICs/) | Class intent contracts (`UNFAOPostProcessorManager`, `GaulLookupEnricher`) |
-| `reports/technical_risk_register.md` | Tracked risks (C-40 the pandas gate, C-25/C-30/C-15 the delivery guards) |
+| `reports/technical_risk_register.md` | Tracked risks — C-40 (the remaining pipeline-core inheritance), C-30/C-15 (delivery guards), C-43 (enrichment value verification) |
 
 ---
 
