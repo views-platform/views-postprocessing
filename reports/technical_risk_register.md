@@ -80,10 +80,10 @@ covered a single open entry (see Historical clusters below).
 
 ### Cluster M: Five open concerns, one upstream publish
 **Root cause:** this repo pins `views-pipeline-core >=2.1.3,<3.0.0`, which resolves 2.3.0 from PyPI. Every fix and every removal below exists **only** on pipeline-core's unreleased 3.0.0. None is engineering work here; all five arrive together with one pin bump, and none can be taken before that bump.
-**Entries:** **C-44** (the bump itself, deliberately held), **C-62** (the transitive drag — 3.4 GB venv, 31 of 32 Dependabot alerts), **C-72** (the pyarrow CVE whose fix our ceiling excludes), **C-73** (the Tier-2 stale-run selection defect, fixed upstream in their #341), **C-07** (the undeclared `appwrite` dependency, whose transitive path their #345 withdraws).
+**Entries:** **C-44** (the bump itself, deliberately held), **C-62** (the transitive drag — 3.4 GB venv, 31 of 32 Dependabot alerts), **C-72** (the pyarrow CVE whose fix our ceiling excludes), **C-73** (the Tier-2 stale-run selection defect, fixed upstream in their #341), **C-58** (the Tier-2 auto-provision-instead-of-raise, fixed upstream in their #322/#331/#332), **C-07** (the undeclared `appwrite` dependency, whose transitive path their #345 withdraws).
 **Highest tier:** 2 (C-73)
 **Fix strategy:** none here. The chain is **views-evaluation 0.5.0 → views-pipeline-core 3.0.0 → this repo's pin bump**, and it moves on the maintainer's platform-wide release signal, not on engineering. What this repo owes at the bump is one verification, recorded in C-73's trigger: **confirm the delivery selects the run it expects**, comparing the resolved `run_id` against the producer's newest published run.
-**Resolution scope:** Full for C-62, C-72, C-73, C-07; C-44 closes as the act itself.
+**Resolution scope:** Full for C-62, C-72, C-73, C-58, C-07; C-44 closes as the act itself. **Six entries, two of them Tier 2, on one publish.**
 **Why this cluster is worth having:** it stops five entries reading as five backlog items. They are one blocked action, and the register should say so rather than let a reader triage them separately five times.
 
 ### Historical clusters (mapper era — all resolved or moot)
@@ -211,6 +211,8 @@ The FAO API contract (Release Note 01, Topic C, confirmed and locked) specifies:
 
 **D-06 resolved (2026-06-03):** Investigation of views-faoapi confirms NO renaming layer exists. The `FAOApiManager` passes postprocessor column names through to the HTTP response unmodified. FAO receives `country_iso_a3`, `admin1_gaul1_code`, `pg_xcoord` — not the contract-specified names. The column renaming from Release Note 01 Topic C was never implemented in any repo.
 
+**Cross-referenced upstream 2026-08-01** on views-faoapi **#222** (their output-schema epic, which mentions column renaming) asking directly whether the Topic-C rename is in its scope — with an explicit offer to close this entry pointing there if so, or to file it properly if not. Open fourteen months without a home in the repo that owns the fix.
+
 **This is NOT this repo's responsibility to fix.** The schema mismatch is between the API layer (views-faoapi) and the FAO contract. The postprocessor should keep its current column names — changing them now would break views-faoapi's `FAO_PGMDataset._METADATA_COLS` validation. The renaming belongs in views-faoapi as a response-formatting step, coordinated with FAO.
 
 See also C-17 (RESOLVED — implicit column naming between mapper and manager), D-06 (resolved: no renaming layer exists).
@@ -233,6 +235,8 @@ See also C-17 (RESOLVED — implicit column naming between mapper and manager), 
 
 Location is in views-pipeline-core, but the impact lands on this repo's FAO delivery; registered here because the consuming call and the delivery responsibility are here.
 
+**Filed upstream 2026-08-01 as views-pipeline-core#366**, carrying the open question this entry could not answer from this seat: **does `get_feature_frame` inherit the same unconditional `fillna(0.0)`, or does the frame-native fetch propagate NaN?** That decides whether C-26 is live (run-0 shipped 28.4M historical rows through the frame path) or historical (it describes only the branch #149 retired). The entry stays Tier 1 until answered — deliberately not downgraded on a guess.
+
 See also C-25 (same data path, wrong-file variant), C-15 (upload provenance would aid post-hoc detection).
 
 **OPEN VERIFICATION QUESTION (review-rr 2026-07-31) — tier held at 1 pending an answer.** `fillna` has **zero occurrences in this repo**; the fabrication site is entirely upstream. Since #126, the historical path run-0 actually used is `get_feature_frame` (`_read_historical_frame`), **not** the pandas `get_data` branch that reaches `dataloaders.py:1208`. It could not be verified from this seat (views-pipeline-core is deliberately absent from test environments, per repo convention). **Question for the pipeline-core seat: does `get_feature_frame` inherit the same unconditional `fillna(0.0)`, or does the frame-native fetch propagate NaN?** If it propagates NaN, this Tier 1 now describes only the legacy branch (retirement is the named post-run-0 follow-up) and should be re-tiered. **Do not downgrade on inspection of this repo alone** — the deliverable ran through the unverified path at global scale on 2026-07-27.
@@ -248,6 +252,8 @@ See also C-25 (same data path, wrong-file variant), C-15 (upload provenance woul
 | Source | `expert-code-review` (2026-06-12) |
 | Trigger | When bumping views-pipeline-core, or changing this postprocessor's queryset/config — verify a `ViewsDataLoader` construction failure surfaces its real exception rather than a downstream `AttributeError`; today it is caught bare, logged as "No Queryset detected" with `exc_info=False`, and replaced with `self._data_loader = None` |
 | Location | views-pipeline-core `managers/model/model.py:883-902`; crash sites `views_postprocessing/unfao/managers/unfao.py:105` (`_read_historical_frame`), `:134` (`_read_historical_data`) |
+
+**Filed upstream 2026-08-01 as views-pipeline-core#367**, cross-referenced to their **#168** (views-pipeline-core C-166, narrow Appwrite exception handling) as the same defect class on a different call path — catch broadly, guess at the cause, discard the evidence — worth deciding once rather than twice.
 
 `_initialize_data_loader()` catches bare `Exception`, discards the traceback, and nulls the loader. The failure then surfaces as `AttributeError: 'NoneType' object has no attribute 'get_data'` in `_read_historical_data` — the operator debugs the postprocessor while the cause (import error, malformed config, path issue) was erased at construction time. Cost is time-to-diagnosis during exactly the runs where time matters.
 
@@ -496,6 +502,10 @@ Cross-refs: C-33 (store identity still hardcoded per store — the same env surf
 The practical exposure here is bounded but real. Coordinates are validated for **presence** (`appwrite_env.assert_env_declared`, D6) — never for **correctness**, which is unobservable from this seat by design: this repo has no console access and no introspection, and none should be added, because scopes and coordinates are *declared, not discovered*. Run-0 delivered to the correct bucket, which proves the currently-configured coordinates are right; it does **not** prove the guard exists, because a correct coordinate never exercises the auto-create branch. The nearest thing to a detector today is the `_ContractStorePort.upload` orphan check (`unfao.py:56-64`) and the manifest-last commit marker, neither of which catches "wrote successfully to the wrong place."
 
 Tier 2 rather than 1: no *value* is corrupted — the payload is exactly right, it lands in the wrong container — and the consequence is visible downstream (FAO serves nothing) rather than being wrong-but-plausible data. The precedent is already on record: six stranded `orange_ensemble` forecast documents sat invisible in `unfao_bucket` for months (ADR-013 Post-adoption, 2026-07-15) because a *name* filter mismatched — the same class of silent mis-addressing, discovered only by a deliberate read-only audit.
+
+**Update 2026-08-01 — the upstream fix has LANDED, and this entry now rides the 3.0.0 bump (Cluster M).** views-pipeline-core **#322** (*"[þing-01] ADR-046 §5 + write-path raise-by-default"*) is **CLOSED**, as are **#331** (relocate the four `create_*` sites into a dedicated provisioning module) and **#332** (assert the delivery path does not import provisioning). That is D5's ruling implemented: provisioning moved out of the ordinary write path, and the write path raises by default.
+
+**We do not have it yet.** All three landed on their `development` (3.0.0); our pin resolves 2.3.0 from PyPI, which still auto-creates. So this entry is **fixed upstream and live here** until the bump — the same shape as C-73. Added to **Cluster M**; verify at the bump that a wrong coordinate now raises rather than creating an empty target.
 
 **Not this repo's code to fix.** The fix belongs in views-pipeline-core (make provisioning an explicit opt-in parameter defaulting to off, per D5), and D5's drill ordering is fixed verbatim by the verdict: amend → ship raise → drill the raise path → stand up a test project → drill provisioning. This repo's available mitigations are a post-upload target assertion in `_ContractStorePort`, or a read-back count check after the manifest commits.
 
