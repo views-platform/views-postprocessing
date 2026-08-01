@@ -681,7 +681,15 @@ Cross-refs: **C-19** (RESOLVED — the ADR-008 log-before-raise sweep whose conv
 
 **The collision worth understanding — the fix and the contract point in opposite directions.** The five byte-parity failures this repo has treated as "known local toolchain noise" all session are precisely this: the local environment runs **pyarrow 23.0.1 — the patched version** — while CI runs the pinned 16.1.x, and the two produce **different bytes** for the same input. So upgrading to the patched pyarrow is not a dependency bump; it **changes the §10 golden fixture**, which ADR-013 declares normative and which views-faoapi verifies against. Security remediation here is a **contract event**, not maintenance, and must be sequenced with the consumer.
 
-Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-46** (the datafactory version-state coupling), ADR-013 §10 (the byte-pinned fixture), views-pipeline-core **#280** (the platform pyarrow ceiling), views-faoapi (the reading half).
+**⚠ TWO CORRECTIONS to this entry, made the same day it was written (2026-08-01), on evidence gathered while filing the cross-repo issues.**
+
+**(a) views-faoapi is NOT exposed, and the platform ceiling is not uniform.** This entry implied the consumer shared our pin. It does not: faoapi pins **`pyarrow==23.0.1`** — the patched version — in its `pyproject.toml:31`, and it is the repo that actually reads the wire (`forecast/ingestion/wire_reader.py` → `arrow.load`). So nobody on the platform is currently exposed through this path, and the `<17` ceiling views-pipeline-core#280 exists to lift is binding on the **producers** only. One consumer has already moved past it, in production.
+
+**(b) The re-vendor obligation is stronger than "our fixture changes".** ADR-013 §10 is explicit: *"All three implementing repos' test suites consume the same bytes … The other two repos **vendor a copy** and carry a **pinned root-hash equality test** … A change to the fixture is a change to the contract."* Verified — faoapi's copy is at `tests/forecast/golden/wire_contract/SHA256SUMS`, pinned by `tests/forecast/test_wire_golden_fixture.py`. So the upgrade is a **coordinated three-repo re-vendor**, and it carries an undecided question: whether it bumps `contract_version` (the payload schema does not change, only the encoder's bytes — §10 says a fixture change *is* a contract change).
+
+**Filed, so the relocation is complete rather than assumed** (the C-08 lesson): **views-postprocessing#174** (the coordinating issue), **views-faoapi#348** (heads-up + two questions only their seat can answer), and a comment on **views-pipeline-core#280** adding the security dimension and the non-uniform-ceiling finding.
+
+Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-46** (the datafactory version-state coupling), ADR-013 §10 (the byte-pinned fixture), views-pipeline-core **#280** (the platform pyarrow ceiling), views-faoapi **#348** (the reading half), **#174**.
 
 ---
 
