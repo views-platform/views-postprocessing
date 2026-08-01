@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-01                           |
 | Total Concerns    | 73                                   |
-| Open Concerns     | 26                                   |
-| Resolved Concerns | 47                                   |
+| Open Concerns     | 24                                   |
+| Resolved Concerns | 49                                   |
 
 ---
 
@@ -77,6 +77,14 @@ covered a single open entry (see Historical clusters below).
 **What the cluster cost, measured:** the manager went 636 → **406 lines**, 14 config forks → **0 plus one refusal**, pandas importers 3 → **1**, lookup reads per delivery 3 → **1**. Nine register entries closed.
 
 **The lesson worth carrying, and it is D-11's:** WET-before-DRY was applied *correctly* — the pandas and frame seams ran as deliberate siblings through the migration, and a premature abstraction would have outlived the implementation it existed to unify. What went wrong was not the duplication; it was that the removal condition (*"until run 0 proves the contract path live"*) was written down without a **named trigger to act on**, so the box expired on 2026-07-27 and nobody opened it. D-11 predicted exactly this. **A deferral needs an owner and a trigger, not just a reason.**
+
+### Cluster M: Five open concerns, one upstream publish
+**Root cause:** this repo pins `views-pipeline-core >=2.1.3,<3.0.0`, which resolves 2.3.0 from PyPI. Every fix and every removal below exists **only** on pipeline-core's unreleased 3.0.0. None is engineering work here; all five arrive together with one pin bump, and none can be taken before that bump.
+**Entries:** **C-44** (the bump itself, deliberately held), **C-62** (the transitive drag — 3.4 GB venv, 31 of 32 Dependabot alerts), **C-72** (the pyarrow CVE whose fix our ceiling excludes), **C-73** (the Tier-2 stale-run selection defect, fixed upstream in their #341), **C-07** (the undeclared `appwrite` dependency, whose transitive path their #345 withdraws).
+**Highest tier:** 2 (C-73)
+**Fix strategy:** none here. The chain is **views-evaluation 0.5.0 → views-pipeline-core 3.0.0 → this repo's pin bump**, and it moves on the maintainer's platform-wide release signal, not on engineering. What this repo owes at the bump is one verification, recorded in C-73's trigger: **confirm the delivery selects the run it expects**, comparing the resolved `run_id` against the producer's newest published run.
+**Resolution scope:** Full for C-62, C-72, C-73, C-07; C-44 closes as the act itself.
+**Why this cluster is worth having:** it stops five entries reading as five backlog items. They are one blocked action, and the register should say so rather than let a reader triage them separately five times.
 
 ### Historical clusters (mapper era — all resolved or moot)
 
@@ -451,24 +459,6 @@ See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the dat
 
 ---
 
-### C-47: Stale untracked `reconciliation/__pycache__/` survives the module's retirement and misrepresents the package tree `[backlog]`
-
-| Field | Value |
-|-------|-------|
-| ID | C-47 |
-| Tier | 4 — pure hygiene: not importable (no `__init__.py`, no sources), untracked, no correctness or reliability impact; its only effect is misleading humans and tools that inventory the tree |
-| Source | `manual` (2026-07-19) — maintainer question "I thought reconciliation had moved out?" during the ADR-013 read-through; directory listing showed a phantom `reconciliation/` package |
-| Trigger | When the D-12 repo-rename assessment (or any repo-structure audit / fresh assimilation) next inventories `views_postprocessing/` and takes the phantom `reconciliation/` dir as evidence the module still lives here — as happened in-session 2026-07-19 |
-| Location | `views_postprocessing/reconciliation/__pycache__/` (untracked bytecode leftovers; sources deleted in #62 / PR #63, `6af2020`) |
-
-The reconciliation retirement (C-42 cutover leg C2) deleted all tracked sources, but the untracked `__pycache__/` bytecode directory survived on the working machine. Directory listings therefore still show a `views_postprocessing/reconciliation/` package, which already misled one in-session inspection into reporting the migration unfinished. Deletion is a one-liner (`rm -rf views_postprocessing/reconciliation`) deferred by maintainer decision; tracked as a GitHub issue. Resolves on deletion (verify `git status` stays clean and the vpp suite green — trivially expected).
-
-Cross-refs: C-42 (RESOLVED — the migration this is residue of), D-12 (the rename assessment it could mislead), issue #103 (the live tracker).
-
-**Verified still present 2026-07-31 (review-rr):** `views_postprocessing/reconciliation/__pycache__/` holds 6 stale `.pyc` files (`proportional`, `grouping`, `module`, `frames`, `validation`, `__init__` — all `cpython-310`). Directory listings still show a phantom `reconciliation/` package. **Tagged `[backlog]`:** Tier 4, one-line fix, already tracked as issue #103 — kept here for completeness, not active risk management. Resolves on deletion.
-
----
-
 ### C-57: PLATFORM-001 coordinate registry is referenced by URL, so nothing detects drift between it and this repo's declared environment
 
 | Field | Value |
@@ -588,7 +578,7 @@ Cross-refs: C-35 (RESOLVED — the `-1` defect class this guards against), C-59 
 | ID | C-62 |
 | Tier | 3 — no correctness or reliability impact: the packages are installed but never imported. The cost is **measured at 3.4 GB of virtualenv** for a repo that writes parquet files, plus an architectural excision that is **real in the source but incomplete in the environment**, landing on the first-ever release. |
 | Source | `manual` (2026-07-31) — maintainer challenge during the development→main sweep ("Is geopandas back? Is it still here?"), verified against `poetry.lock` and the sibling checkouts |
-| Trigger | When cutting this repo's first release (**#125**), or when taking the views-pipeline-core 3.0.0 bump (**C-44**) — verify `geopandas` and `torch` have left the resolved dependency tree. Until 3.0.0 is published, they cannot. |
+| Trigger | **The first half FIRED on 2026-08-01** — `1.0.0` was tagged and this drag shipped with it. Remaining trigger: when taking the views-pipeline-core 3.0.0 bump (**C-44**), verify `geopandas` and `torch` have left the resolved dependency tree. Also re-check before any *PyPI* publish, which is the point at which the footprint reaches someone other than this team. |
 | Location | `poetry.lock` (`geopandas 1.0.1`, `optional = false`); `pyproject.toml:13` (`views-pipeline-core = ">=2.1.3,<3.0.0"`, which resolves to 2.3.0) |
 
 This repo declares exactly three dependencies — `views-pipeline-core`, `views-frames`, `pyarrow` — and imports **zero** geospatial libraries. Verified 2026-07-31: the only three mentions of `geopandas`/`shapely` in `.py`/`.toml` are assertions of its *absence* (`enrichment.py:9`, `build_gaul_lookup.py:11`) and a doc-accuracy test that **bans the word** (`tests/test_doc_accuracy.py:29`). C-39's deletion held completely at the source level.
@@ -626,24 +616,6 @@ This does not make the entry more urgent; it makes it **measurable**. The 3.0.0 
 **⚠ This entry pulls in the OPPOSITE direction to C-44 — deliberately, and the tension should stay visible.** C-44 says *do not take the 3.0.0 bump* until the platform runs smoothly on `development` across all repos (a standing maintainer constraint, and the right call). C-62 records what *waiting* costs: every day on the 2.3.0 pin is a day this repo ships an environment contradicting its own architecture. Neither entry overrides the other; together they say "the bump is held on purpose, and here is the bill." Registered separately rather than folded into C-44 precisely so the bill is not hidden inside the entry arguing for the delay.
 
 Cross-refs: **C-44** (the held bump — same action, opposing rationale), **C-39** (RESOLVED — the source-level deletion this shows is environment-incomplete), **C-07** (the sibling dependency-declaration concern: undeclared *direct* imports, where this is unwanted *transitive* installs), **C-40** (Cluster G — the inherited pipeline-core surface this arrives through), #125 (the release this bites at), views-pipeline-core #319 / #313 (the publish that resolves it), views-datafactory#387 (the same audit's cross-repo finding). **Cluster G.**
-
----
-
-### C-63: A launch config that omits `wire_contract` silently routes into retired code instead of failing
-
-| Field | Value |
-|-------|-------|
-| ID | C-63 |
-| Tier | 2 — the repo that authored ADR-003 ("authority of declarations over inference") infers its own delivery mode from the *absence* of a config key. A clone, a config refactor, or a typo selects the retired pandas path with no signal; that path's uploads also discard their failure result (#145), so the second failure is silent too. Not Tier 1: the retired path still produces a valid artifact, so this is wrong-path-taken, not wrong-data-shipped. |
-| Source | `repo-assimilation` (2026-07-31) — clone-readiness pass |
-| Trigger | When writing the launch config for **views-crafdapi** or **views-productionapi**, or when refactoring views-models' `config_meta.py` — verify the manager *raises* on a missing `wire_contract`/`data_format` rather than falling back. It does not today. |
-| Location | `views_postprocessing/unfao/managers/unfao.py:233`, `:294`, `:323`, `:409`, `:520` (the `wire_contract` forks); `:130` (the `data_format` fork); views-models `postprocessors/un_fao/configs/config_meta.py:26-27`, `config_queryset.py:62` (the only place both are declared) |
-
-Two **independent** dispatch axes give four theoretical delivery modes, of which production uses exactly one: `declared_data_format(queryset) == "feature_frame"` (`:130`) selects the frame-native historical read, and `configs.get("wire_contract")` (five sites) selects the ADR-013 contract delivery. Production declares both. **Omitting either silently selects the retired half** — `.get()` returning `None` is indistinguishable from a deliberate `False`.
-
-This is the inference this repo's own ADR-003 forbids, in the manager that orchestrates the delivery. The correct shape is one path plus a loud refusal naming the missing key.
-
-Cross-refs: **C-40** (the manager this lives in), **#145** (the retired path's silent upload failures — the second half of the same hazard), **D-11** (the concrete-siblings-and-delete decision whose "delete" step is outstanding), **Cluster L**.
 
 ---
 
@@ -786,6 +758,46 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-47: Stale untracked `reconciliation/__pycache__/` survives the module's retirement and misrepresents the package tree `[backlog]` — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-47 |
+| Resolved | 2026-08-01 |
+| Resolution | **Resolved by #177 (2026-08-01).** `views_postprocessing/reconciliation/` and its stale bytecode are deleted. The directory had survived the module's retirement in #62 (2026-06-26) and had already misled one in-session inspection into reporting the migration unfinished — which is the harm this entry recorded. Surfaced for action by the `/falsify` audit that disproved "there is nothing more to do in this repo"; it had been known and walked past for six weeks. |
+| Tier | 4 — pure hygiene: not importable (no `__init__.py`, no sources), untracked, no correctness or reliability impact; its only effect is misleading humans and tools that inventory the tree |
+| Source | `manual` (2026-07-19) — maintainer question "I thought reconciliation had moved out?" during the ADR-013 read-through; directory listing showed a phantom `reconciliation/` package |
+| Trigger | When the D-12 repo-rename assessment (or any repo-structure audit / fresh assimilation) next inventories `views_postprocessing/` and takes the phantom `reconciliation/` dir as evidence the module still lives here — as happened in-session 2026-07-19 |
+| Location | `views_postprocessing/reconciliation/__pycache__/` (untracked bytecode leftovers; sources deleted in #62 / PR #63, `6af2020`) |
+
+The reconciliation retirement (C-42 cutover leg C2) deleted all tracked sources, but the untracked `__pycache__/` bytecode directory survived on the working machine. Directory listings therefore still show a `views_postprocessing/reconciliation/` package, which already misled one in-session inspection into reporting the migration unfinished. Deletion is a one-liner (`rm -rf views_postprocessing/reconciliation`) deferred by maintainer decision; tracked as a GitHub issue. Resolves on deletion (verify `git status` stays clean and the vpp suite green — trivially expected).
+
+Cross-refs: C-42 (RESOLVED — the migration this is residue of), D-12 (the rename assessment it could mislead), issue #103 (the live tracker).
+
+**Verified still present 2026-07-31 (review-rr):** `views_postprocessing/reconciliation/__pycache__/` holds 6 stale `.pyc` files (`proportional`, `grouping`, `module`, `frames`, `validation`, `__init__` — all `cpython-310`). Directory listings still show a phantom `reconciliation/` package. **Tagged `[backlog]`:** Tier 4, one-line fix, already tracked as issue #103 — kept here for completeness, not active risk management. Resolves on deletion.
+
+---
+
+### C-63: A launch config that omits `wire_contract` silently routes into retired code instead of failing — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-63 |
+| Resolved | 2026-08-01 |
+| Resolution | **Resolved by #149 (epic #148), and this entry simply never moved.** The fix landed on 2026-07-31: the manager carries **zero** `configs.get("wire_contract")` branches and **two** `launch_config.assert_*` calls, so an incomplete launch config is refused by name rather than routed into retired code. Verified against the tree during the 2026-08-01 `review-rr` pass. The entry sat under Open for a day with its defect already gone — a drift class `test_register_integrity.py` cannot catch, because that guard checks whether a *heading* says RESOLVED, not whether the *code* is fixed. |
+| Tier | 2 — the repo that authored ADR-003 ("authority of declarations over inference") infers its own delivery mode from the *absence* of a config key. A clone, a config refactor, or a typo selects the retired pandas path with no signal; that path's uploads also discard their failure result (#145), so the second failure is silent too. Not Tier 1: the retired path still produces a valid artifact, so this is wrong-path-taken, not wrong-data-shipped. |
+| Source | `repo-assimilation` (2026-07-31) — clone-readiness pass |
+| Trigger | When writing the launch config for **views-crafdapi** or **views-productionapi**, or when refactoring views-models' `config_meta.py` — verify the manager *raises* on a missing `wire_contract`/`data_format` rather than falling back. It does not today. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:233`, `:294`, `:323`, `:409`, `:520` (the `wire_contract` forks); `:130` (the `data_format` fork); views-models `postprocessors/un_fao/configs/config_meta.py:26-27`, `config_queryset.py:62` (the only place both are declared) |
+
+Two **independent** dispatch axes give four theoretical delivery modes, of which production uses exactly one: `declared_data_format(queryset) == "feature_frame"` (`:130`) selects the frame-native historical read, and `configs.get("wire_contract")` (five sites) selects the ADR-013 contract delivery. Production declares both. **Omitting either silently selects the retired half** — `.get()` returning `None` is indistinguishable from a deliberate `False`.
+
+This is the inference this repo's own ADR-003 forbids, in the manager that orchestrates the delivery. The correct shape is one path plus a loud refusal naming the missing key.
+
+Cross-refs: **C-40** (the manager this lives in), **#145** (the retired path's silent upload failures — the second half of the same hazard), **D-11** (the concrete-siblings-and-delete decision whose "delete" step is outstanding), **Cluster L**.
+
+---
 
 ### C-09: Publish workflow validates version against wrong PyPI package — RESOLVED
 
