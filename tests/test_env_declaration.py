@@ -7,16 +7,20 @@ repo's manager reached inside views-models' checkout for its environment. The
 verdict retired it — the launcher declares its env sourcing (views-models M3,
 merged), and this package only validates (verdict D6).
 
-Imports only `unfao.appwrite_env` (dependency-light by design); the manager
-module itself needs views-pipeline-core, absent in test environments, so the
-manager-side facts are pinned by source scan — the repo's standing pattern.
+Imports `unfao.appwrite_env` and its sibling `contract.launch_config` — both are
+dependency-light by design (no views-pipeline-core, no pandas), which is what
+lets them be exercised directly here. The manager module is not: it needs
+views-pipeline-core, absent in test environments, so the manager-side facts are
+pinned by source scan instead — the repo's standing pattern.
 """
 
+import logging
 import re
 from pathlib import Path
 
 import pytest
 
+from views_postprocessing.contract import launch_config
 from views_postprocessing.unfao import appwrite_env
 
 
@@ -94,6 +98,89 @@ def test_declared_names_match_the_manager_reads():
     # `_save`, whose Appwrite config duplicated `_unfao_appwrite_config` verbatim;
     # the two survivors are the production_forecasts read and the unfao_bucket write.
     assert text.count("appwrite_env.assert_env_declared(") == 2
+
+
+# ── ADR-008 across BOTH entry validators (S1 / #182, register C-71) ──────────
+#
+# `appwrite_env` asserts the launcher assembled the *environment*; `launch_config`
+# asserts it declared the *delivery mode*. They are deliberate siblings, NOT a
+# shared abstraction (WET before DRY — the trigger to extract is a THIRD such
+# module, #181). Siblings drift: `launch_config` was written in #149 by mirroring
+# `appwrite_env`, inherited its missing log call, was fixed in review, and left
+# the module it copied as the odd one out for two weeks.
+#
+# Parametrising the ADR-008 obligation over both is what stops that recurring —
+# and adding a third validator is one line here, not a new test.
+_REFUSALS = (
+    pytest.param(
+        lambda: appwrite_env.assert_env_declared(("VPP_S1_ABSENT_VAR",), store="test_store"),
+        EnvironmentError,
+        "VPP_S1_ABSENT_VAR",
+        id="appwrite_env.assert_env_declared",
+    ),
+    pytest.param(
+        lambda: launch_config.assert_contract_mode({}),
+        launch_config.LaunchConfigError,
+        launch_config.WIRE_CONTRACT_KEY,
+        id="launch_config.assert_contract_mode",
+    ),
+    pytest.param(
+        lambda: launch_config.assert_frame_native_historical("pandas_dataframe"),
+        launch_config.LaunchConfigError,
+        launch_config.FEATURE_FRAME_FORMAT,
+        id="launch_config.assert_frame_native_historical",
+    ),
+)
+
+
+@pytest.mark.parametrize("refuse,exc,expected_token", _REFUSALS)
+def test_every_entry_validator_logs_before_it_raises(refuse, exc, expected_token, caplog):
+    """ADR-008:48/51 — a structural refusal must leave a persistent record.
+
+    :48 requires raised structural failures to be logged at ERROR or higher; :51
+    that *"raising is not a substitute for logging."* A launcher misconfiguration
+    is a structural failure by any reading, and these are the two seams whose
+    whole job is to make one visible. An operator reading logs after a refused
+    run must find the reason there, not only in a traceback they no longer have.
+    """
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(exc):
+            refuse()
+
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1, (
+        f"expected exactly one ERROR record from the refusal, got {len(errors)}: "
+        f"{[r.getMessage() for r in errors]}"
+    )
+    assert expected_token in errors[0].getMessage(), (
+        "the log record must name what was missing — a record that says only "
+        "'refused' sends the operator back to the traceback it was meant to replace"
+    )
+
+
+def test_the_environment_refusal_logs_names_and_never_values(monkeypatch, caplog):
+    """The one place ADR-008 and the redaction discipline could collide.
+
+    `CONNECTION_ENV` carries `APPWRITE_DATASTORE_API_KEY` — a secret slot. Logging
+    a refusal is only safe because `missing` holds NAMES: membership is decided by
+    `os.getenv(name)` being falsy and the resolved value is never read. This test
+    pins that, so a future "let's log the current environment for debuggability"
+    cannot land quietly. See tests/test_redaction_guard.py for the wider rule.
+    """
+    sentinel = "s1-sentinel-secret-value-must-never-be-logged"
+    monkeypatch.setenv("APPWRITE_DATASTORE_API_KEY", sentinel)
+    monkeypatch.delenv("APPWRITE_ENDPOINT", raising=False)
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(EnvironmentError):
+            appwrite_env.assert_env_declared(appwrite_env.CONNECTION_ENV, store="unfao_bucket")
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "APPWRITE_ENDPOINT" in logged, "the missing NAME must be reported"
+    assert sentinel not in logged, "a secret VALUE reached a log record"
+    assert "APPWRITE_DATASTORE_API_KEY" not in logged, (
+        "the key was set, so it is not missing — it must not appear at all"
+    )
 
 
 def test_secret_env_names_follow_the_platform_naming_rule():
