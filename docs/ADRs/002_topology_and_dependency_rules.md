@@ -158,14 +158,22 @@ views-faoapi           (serves the delivered data; collapses draws)
 ### Current internal layering (replaces the stale illustration)
 
 ```
-Pipeline Manager (UNFAOPostProcessorManager — orchestration; a pipeline-core subclass)
-        ↓ calls
-Delivery Invariants (views_postprocessing/delivery/ — representation-free rules)
-        ↑ fed primitives by
-Representation Seam (unfao/extraction.py — the only pandas-aware module)
-        ↓ alongside
-Enrichment (GaulLookupEnricher + data/gaul_lookup.parquet) · Producer Data-Facts (source_metadata.py)
+unfao/            THE PARTNER — product.py, appwrite_env.py, managers/unfao.py
+   │              (the manager is the ONLY importer of views_pipeline_core)
+   │ calls
+   ▼
+contract/         THE MACHINERY — wire/ (ADR-013), frames, frame_extraction,
+   │              gaul_lookup/gaul_schema/enrichment, historical,
+   │              source_metadata, store_metadata, launch_config
+   │ feeds primitives to
+   ▼
+delivery/         THE RULES — coverage, draws, parity, observed_range, provenance
+                  (representation-free; imports neither pandas nor views_frames)
 ```
+
+**Dependencies point one way only** (SDP): `unfao/` → `contract/` → `delivery/`. Nothing in
+`contract/` may import `unfao/` — that is what makes the machinery reusable by a clone, and it
+is enforced mechanically by `tests/test_clone_readiness.py`, not by convention (#153/#155).
 
 - The manager **calls** the delivery invariants; it never inherits them. Invariants depend
   only on primitives (DIP), so a representation change lands in the seam alone (OCP / C-40).

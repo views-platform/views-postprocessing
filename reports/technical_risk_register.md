@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-01                           |
 | Total Concerns    | 71                                   |
-| Open Concerns     | 27                                   |
-| Resolved Concerns | 44                                   |
+| Open Concerns     | 26                                   |
+| Resolved Concerns | 45                                   |
 
 ---
 
@@ -657,27 +657,6 @@ Cross-refs: **C-40** (the manager this lives in), **#145** (the retired path's s
 
 ---
 
-### C-67: ADR-012 misdescribes the system in two load-bearing ways
-
-| Field | Value |
-|-------|-------|
-| ID | C-67 |
-| Tier | 3 |
-| Source | `repo-assimilation` (2026-07-31) |
-| Trigger | When the **views-crafdapi**/**views-productionapi** authors read ADR-012 as the specification for what to copy — both false claims describe exactly the structures a clone must decide about |
-| Location | `docs/ADRs/012_revised_ontology.md` — the "Pipeline Manager" and "Representation Seam" rows of the ontology table |
-
-Two claims no longer hold:
-
-1. **"the thin `UNFAOPostProcessorManager`"** — it is **636 lines**, 25% of the package, holding two read strategies, two save strategies, an inner port class, provenance formatting, coverage orchestration and env assembly (**C-40**).
-2. **"the *single* pandas-aware module (`unfao/extraction.py`)"** — pandas is imported by **three** modules: `extraction.py`, `enrichment.py`, and `managers/unfao.py:14` (**C-65**).
-
-Both drifted the same way and for the same reason: the ADR describes the intended end state of a migration that then stopped one step short. Same disease as the C-48–C-55 ADR-013 series, which was fixed by pinning prose to mechanically-checked facts.
-
-Cross-refs: **C-40**, **C-65**, **C-64**, **Cluster I** (governance-artifact drift), C-48–C-55 (the precedent and its remedy).
-
----
-
 ### C-71: `appwrite_env.assert_env_declared` raises without logging — ADR-008 non-compliance in an entry-validation seam
 
 | Field | Value |
@@ -763,6 +742,29 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-67: ADR-012 misdescribes the system in two load-bearing ways — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-67 |
+| Resolved | 2026-08-01 |
+| Resolution | **Corrected, and the load-bearing claims are now mechanically checked (#154, epic #148).** Both false claims are true again — the manager is 406 lines (from 636) and pandas has exactly one importer (`contract/enrichment.py`, from three) — but being true is not the fix; being *checkable* is. ADR-012's ontology table was rewritten against the three-package structure, ADR-002's layering illustration replaced (it still named `unfao/extraction.py`, deleted in #151), and the manager CIC updated (it documented `_historical_dataframe`, `LEGACY_FORECAST_FILTERS` and a `ForecastIdentityError` that no longer exist). Four guards added to `tests/test_doc_accuracy.py`: pandas has exactly one importer, `views_pipeline_core` has exactly one importer, the manager stays under 450 lines, and `contract/` does not import the partner. Each was **mutation-tested** — a deliberate violation was introduced and confirmed to fail — because a doc test that cannot fail is not a test. The next drift fails CI instead of waiting for an audit, which is the same remedy that closed the C-48–C-55 ADR-013 series. |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-07-31) |
+| Trigger | When the **views-crafdapi**/**views-productionapi** authors read ADR-012 as the specification for what to copy — both false claims describe exactly the structures a clone must decide about |
+| Location | `docs/ADRs/012_revised_ontology.md` — the "Pipeline Manager" and "Representation Seam" rows of the ontology table |
+
+Two claims no longer hold:
+
+1. **"the thin `UNFAOPostProcessorManager`"** — it is **636 lines**, 25% of the package, holding two read strategies, two save strategies, an inner port class, provenance formatting, coverage orchestration and env assembly (**C-40**).
+2. **"the *single* pandas-aware module (`unfao/extraction.py`)"** — pandas is imported by **three** modules: `extraction.py`, `enrichment.py`, and `managers/unfao.py:14` (**C-65**).
+
+Both drifted the same way and for the same reason: the ADR describes the intended end state of a migration that then stopped one step short. Same disease as the C-48–C-55 ADR-013 series, which was fixed by pinning prose to mechanically-checked facts.
+
+Cross-refs: **C-40**, **C-65**, **C-64**, **Cluster I** (governance-artifact drift), C-48–C-55 (the precedent and its remedy).
+
+---
 
 ### C-70: `METADATA_COLS` serves three contracts at once — reordering it silently changes delivered bytes — RESOLVED
 
