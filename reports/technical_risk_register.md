@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-01                           |
-| Total Concerns    | 73                                   |
-| Open Concerns     | 24                                   |
+| Last Updated      | 2026-08-02                           |
+| Total Concerns    | 74                                   |
+| Open Concerns     | 25                                   |
 | Resolved Concerns | 49                                   |
 
 ---
@@ -45,9 +45,9 @@ covered a single open entry (see Historical clusters below).
 
 ### Cluster I: Governance-artifact drift
 **Root cause:** the register, ADR prose, and issue bodies are hand-maintained mirrors of cross-repo state that moves under them.
-**Entries:** C-44, C-46, C-47, C-57 (the cross-repo instance: a registry referenced by URL cannot be diffed by a local test) — plus this register's own findings at review-rr 2026-07-31 (header miscount, two RESOLVED entries misfiled under Open, eight stale `unfao.py` line ranges after the manager grew 273→636 lines, two unnamespaced foreign-register IDs). Historical precedent: the entire C-48–C-55 ADR-013 audit series, and C-42/C-47.
+**Entries:** C-44, C-46, C-47, C-57, C-74 (a guard whose declared scan roots silently stopped existing — the cluster's disease inside the cluster's own prescription) — plus this register's own findings at review-rr 2026-07-31 (header miscount, two RESOLVED entries misfiled under Open, eight stale `unfao.py` line ranges after the manager grew 273→636 lines, two unnamespaced foreign-register IDs). Historical precedent: the entire C-48–C-55 ADR-013 audit series, and C-42/C-47.
 **Highest tier:** 3
-**Fix strategy:** this repo already solved this disease once — the ADR-013 audit series ended with **40 permanent guard tests** (`tests/test_falsify_adr013_*.py`), and the same pattern now guards the þing-01 invariants (`tests/test_env_declaration.py`, `tests/test_redaction_guard.py`). There is **no equivalent for the register**. A small `tests/test_register_integrity.py` — header counts match section counts; no RESOLVED body under `## Open Concerns`; every `C-\d+`/`D-\d+` reference resolves or is namespaced to a foreign register — would make this class self-detecting.
+**Fix strategy:** this repo already solved this disease once — the ADR-013 audit series ended with **40 permanent guard tests** (`tests/test_falsify_adr013_*.py`), and the same pattern now guards the þing-01 invariants (`tests/test_env_declaration.py`, `tests/test_redaction_guard.py` — the latter **only over the roots that still exist**, see C-74: a guard is only as good as the assertion that its inputs are real). There is **no equivalent for the register**. A small `tests/test_register_integrity.py` — header counts match section counts; no RESOLVED body under `## Open Concerns`; every `C-\d+`/`D-\d+` reference resolves or is namespaced to a foreign register — would make this class self-detecting.
 **Resolution scope:** Full for the mechanical half.
 
 ### Cluster J: Delivery aftercare has no mechanism
@@ -481,9 +481,11 @@ This repo's half is well guarded. `tests/test_env_declaration.py` pins that ever
 
 Two named changes are already anticipated and will fire this trigger: the **retirement of the legacy `APPWRITE_DATASTORE_API_KEY`** in favour of the three-tier read/write/provision slots (D4), and any target-coordinate addition for the second store (issue #97). Tier 3 — coordination and cost-of-change across a repo boundary; the failure is loud, not silent, and D6's entry validation is the backstop that keeps it that way.
 
-**Deliberately out of scope here:** the þing-01 redaction clause is already mechanically enforced (`tests/test_redaction_guard.py` — the delivery modules stay credential-blind and the provenance description is a closed keyset), and D2's ruling that **integration tests against the production Appwrite project are FORBIDDEN** (no non-production project exists) is a standing prohibition, not a drift risk.
+**Deliberately out of scope here:** the þing-01 redaction clause is mechanically enforced (`tests/test_redaction_guard.py` — the delivery modules stay credential-blind and the provenance description is a closed keyset), and D2's ruling that **integration tests against the production Appwrite project are FORBIDDEN** (no non-production project exists) is a standing prohibition, not a drift risk.
 
-Cross-refs: C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
+**⚠ CORRECTED 2026-08-02.** The word *already* above overclaimed: **C-74** showed that guard scans one of its five declared roots, four having pointed at paths that #153 moved. The keyset half is enforced; the credential-blindness half is enforced over `delivery/` only until C-74 lands.
+
+Cross-refs: C-74 (the guard this paragraph vouched for), C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
 
 ---
 
@@ -698,6 +700,38 @@ pipeline-core's `search_files_by_metadata` was **unpaged**: Appwrite returns 25 
 **⚠ This falsifies a claim made in C-25's resolution earlier the same day.** That entry was closed as *"superseded by mechanism"* on the reasoning that *"the contract path selects by run manifest … so recency-based selection is not an operation the code can perform any more."* **It is exactly what the code does** (`:106`). The half of C-25 that genuinely is solved is **producer identity** — the manifest carries a declared ensemble, verified per shard header (`:73-81`), so a *different producer's* run cannot be selected. The **recency** half was never solved; it moved from picking the newest payload file to picking the newest manifest. C-25's resolution has been corrected in place rather than rewritten, because the overclaim is more instructive than the conclusion.
 
 Cross-refs: **C-25** (whose resolution this corrects), **C-40** (the inherited pipeline-core surface this arrives through — **Cluster G**), **C-72** (the other pin-gated upstream item), **#172**, views-pipeline-core **#339** / **#341** / C-241, ADR-013 §4.3 (manifest selection).
+
+---
+
+### C-74: The þing-01 redaction guard scans four paths that stopped existing — it reports success while covering one root of five
+
+| Field | Value |
+|-------|-------|
+| ID | C-74 |
+| Tier | 3 — **not a leak today**: the relocated modules were checked directly and are still credential-blind (zero hits for `os.environ`, `getenv`, `load_dotenv`, `API_KEY`, `credentials`). What is gone is the thing that would notice them ceasing to be. A security-adjacent control that cannot fail is a maintainability defect until the day it is a correctness one. |
+| Source | `review-diff` (2026-08-02) — S1/#182 review; found while reading the redaction discipline the new ADR-008 test cites as "the wider rule" |
+| Trigger | When any module under `contract/wire`, `contract/historical.py`, `contract/track_a_source.py` or `contract/frame_extraction.py` gains environment access — the #135 guard will not report it. Also fires on **the next package move**: `rglob` on a vanished root yields silence, not an error, so any future relocation narrows the scan again with no signal |
+| Location | `tests/test_redaction_guard.py:25-31` (`_CREDENTIAL_BLIND`), `:34-39` (`_python_sources`) |
+
+The þing-01 delivery-log redaction audit (#135, orð_09 §3) certified five module trees as credential-blind and pinned that finding as a permanent guard. Epic #148's S5 (#153) then moved the machinery out from under `unfao/` into `contract/`. **Four of the five roots were never re-pointed:**
+
+| declared root | exists | files scanned |
+|---|---|---|
+| `unfao/wire` | no | 0 |
+| `delivery` | yes | 6 |
+| `unfao/historical.py` | no | 0 |
+| `unfao/track_a_source.py` | no | 0 |
+| `unfao/frame_extraction.py` | no | 0 |
+
+**The failure is silent by construction.** `_python_sources` branches `if path.is_file(): … else: path.rglob("*.py")`, and `rglob` on a **nonexistent** directory yields an empty iterator rather than raising. A missing root and a clean root are therefore indistinguishable to the test, which passes either way. The guard reports an audited fact as pinned while pinning roughly a third of it.
+
+**Why this is Cluster I and not merely a stale path.** The register's own text asserts the opposite. **C-57** says, in its "deliberately out of scope" paragraph, that *"the þing-01 redaction clause is **already mechanically enforced** (`tests/test_redaction_guard.py` — the delivery modules stay credential-blind…)"* — and **Cluster I's fix strategy cites this very file** as an example of the guard pattern working. Both were written in good faith and both are now overclaims. That is the cluster's disease reproducing inside the cluster's own prescription.
+
+It is also the **sixth** instance of the stale-claim class found in two days, after C-63 and C-47 (filed Open with the defect fixed), C-43/C-59/C-61 (filed Open with their stated closing conditions met), #158 (closed with the code half undone) and `tests/test_validation.py` (claiming fidelity to a method it no longer resembles — **C-03**). The common shape is not carelessness: it is that a *move* leaves prose and paths behind, and nothing in this repo asserts that a declared path exists.
+
+**Mitigation:** re-point the four roots at `contract/`, and add a root-existence assertion so a future relocation fails loudly instead of silently narrowing. The second half is the load-bearing one — re-pointing fixes today, asserting existence fixes the class. Tracked as a story under **epic #181**.
+
+Cross-refs: **C-57** (whose "already mechanically enforced" claim this falsifies — corrected in place), **C-03** (the same class in `test_validation.py`), **C-46** (a different guard that also does not run, by a different mechanism), **C-63**, **C-47**, **Cluster I**, #135, #153, #182.
 
 ---
 
