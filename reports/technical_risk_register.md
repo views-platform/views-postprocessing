@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-01                           |
-| Total Concerns    | 71                                   |
-| Open Concerns     | 24                                   |
+| Total Concerns    | 72                                   |
+| Open Concerns     | 25                                   |
 | Resolved Concerns | 47                                   |
 
 ---
@@ -605,6 +605,10 @@ This repo declares exactly three dependencies — `views-pipeline-core`, `views-
 
 **⚠ Framing correction, recorded because it inverts the intuition that opened this investigation.** The audit began as "is geopandas back?" — and geopandas is the *architectural* violation (this repo spent PR #42 removing it). But it is **1.6 MB**. The *material* cost is **torch's NVIDIA CUDA stack at 2.5 GB — 89% of the entire virtualenv — in a delivery repo with no GPU code, no model training, and no tensor operations of any kind.** Optimising for the offensive dependency rather than the expensive one would have missed almost the whole bill.
 
+**Update 2026-08-01 — the drag now has a measured security surface.** GitHub raised **32 Dependabot alerts** when `main` was brought current. **31 of them are `poetry.lock` resolution, not declared dependencies** — and the shape matches this entry exactly: **Pillow ×13** and **GitPython ×9** (via `plotly`/`seaborn`/`wandb`), plus `geopandas`, `torch`, `pytest`, `paramiko`, `pywin32`, `diskcache`, `setuptools`, `python-dotenv` — one each. Every one of those roots is declared by **views-pipeline-core 2.3.0**, none by this repo, and none is imported by this repo's code.
+
+This does not make the entry more urgent; it makes it **measurable**. The 3.0.0 bump this entry is held on removes the roots, and with them most of this alert surface. Until then the alerts are real but unreachable, and closing them individually would be treating symptoms of a dependency this repo does not choose. The 32nd alert is `pyarrow`, which **is** declared here and is registered separately as **C-72**.
+
 **Dependency chain, traced 2026-07-31.** `views-pipeline-core` is the **sole** requirer: `torch = ">=2.6.0,<3.0.0"` in the 2.3.0 metadata; torch 2.12.1 then pulls the five `nvidia-*` wheels on Linux. Nothing else in the tree asks for torch, and this repo imports it zero times.
 
 **Removal path — there is no correct fix inside this repo.** views-pipeline-core `development` (already versioned **3.0.0**) declares **no torch, no geopandas, no scipy, no seaborn, no plotly**, and imports torch nowhere; their own test asserts the absence of `import torch`. The fix is complete upstream and purely a publishing gate. Their release runbook (#313) pins the order: **views-frames (done) → views-evaluation 0.5.0 → views-pipeline-core 3.0.0 → views-reporting 0.3.0 → models/postprocessing envs**, executing on the maintainer's platform-wide signal. So this entry closes when C-44's bump becomes takeable — not before, and not by local action.
@@ -656,6 +660,28 @@ Cross-refs: **C-40** (the manager this lives in), **#145** (the retired path's s
 Registered rather than fixed in #149 because it is pre-existing (shipped in þing-01 P1 / #134) and outside that story's boundary. It is a two-line change and the natural place to take it is **S8** (#156, epic closeout) or any PR that next touches `appwrite_env.py`.
 
 Cross-refs: **C-19** (RESOLVED — the ADR-008 log-before-raise sweep whose convention this predates), **C-63** (the declaration-over-inference concern S1 closed), ADR-008, #134, #149, #156.
+
+---
+
+### C-72: The pyarrow pin holds this repo inside a high-severity CVE, and the fix changes the wire bytes
+
+| Field | Value |
+|-------|-------|
+| ID | C-72 |
+| Tier | 3 — **not currently exploitable here**: the CVE is a *read-path* use-after-free and this repo only **writes** arrow in production (the three `vf_arrow.load` calls are all in tests). It is Tier 3 rather than 4 because the bytes we write are read by views-faoapi under the same platform-wide pin, so the platform's exposure is real even though this repo's is not, and because the remedy collides with a ratified contract. |
+| Source | `manual` (2026-08-01) — GitHub surfaced 32 Dependabot alerts on the push that made `main` current; reviewed alert by alert |
+| Trigger | When lifting the `pyarrow < 17` ceiling — pipeline-core **#280** (the viewser → views-storage chain) is the platform half — **regenerate the ADR-013 §10 golden fixture in the same change and notify the faoapi seat**, because the upgrade is expected to change the delivered bytes. Also fires if this repo ever gains a production arrow **read**. |
+| Location | `pyproject.toml:15` (`pyarrow = ">=16.1.0,<17.0.0"`); `poetry.lock`; the affected operation would be `views_frames.io.arrow.load`, called only at `tests/test_wire_shard.py:90`, `tests/test_wire_fixture.py:73`, `tests/test_wire_header.py:39` |
+
+**GHSA — "Apache Arrow: potential use-after-free when reading IPC file with pre-buffering."** Vulnerable range `>= 15.0.0, < 23.0.1`; patched in **23.0.1**. This repo's declared pin is `>=16.1.0,<17.0.0` — **entirely inside the vulnerable range, with a ceiling that excludes the fix.** It is the only one of the 32 alerts against a dependency this repo declares itself (`pyproject.toml`); the other 31 are `poetry.lock` resolution — see the disposition note below.
+
+**Why it is not exploitable here, stated precisely rather than reassuringly.** The defect is on the *read* path. Production writes arrow (`contract/wire/shard.py` → `views_frames.io.arrow`) and never reads it back; the only `vf_arrow.load` calls in the repository are the three byte-parity tests above, operating on committed fixtures we generated. So there is no path from partner or producer input to the vulnerable code **in this process**.
+
+**Where the exposure actually sits: views-faoapi.** It reads these shards, under the same platform-wide `pyarrow < 17` ceiling. Our output is its input. This entry does not claim to size that repo's risk — it records that the platform's pyarrow pin is a shared exposure and that the consumer is the reading half.
+
+**The collision worth understanding — the fix and the contract point in opposite directions.** The five byte-parity failures this repo has treated as "known local toolchain noise" all session are precisely this: the local environment runs **pyarrow 23.0.1 — the patched version** — while CI runs the pinned 16.1.x, and the two produce **different bytes** for the same input. So upgrading to the patched pyarrow is not a dependency bump; it **changes the §10 golden fixture**, which ADR-013 declares normative and which views-faoapi verifies against. Security remediation here is a **contract event**, not maintenance, and must be sequenced with the consumer.
+
+Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-46** (the datafactory version-state coupling), ADR-013 §10 (the byte-pinned fixture), views-pipeline-core **#280** (the platform pyarrow ceiling), views-faoapi (the reading half).
 
 ---
 
