@@ -231,3 +231,9 @@ graphify-out/
 # repo is heading for its first public release (#125), so a stray `git add -A` must not
 # be able to commit partner data. See the þing-01 redaction clause (#135).
 appwrite_cache/
+
+# Agent working instructions. Deliberately NOT tracked: this file is the canonical
+# engineering philosophy propagated across the six platform repos, and it is edited
+# there first — tracking a copy here would make this repo a second source of truth
+# for a document that has one.
+CLAUDE.md
