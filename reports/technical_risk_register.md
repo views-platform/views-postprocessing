@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-01                           |
-| Total Concerns    | 72                                   |
-| Open Concerns     | 25                                   |
+| Total Concerns    | 73                                   |
+| Open Concerns     | 26                                   |
 | Resolved Concerns | 47                                   |
 
 ---
@@ -128,6 +128,10 @@ Tier recalibrated from 2 to 3 during review-rr (2026-06-02): the gap is maintain
 `mapping.py` directly imports `geopandas`, `shapely`, `numpy`, `pandas`, `joblib`, and `multiprocessing`. `unfao.py` directly imports `pandas`, `polars`, and `python-dotenv`. Only `views-pipeline-core` and `cachetools` are declared in `pyproject.toml`. The undeclared dependencies presumably arrive transitively via `views-pipeline-core`, but this coupling is implicit and fragile. If the upstream package refactors its dependency tree, this package will break with `ImportError` at install time.
 
 **Update 2026-06-24 (narrowed):** the `mapping.py` dimension is gone (C-39 — the `geopandas`/`shapely`/`joblib`/`multiprocessing` imports were deleted; `cachetools` dropped from `pyproject.toml`). Residual: `unfao.py` imports `pandas`/`polars`/`python-dotenv` undeclared, arriving transitively via `views-pipeline-core` (which *is* declared). Much smaller surface (Tier 4-ish); consider resolving outright if the transitive-via-pipeline-core guarantee is deemed sufficient.
+
+**Update 2026-08-01 (`falsify`) — a SECOND undeclared dependency, and this one's transitive path is about to disappear.** `appwrite` is used in this repo (`contract/launch_config.py`, `unfao/managers/unfao.py`) and declared in **no** manifest — it arrives transitively via `views-pipeline-core`, exactly as `pandas` does. What makes it different from the pandas residual: **views-pipeline-core is making `appwrite` an optional extra** (their **#345**, on CRP grounds — three repos that never mention Appwrite currently install its SDK). **When that lands, the transitive path disappears and this repo breaks at import.**
+
+So this entry is no longer "Tier 4-ish, resolve if the transitive guarantee is deemed sufficient" — the guarantee is being **withdrawn upstream, deliberately**. Fix is one line: declare `appwrite` in `pyproject.toml`, or depend on `views-pipeline-core[appwrite]`. Relayed in **#172**; registered here rather than as a new entry because it is the same problem type at a new location. **New trigger: before views-pipeline-core#345 lands.**
 
 **Update 2026-07-31 (review-rr — narrative corrected against the tree):** the 2026-06-24 residual is now overstated. Verified: **`polars` has zero references repo-wide**; **`python-dotenv` is dead** (þing-01 #134 killed the implicit ensemble-dotenv borrow — see `unfao/appwrite_env.py`); `cachetools` is gone. Meanwhile `views-frames` and `pyarrow` became **declared** direct dependencies. **The residual is `pandas` alone**, imported directly at the three locations above and arriving transitively via `views-pipeline-core`. One undeclared package on a path that is itself being retired (epic #85) — genuinely Tier 4-ish now; resolve outright if the transitive guarantee is deemed sufficient, or declare `pandas` explicitly in the same PR that closes #89.
 
@@ -693,6 +697,28 @@ Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-
 
 ---
 
+### C-73: The contract path selects the newest manifest over a broad filter — an unpaged upstream lookup can ship a stale run
+
+| Field | Value |
+|-------|-------|
+| ID | C-73 |
+| Tier | 2 — a delivery can **assemble and ship a stale run rather than failing**. Not Tier 1 because the run that ships is internally coherent: its manifest hashes verify, its shards match, per-shard declared identity is checked. The partner receives a *complete, valid, wrong-vintage* delivery, and nothing on either side reports a problem. |
+| Source | `falsify` (2026-08-01) — audit of "there is nothing more to do in this repo"; the hazard itself is views-pipeline-core's **C-241**, relayed to this seat in **#172** |
+| Trigger | Before the next delivery run, and again when bumping to the pipeline-core release carrying their **#341** — confirm the run actually selected is the run expected (compare the resolved `run_id` against the producer's newest published run, not merely that a manifest resolved) |
+| Location | `views_postprocessing/contract/wire/source_selection.py:40` (`HOP_A_MANIFEST_FILTERS`) and `:106` (`store.latest_file_id(dict(HOP_A_MANIFEST_FILTERS))`); reached through `views_postprocessing/unfao/managers/unfao.py:44` (`_ContractStorePort.latest_file_id`) → pipeline-core's `get_latest_file_id` → `search_files_by_metadata` |
+
+pipeline-core's `search_files_by_metadata` was **unpaged**: Appwrite returns 25 rows by default, and `get_latest_file_id` sorted *those* and called the result "latest". With more than 25 matching documents it returned **the newest of the oldest 25** — silently, and staler every run.
+
+**This reaches this repo because `HOP_A_MANIFEST_FILTERS` is broad by design**: `{"category": "forecast", "type": "sampled_forecast_manifest"}` matches **every manifest ever published**, and the store has no retention (C-25's own note: *"every historical upload remains a candidate forever"*). Shard lookups are name-scoped and unique (`:120`, `:144`), so they resolve correctly **for whichever run was selected** — which is precisely why the failure is quiet: everything downstream of the selection is self-consistent.
+
+**Not a defect in this repo's code, and the fix is not ours** — the upstream fix (pipeline-core #341) arrives with a pin bump because we import their `DatastoreModule` rather than keeping our own client. What *is* ours is that the register carried no record of it, and that the broad-filter-plus-newest-wins selection strategy is a choice this repo made and can revisit independently of the upstream fix.
+
+**⚠ This falsifies a claim made in C-25's resolution earlier the same day.** That entry was closed as *"superseded by mechanism"* on the reasoning that *"the contract path selects by run manifest … so recency-based selection is not an operation the code can perform any more."* **It is exactly what the code does** (`:106`). The half of C-25 that genuinely is solved is **producer identity** — the manifest carries a declared ensemble, verified per shard header (`:73-81`), so a *different producer's* run cannot be selected. The **recency** half was never solved; it moved from picking the newest payload file to picking the newest manifest. C-25's resolution has been corrected in place rather than rewritten, because the overclaim is more instructive than the conclusion.
+
+Cross-refs: **C-25** (whose resolution this corrects), **C-40** (the inherited pipeline-core surface this arrives through — **Cluster G**), **C-72** (the other pin-gated upstream item), **#172**, views-pipeline-core **#339** / **#341** / C-241, ADR-013 §4.3 (manifest selection).
+
+---
+
 ## Disagreements
 
 ### D-12: Post-Run-0 infrastructure & naming intents — repo rename, internal-store transport, compute co-location
@@ -928,7 +954,7 @@ Cross-refs: **C-40** (which calls these the "retired-in-place legacy seams"), **
 |-------|-------|
 | ID | C-25 |
 | Resolved | 2026-07-31 |
-| Resolution | **Superseded by mechanism (#150, epic #148) — not merely mitigated.** This entry's hazard was "newest `category=forecast` upload wins regardless of producer". Its recorded mitigation was `delivery.identity.assert_forecast_identity`, which #150 retired. The hazard nonetheless cannot occur: since #149 the contract path is the only path, and it selects by **run manifest** — a commit marker whose contents are hash-verified — so recency-based selection is not an operation the code can perform. Declared identity is additionally checked per shard header at `wire/source_selection.py:73-81`. Closed as structurally impossible rather than guarded. |
+| Resolution | **Superseded by mechanism (#150, epic #148) — not merely mitigated.** This entry's hazard was "newest `category=forecast` upload wins regardless of producer". Its recorded mitigation was `delivery.identity.assert_forecast_identity`, which #150 retired. The hazard nonetheless cannot occur: since #149 the contract path is the only path, and it selects by **run manifest** — a commit marker whose contents are hash-verified — so recency-based selection is not an operation the code can perform. Declared identity is additionally checked per shard header at `wire/source_selection.py:73-81`. Closed as structurally impossible rather than guarded.<br><br>**⚠ CORRECTION 2026-08-01 — this resolution overclaimed, and the overclaim is recorded rather than rewritten.** *"Recency-based selection is not an operation the code can perform any more"* is **false**: `contract/wire/source_selection.py:106` calls `store.latest_file_id(dict(HOP_A_MANIFEST_FILTERS))` — it selects the **newest** manifest over a filter matching every manifest ever published. What manifest selection actually solved is the **producer-identity** half of this entry's hazard: the manifest declares its ensemble and every shard header is verified against it (`:73-81`), so another producer's run cannot be selected. The **recency** half was not solved — it moved from newest-payload-file to newest-manifest. That half is now **C-73**, which is live and Tier 2. This entry stays resolved for the identity hazard it was written about; do not read it as covering run vintage. |
 | Tier | 2 |
 | Source | `cross-repo-investigation` (2026-06-12) |
 | Trigger | When any new producer uploads to the prod_forecasts bucket with `category: "forecast"`, verify the postprocessor still picks up the intended ensemble's file — selection is newest-`$createdAt`-wins with no loa, model-name, or run-id filter |
