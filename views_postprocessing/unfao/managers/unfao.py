@@ -2,27 +2,67 @@ from views_pipeline_core.managers.postprocessor.postprocessor import (
     PostprocessorManager,
     PostprocessorPathManager,
 )
-from views_pipeline_core.files.utils import read_dataframe
-from views_pipeline_core.configs.pipeline import PipelineConfig
 import logging
-from views_pipeline_core.data.handlers import PGMDataset
 
 from views_pipeline_core.modules.appwrite.file import AppwriteConfig
 from views_pipeline_core.modules.datastore import DatastoreModule
 from views_pipeline_core.managers.model import ForecastingModelManager
 
-from views_pipeline_core.managers.ensemble import EnsembleManager, EnsemblePathManager
-import polars as pl
-import pandas as pd
-import io
-from argparse import Namespace
+from views_pipeline_core.managers.ensemble import EnsemblePathManager
 from datetime import datetime
 import os
-from dotenv import load_dotenv
-from views_postprocessing.unfao.mapping.mapping import get_default_mapper
+from views_pipeline_core.modules.dataloaders.datafactory_contract import declared_data_format
+from views_postprocessing.contract import frame_extraction, gaul_lookup, historical, launch_config, source_metadata, store_metadata
+from views_postprocessing.unfao import appwrite_env, product
+from views_postprocessing.contract.wire import sink as wire_sink
+from views_postprocessing.contract.wire import source_selection
+from views_postprocessing.delivery import coverage, observed_range, provenance
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+class _ContractStorePort:
+    """Adapts ``DatastoreModule`` to the wire ports (ADR-013 epic #105; DIP —
+    ``wire/source_selection`` and ``wire/sink`` never see Appwrite types)."""
+
+    def __init__(self, datastore: DatastoreModule) -> None:
+        self._dsm = datastore
+
+    def latest_file_id(self, filters: dict):
+        return self._dsm.get_latest_file_id(filters=filters)
+
+    def file_metadata(self, file_id: str) -> dict:
+        return store_metadata.file_metadata(self._dsm.get_file_metadata(file_id))
+
+    def download(self, file_id: str) -> bytes:
+        return (
+            self._dsm.download_prediction(file_id).to_dict().get("data", {}).get("file_bytes", None)
+        )
+
+    def upload(self, file_path, *, filename, name, doc_type, category, loa, targets, description=None) -> None:
+        result = self._dsm.upload_data(
+            file=file_path,
+            filename=filename,
+            name=name,
+            type=doc_type,
+            category=category,
+            loa=loa,
+            targets=targets,
+            description=description,
+        )
+        # The store module degrades gracefully (its ADR-046 policy) and only LOGS
+        # metadata failures — which strands an invisible orphan file (run-0
+        # historical, 2026-07-27). The delivery fails loud instead.
+        success = getattr(result, "success", None)
+        if success is None and hasattr(result, "to_dict"):
+            success = result.to_dict().get("success")
+        if success is False:
+            error = getattr(result, "error", None) or "unknown store error"
+            raise RuntimeError(
+                f"upload of {filename!r} did not fully succeed (file may be an "
+                f"orphan without a metadata document): {error}"
+            )
 
 
 class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
@@ -36,44 +76,68 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
 
         # Add your custom initialization below
         logger.info(f"Initializing {self.__class__.__name__}")
-        self._historical_dataframe = None
-        self._forecast_dataframe = None
-
-        self._historical_dataset = None
-        self._forecast_dataset = None
-        self._mapper = get_default_mapper()
+        self._forecast_resolution = None  # {target: TargetLease}, set by _read
+        self._historical_frame = None  # views_frames.FeatureFrame, set by _read
         self.ensemble_path_manager = None
 
-    def _read_historical_data(self):
-        # Historical Data
-        path_raw = self._model_path.data_raw  # Path to raw data
-        path_artifacts = self._model_path.artifacts  # Path to save model artifacts
-        run_type = "forecasting"  # e.g., "calibration", "validation", "forecasting"
-        
-        self._data_loader.get_data(
-                use_saved=False,
-                validate=False,
-                self_test=False,
-                partition=run_type
-            )
-        current_month = datetime.now().strftime("%Y-%m")
-        artifact_name = f"{run_type}_viewser_df_{current_month}"
-        self._historical_dataframe = read_dataframe(
-            path_raw / f"{run_type}_viewser_df{PipelineConfig.dataframe_format}"
-        )  # Dataframe obtained from viewser
-        partitioner_dict = (
-            self._data_loader.partition_dict
-        )  # Partition dict from ViewsDataLoader
-        self._historical_dataset = PGMDataset(
-            source=self._historical_dataframe, targets=self.configs.get("targets")
+    def _read_historical_frame(self):
+        """#126: historical actuals as a views_frames.FeatureFrame — the first
+        production consumer of pipeline-core's frame-native fetch. Same clip
+        policy as the legacy path (producer-sourced boundary, degrade-open)."""
+        frame = self._data_loader.get_feature_frame(
+            partition="forecasting", use_saved=False, level="pgm", validate=True
         )
+        try:
+            lv = source_metadata.last_valid_month_id(self.configs.get("zarr_url"))
+        except Exception:
+            logger.warning("last_valid_month_id unavailable; skipping clip (degrade-open, C-26).", exc_info=True)
+            lv = None
+        if lv is None:
+            self._historical_frame = frame
+            return
+        fabricated = observed_range.fabricated_months(frame_extraction.months_of(frame), lv)
+        if len(fabricated):
+            logger.warning(
+                "Dropping %d fabricated (unobserved) month(s) above last_valid_month_id=%d.",
+                len(fabricated), lv,
+            )
+            frame = frame_extraction.drop_months_above(frame, lv)
+        self._historical_frame = frame
 
-    def _read_forecast_data(self):
-        # Forecast Data
+    def _read_historical_data(self):
+        """Historical actuals, frame-native only (#126).
+
+        The queryset must DECLARE ``data_format: feature_frame`` — pipeline-core's
+        ``declared_data_format`` is the one gate, and a queryset that declares
+        anything else is refused rather than quietly read through a retired pandas
+        path (register C-63, #149).
+        """
+        # Declaration first: the check reads the queryset, not the loader, so a
+        # refused config must not pay for loader construction.
+        launch_config.assert_frame_native_historical(
+            declared_data_format(self._model_path.get_queryset())
+        )
+        self._initialize_data_loader()
+        self._read_historical_frame()
+
+    def _prod_forecasts_datastore(self) -> DatastoreModule:
+        """The shared internal store (ADR-013's 'shared shelf'), configured from the
+        launcher-assembled environment (validated fail-loud; þing-01 #134 — no dotenv
+        is loaded here).
+
+        pipeline-core's ``DatastoreModule.get_predictions_by_metadata`` injects an
+        automatic ``name == model_name`` filter on every lookup. The contract read
+        must **not** have it: ADR-013 artifacts are named
+        ``{run_id}__{target}__m{month}.arrow.parquet`` (never the bare ensemble
+        name), so an injected ``name == "rusty_bucket"`` matches nothing and also
+        clobbers the wire layer's own run-id / target / name filters. Suppressed
+        unconditionally below — the retired legacy reader was the only caller that
+        needed it on (#149)."""
         ensemble_name = self.configs.get("ensemble", None)
         if not ensemble_name:
-            raise ValueError("Ensemble name must be provided in configs with the `ensemble` key for forecasting. Cannot proceed.")
-        
+            err_msg = "Ensemble name must be provided in configs with the `ensemble` key for forecasting. Cannot proceed."
+            logger.error(err_msg)
+            raise ValueError(err_msg)
         self.ensemble_path_manager = EnsemblePathManager(ensemble_name_or_path=ensemble_name, validate=False)
         # ensemble_configs = EnsembleManager(
         #     ensemble_path=self.ensemble_path_manager,
@@ -82,40 +146,14 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         # loa = ensemble_configs.get("level", None)
         loa = "pgm"
         if not loa:
-            raise ValueError("level must be defined in the ensemble configurations (e.g, pgm, cm). Cannot proceed.")
-        
-        # Force it to the correct .env just to be safe
-        load_dotenv(dotenv_path=str(self.ensemble_path_manager.dotenv))
-        
-        # appwrite_config = AppwriteConfig(
-        #     path_manager=self.ensemble_path_manager,
-        #     endpoint=os.getenv("APPWRITE_ENDPOINT"),
-        #     project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
-        #     credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
-        #     auth_method="api_key",
-        #     cache_ttl_hours=24,
-        #     bucket_id=os.getenv("APPWRITE_UNFAO_BUCKET_ID"),
-        #     bucket_name=os.getenv("APPWRITE_UNFAO_BUCKET_NAME"),
-        #     collection_name=os.getenv("APPWRITE_UNFAO_COLLECTION_NAME"),
-        #     collection_id=os.getenv("APPWRITE_UNFAO_COLLECTION_ID"),
-        #     database_id=os.getenv("APPWRITE_DATABASE_ID"),
-        #     database_name=os.getenv("APPWRITE_DATABASE_NAME"),
-        # )
-        # appwrite_config = AppwriteConfig(
-        #     path_manager=self._model_path,
-        #     endpoint=os.getenv("APPWRITE_ENDPOINT"),
-        #     project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
-        #     credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
-        #     auth_method="api_key",
-        #     cache_ttl_hours=24,
-        #     bucket_id=os.getenv("APPWRITE_UNFAO_FORECASTS_BUCKET_ID"),
-        #     bucket_name=os.getenv("APPWRITE_UNFAO_FORECASTS_BUCKET_NAME"),
-        #     collection_id=os.getenv("APPWRITE_UNFAO_COLLECTION_ID"),
-        #     collection_name=os.getenv("APPWRITE_UNFAO_COLLECTION_NAME"),
-        #     database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
-        #     database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
-        # )
+            err_msg = "level must be defined in the ensemble configurations (e.g, pgm, cm). Cannot proceed."
+            logger.error(err_msg)
+            raise ValueError(err_msg)
 
+        appwrite_env.assert_env_declared(
+            appwrite_env.CONNECTION_ENV + appwrite_env.PROD_FORECASTS_ENV,
+            store="production_forecasts datastore",
+        )
         appwrite_config = AppwriteConfig(
             path_manager=self.ensemble_path_manager,
             endpoint=os.getenv("APPWRITE_ENDPOINT"),
@@ -130,112 +168,192 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
             database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
         )
+        datastore = DatastoreModule(appwrite_file_manager_config=appwrite_config)
+        # Suppress the automatic name==model_name filter (see docstring). model_path
+        # is used by DatastoreModule only for that injection and for uploads; the
+        # contract read neither uploads nor performs any model-scoped lookup.
+        datastore.model_path = None
+        return datastore
 
-        try:
-            prediction_store_manager = DatastoreModule(appwrite_file_manager_config=appwrite_config)
-            self._forecast_dataframe = pd.read_parquet(io.BytesIO(prediction_store_manager.download_latest_file(filters={"category": "forecast"}).to_dict().get("data", {}).get("file_bytes", None)))
+    def _read_forecast_data_contract(self):
+        """ADR-013 contract inbound (epic #105; streaming since the run-0 OOM fix):
+        RESOLVE the newest fully-manifested run — manifests + pinned shard
+        file_ids only, no heavy bytes. Frames materialize one target at a time
+        inside the sink at _save (each lease loads → verifies → curates → is
+        released). The `wire/` package owns the policy; this method only adapts
+        the store (DIP) and declares the product facts (region curation +
+        coverage expectations live in the lease, where frames exist)."""
+        port = _ContractStorePort(self._prod_forecasts_datastore())
+        region = self.configs.get("region")
+        self._forecast_resolution = source_selection.resolve_run(
+            port,
+            expected_targets=product.TARGETS,
+            expected_ensemble=self.configs["ensemble"],
+            excluded_gids=coverage.excluded_for(region),
+            expected_cells=coverage.expected_for(region),
+        )
+        run_id = next(iter(self._forecast_resolution.values())).run_id
+        logger.info(
+            "Contract inbound resolved: run %s (%d targets leased; region=%r; "
+            "heavy fetch deferred to delivery).",
+            run_id,
+            len(self._forecast_resolution),
+            region,
+        )
 
-            self._forecast_dataset = PGMDataset(self._forecast_dataframe)
-        except Exception as e:
-            logger.error(
-                f"Encountered an error while trying to download the latest forecast data for level {loa} from Datastore: {e}",
-                exc_info=True,
-            )
-            raise
+    def _read_forecast_data(self):
+        """Forecast inbound — ADR-013 contract only.
+
+        The launcher must DECLARE ``wire_contract: True``. The pandas reader this
+        key used to select was retired in #149; omitting the key is a refusal, not
+        a fallback (register C-63).
+        """
+        launch_config.assert_contract_mode(self.configs)
+        self._read_forecast_data_contract()
 
     def _read(self) -> any:
         self._read_historical_data()
         self._read_forecast_data()
 
-    def _append_metadata(self, dataset: PGMDataset) -> pd.DataFrame:
-        filter_cols = [
-            dataset._time_id,
-            dataset._entity_id,
-            "pg_xcoord",
-            "pg_ycoord",
-            "country_iso_a3",
-            "admin1_gaul1_code",
-            "admin1_gaul1_name",
-            "admin1_gaul0_code",
-            "admin1_gaul0_name",
-            "admin2_gaul2_code",
-            "admin2_gaul2_name",
-        ]
-        raw_result = self._mapper.enrich_dataframe_with_pg_info(
-            dataset.dataframe.reset_index(),
-            pg_id_col=dataset._entity_id,
-            time_id_col=dataset._time_id,
-            only_metadata=True,
-            batch_size=1000
+    def _transform(self) -> None:
+        """No-op by design.
+
+        Geography is not joined into either payload: the historical artifact
+        attaches it at build time (``unfao/historical.py``) and the forecast ships
+        it as the §5 GAUL sidecar, built in the sink at ``_save``. The hook stays
+        so the Template Method's phases remain truthful.
+        """
+        return
+
+    def _validate(self) -> None:
+        """Assert the read produced what the save needs, then check coverage.
+
+        Neither payload is null-gated here. The historical artifact's metadata
+        null-gate fires at build time (``historical.assert_metadata_complete``);
+        the forecast's guarantees are the wire's own verified chain — content
+        hashes, header/payload asserts, and per-target coverage inside each
+        lease's ``load()``, plus the §6 no-collapse gate and gid parity at
+        ``_save``. This phase asserts the RESOLUTION happened, keeping the
+        Template Method's phases truthful: ``_read`` resolves, ``_save``
+        materializes.
+        """
+        if self._historical_frame is None:
+            raise ValueError("no historical frame — _read did not run.")
+        if self._forecast_resolution is None:
+            raise ValueError("no resolved forecast run — _read did not resolve.")
+        logger.info(
+            "Historical is frame-native: the metadata null-gate is enforced at "
+            "artifact build (historical.assert_metadata_complete)."
         )
-        
-        raw_result = raw_result[filter_cols].set_index([dataset._time_id, dataset._entity_id])
-        return dataset.dataframe.join(raw_result)
-        
+        self._check_coverage()
 
-    # def _append_lat_lon(self):
-    #     self._historical_dataframe = self._historical_dataframe.join(self._historical_dataset.get_lat_lon())
-    #     self._forecast_dataframe = self._forecast_dataframe.join(self._forecast_dataset.get_lat_lon())
+    def _check_coverage(self) -> None:
+        """Log delivered cell counts and enforce the region coverage contract (S1/C-34).
 
-    # def _append_isoa3(self):
-    #     self._historical_dataframe = self._historical_dataframe.join(self._historical_dataset.get_isoab())
-    #     self._forecast_dataframe = self._forecast_dataframe.join(self._forecast_dataset.get_isoab())
+        Orchestration only: extract primitives via ``frame_extraction``, then call
+        the representation-free ``delivery.coverage`` invariant — the rule is
+        *called*, not embedded. The count-gate fires only for regions pinned in
+        ``coverage.EXPECTED_CELLS``; an unpinned/unresolved region logs a skipped gate
+        rather than guessing.
 
-    # def _append_name(self):
-    #     self._historical_dataframe = self._historical_dataframe.join(self._historical_dataset.get_name())
-    #     self._forecast_dataframe = self._forecast_dataframe.join(self._forecast_dataset.get_name())
-
-    def _transform(
-        self,
-    ) -> list:
-        # self._append_m49()
-        # self._append_lat_lon()
-        # self._append_isoa3()
-        # self._append_name()
-        self._historical_dataframe = self._append_metadata(self._historical_dataset)
-        self._forecast_dataframe = self._append_metadata(self._forecast_dataset)
-
-    def _validate(self) -> pd.DataFrame:
-        _necessary_metadata_cols = ["pg_xcoord",
-            "pg_ycoord",
-            "country_iso_a3",
-            "admin1_gaul1_code",
-            "admin1_gaul1_name",
-            "admin1_gaul0_code",
-            "admin1_gaul0_name",
-            "admin2_gaul2_code",
-            "admin2_gaul2_name"]
-        
-        for col in _necessary_metadata_cols:
-            if col in self._historical_dataframe.columns:
-            #     if self._historical_dataframe[col].isnull().any():
-            #         raise ValueError(f"Historical dataframe is missing values in required metadata column: {col}. Found {self._historical_dataframe[col].isnull().sum()} null values.")
-                continue
+        Only the historical leg is checked here. Forecast coverage is asserted
+        inside each lease's ``load()``, where the frame actually exists — see
+        ``wire/source_selection``.
+        """
+        region = self.configs.get("region")
+        expected = coverage.expected_for(region)
+        excluded = coverage.excluded_for(region)
+        for label, cells, n_rows in [self._historical_coverage_source()]:
+            logger.info(
+                "%s delivery coverage: %d distinct cells, %d rows.",
+                label,
+                len(cells),
+                n_rows,
+            )
+            # GAUL-uncovered cells the curated region must drop (S4/C-30) — checked
+            # before the count gate so a leaked island names itself, not "over-coverage
+            # by 1". Empty for unpinned regions (e.g. africa_me_legacy keeps its ocean
+            # cells), so this is a no-op there.
+            if excluded:
+                coverage.assert_no_excluded_cells(cells, excluded, label=label)
+            if expected is not None:
+                coverage.assert_complete_coverage(cells, expected, label=label)
             else:
-                raise ValueError(f"Historical dataframe is missing required metadata column: {col}. Found columns: {self._historical_dataframe.columns.tolist()}")
-        logger.info("Historical dataframe metadata validation passed.")
-        
-        for col in _necessary_metadata_cols:
-            if col in self._forecast_dataframe.columns:
-            #     if self._forecast_dataframe[col].isnull().any():
-            #         raise ValueError(f"Forecast dataframe is missing values in required metadata column: {col}. Found {self._forecast_dataframe[col].isnull().sum()} null values.")
-                continue
-            else:
-                raise ValueError(f"Forecast dataframe is missing required metadata column: {col}. Found columns: {self._forecast_dataframe.columns.tolist()}")
-        logger.info("Forecast dataframe metadata validation passed.")
+                logger.warning(
+                    "Coverage count-gate skipped for %s: region %r is not pinned in "
+                    "delivery.coverage.EXPECTED_CELLS — verify and pin before relying on it.",
+                    label,
+                    region,
+                )
 
-    def _save(self) -> list:
-        if self._historical_dataset is None or self._forecast_dataset is None:
-            raise ValueError("Datasets could not be initialized properly.")
-        
-        # self._historical_dataset.dataframe.to_parquet(
-        #     self._model_path.data_generated / "historical_dataset.parquet"
-        # )
-        # self._forecast_dataset.dataframe.to_parquet(
-        #     self._model_path.data_generated / "forecast_dataset.parquet"
-        # )
+    def _save_contract(self) -> dict:
+        """ADR-013 contract outbound (epic #105): the composed sink delivers the run.
 
-        unfao_appwrite_config = AppwriteConfig(
+        The §11.4 interlock is enforced by ``wire.sink`` itself: with the default
+        ``product.UPLOAD_ENABLED=False`` (overridable only by the explicit
+        ``wire_upload_enabled`` launch-config key), artifacts are staged locally and
+        ZERO store calls occur. First live enablement is gated on C-161 closure.
+        """
+        if self._forecast_resolution is None:
+            raise ValueError(
+                "contract _save called without a resolved run — _read must run first."
+            )
+        # ONE read of the 888 KB lookup per delivery (#152/C-66), threaded to both
+        # consumers — each takes it as a parameter (DIP), so neither reaches for the
+        # file itself.
+        lookup = gaul_lookup.load()
+        upload_enabled = bool(self.configs.get("wire_upload_enabled", product.UPLOAD_ENABLED))
+        store = _ContractStorePort(self._unfao_datastore()) if upload_enabled else None
+        # The wire is partner-neutral (#153): the manager supplies FAO's product
+        # facts explicitly rather than the mechanism reaching for them.
+        summary = wire_sink.deliver_run(
+            self._forecast_resolution,
+            lookup=lookup,
+            staging_dir=Path(self._model_path.data_generated) / "wire_contract",
+            consumer_name=product.CONSUMER_DOCUMENT_NAME,
+            s_min=product.S_MIN,
+            store=store,
+            upload_enabled=upload_enabled,
+        )
+        # Historical leg (#126): the FAO product ships actuals alongside the wire —
+        # frame-built, same artifact shape faoapi already ingests, same interlock.
+        if self._historical_frame is None:
+            raise ValueError(
+                "contract _save: no historical frame — the un_fao descriptor must "
+                "declare data_format: feature_frame (#126)."
+            )
+        hist_path, hist_description, _ = self._build_historical_artifact(
+            Path(summary["staging_dir"]), lookup
+        )
+        if upload_enabled:
+            store.upload(
+                hist_path,
+                filename=hist_path.name,
+                name=self._model_path.model_name,
+                doc_type="model",
+                category="historical",
+                loa="pgm",
+                targets=list(self.configs.get("targets", [])),
+                description=hist_description,
+            )
+            logger.info("uploaded %s (historical, run %s)", hist_path.name, summary["run_id"])
+        else:
+            logger.info(
+                "Interlock holding: historical artifact staged at %s (no store calls).",
+                hist_path,
+            )
+        summary["historical"] = hist_path.name
+        return summary
+
+    def _unfao_datastore(self) -> DatastoreModule:
+        """The FAO-facing store (`unfao_bucket`)."""
+        return DatastoreModule(appwrite_file_manager_config=self._unfao_appwrite_config())
+
+    def _unfao_appwrite_config(self) -> AppwriteConfig:
+        appwrite_env.assert_env_declared(
+            appwrite_env.CONNECTION_ENV + appwrite_env.UNFAO_ENV, store="unfao_bucket datastore"
+        )
+        return AppwriteConfig(
             path_manager=self._model_path,
             endpoint=os.getenv("APPWRITE_ENDPOINT"),
             project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
@@ -249,28 +367,40 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
             database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
         )
-        dsm = DatastoreModule(appwrite_file_manager_config=unfao_appwrite_config)
 
+    def _save(self) -> dict:
+        """Deliver the run — ADR-013 contract only (#149)."""
+        return self._save_contract()
+
+    def _historical_coverage_source(self):
+        """(label, cells, n_rows) for the historical frame."""
+        return (
+            "historical",
+            frame_extraction.cells_of(self._historical_frame),
+            self._historical_frame.n_rows,
+        )
+
+    def _historical_frame_description(self, table, timestamp: str) -> str:
+        """The C-15 provenance description for the frame-built historical artifact."""
+        region = self.configs.get("region")
+        prov = provenance.build_provenance(
+            lookup_version=gaul_lookup.version(),
+            region=region,
+            expected_cell_count=coverage.expected_for(region),
+            actual_cell_count=len(frame_extraction.cells_of(self._historical_frame)),
+            unmapped_count=historical.unmapped_cell_count(table),
+        )
+        return provenance.compact_description(prov)
+
+    def _build_historical_artifact(self, directory, lookup) -> tuple:
+        """Frame-built historical artifact staged into ``directory``; returns
+        (path, description, timestamp). Null-gate enforced here (fail loud).
+
+        ``lookup`` is the already-read GAUL table (injected, not fetched — #152).
+        """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        historical_file_path = self._model_path.data_generated / f"historical_dataset_{timestamp}.parquet"
-        forecast_file_path = self._model_path.data_generated / f"forecast_dataset_{timestamp}.parquet"
-
-        self._historical_dataframe.to_parquet(
-            historical_file_path
-        )
-        dsm.upload_data(file=historical_file_path, 
-                       filename=Path(historical_file_path).name, 
-                       name=self._model_path.model_name,
-                       loa="pgm",
-                       type="model", targets=self.configs.get("targets", []),
-                       description="This is a test DataFrame.", category="historical")
-
-        self._forecast_dataframe.to_parquet(
-            forecast_file_path
-        )
-        dsm.upload_data(file=forecast_file_path, 
-                       filename=Path(forecast_file_path).name,
-                       name=self.ensemble_path_manager.model_name,
-                       loa="pgm",
-                       type="model", targets=["pred_ln_sb_best", "pred_ln_ns_best", "pred_ln_os_best", "pred_ln_sb_prob", "pred_ln_ns_prob", "pred_ln_os_prob"], 
-                       description="This is a test DataFrame.", category="forecast")
+        table = historical.build_historical_table(self._historical_frame, lookup)
+        historical.assert_metadata_complete(table)
+        path = Path(directory) / f"historical_dataset_{timestamp}.parquet"
+        historical.write_historical_artifact(table, path)
+        return path, self._historical_frame_description(table, timestamp), timestamp

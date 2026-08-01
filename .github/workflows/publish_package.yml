@@ -30,9 +30,18 @@ jobs:
 
     - name: Validate Version
       run: |
-        latest_version=$(curl -s https://pypi.org/pypi/views-pipeline-core/json | jq -r .info.version)
+        # `curl` on an unpublished package returns 404 with body {"message": "Not Found"};
+        # `jq -r .info.version` then prints the literal string "null" and exits 0, and
+        # `parse("null")` raises InvalidVersion — so without the `// empty` fallback the
+        # FIRST EVER release of a package is guaranteed to fail here, with an error that
+        # reads like a version-parsing bug rather than "not published yet".
+        latest_version=$(curl -s https://pypi.org/pypi/views-postprocessing/json | jq -r '.info.version // empty')
         new_version=$(python -c "import toml; print(toml.load('pyproject.toml')['tool']['poetry']['version'])")
-        python -c "from packaging.version import parse; assert parse('$new_version') > parse('$latest_version'), 'Version must be higher than $latest_version'"
+        if [ -z "$latest_version" ]; then
+          echo "views-postprocessing is not on PyPI yet — first release, nothing to compare $new_version against."
+        else
+          python -c "from packaging.version import parse; assert parse('$new_version') > parse('$latest_version'), 'Version must be higher than $latest_version'"
+        fi
   
     - name: Publish to PyPI
       run: poetry publish --build --username __token__ --password ${{ secrets.PYPI_TOKEN }}

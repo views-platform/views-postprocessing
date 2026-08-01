@@ -1,0 +1,13 @@
+{
+  "n_cells": 13110,
+  "counts": {
+    "identical": 12597,
+    "country_reassignment": 259,
+    "admin_reallocation": 247,
+    "dropped_by_land_gaul": 4,
+    "coastal_recovery": 2,
+    "both_unmapped": 1
+  },
+  "n_changed_excluding_identical_and_unmapped": 512,
+  "unexplained": 0
+}

@@ -212,3 +212,28 @@ cython_debug/
 
 # txt logs
 *.txt
+
+# generated artifacts
+graphify-out/
+.claude/
+
+# ADR-011 precomputed GAUL lookup (small, must be tracked despite *.parquet rule)
+!views_postprocessing/data/gaul_lookup.parquet
+
+# ADR-013 §10 golden fixture: canonical bytes, must be tracked despite *.zip/*.parquet rules
+!tests/fixtures/wire_contract/*
+
+# #126 historical characterization golden (small, must be tracked despite *.parquet rule)
+!tests/fixtures/historical_golden/*
+
+# Local Appwrite working cache: downloaded partner-store objects (production_forecasts/,
+# unfao_bucket/) plus cache_metadata.json. Delivery artifacts, never source — and this
+# repo is heading for its first public release (#125), so a stray `git add -A` must not
+# be able to commit partner data. See the þing-01 redaction clause (#135).
+appwrite_cache/
+
+# Agent working instructions. Deliberately NOT tracked: this file is the canonical
+# engineering philosophy propagated across the six platform repos, and it is edited
+# there first — tracking a copy here would make this repo a second source of truth
+# for a document that has one.
+CLAUDE.md
