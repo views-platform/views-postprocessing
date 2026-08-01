@@ -17,7 +17,7 @@ Each kind of knowledge has **one** home. No document repeats another's job.
 | Document | Single responsibility | Story |
 |----------|----------------------|-------|
 | `README.md` (repo root) | Install + quickstart + a short "what is this" + **pointers** out to the docs below. Not the place for deep role/seams explanation. | S3 (#73) |
-| `docs/architecture/role_and_seams.md` | The repo's **role vs the sibling repos** (datafactory → pipeline-core → vpp → faoapi) and its internal **seams** (`delivery/` invariants vs `unfao/extraction.py`; the inherited pandas base & C-40; the draws/frames contract). The doc a newcomer reads first. | S2 (#72) |
+| `docs/architecture/role_and_seams.md` | The repo's **role vs the sibling repos** (datafactory → pipeline-core → vpp → faoapi) and its internal **seams** (`delivery/` invariants vs the `contract/frame_extraction.py` seam; the inherited pandas base & C-40; the draws/frames contract). The doc a newcomer reads first. | S2 (#72) |
 | `docs/ADRs/` | **Decisions + rationale** (immutable records). What was decided, why, what it supersedes. | S4 (#74) |
 | `docs/CICs/` | **Class-level contracts** (intent, guarantees, failure modes) for non-trivial classes. Already current (refreshed in #66/#68). | — |
 | `docs/architecture/` (this dir) | Cross-cutting orientation that is not a single decision (role, seams, package map) and this index. | S2/S5 |
@@ -42,8 +42,8 @@ the convention in the interim.
 - `ADR-001` (ontology) — invalidated by `ADR-011` (mapper → lookup). Leave its text
   intact; set status to **`Superseded by ADR-012`**.
 - Write **`ADR-012`** with the *current* ontology (the categories that actually exist:
-  the `delivery/` representation-free invariants, the `unfao/extraction.py` seam, the
-  manager as a thin pipeline-core subclass, the GAUL lookup asset, derived parquet
+  the `delivery/` representation-free invariants, the `contract/frame_extraction.py` seam, the
+  manager as a pipeline-core subclass, the GAUL lookup asset, derived parquet
   outputs). `ADR-012` records `Supersedes: ADR-001`.
 - `ADR-002` (topology) is **extended in place** (not superseded) — it was incomplete,
   not wrong: add the sibling-repo topology + dependency direction + a pointer to

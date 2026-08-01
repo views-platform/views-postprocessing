@@ -64,7 +64,7 @@ These ADRs form the architectural constitution of the repository.
 - **ADR-012** — Revised Ontology (post-lookup migration)  
   Supersedes ADR-001. Restates the ontology to the current reality: a post-forecast delivery
   + input-integrity layer (delivery invariants, the representation seam, the lookup
-  enrichment, the thin manager) — no runtime spatial engine.
+  enrichment, the manager) — no runtime spatial engine.
 
 - **ADR-013** — The Sampled-Forecast Wire Contract (v1.5)  
   The adopted cross-repo contract for sampled (N,S) forecasts: two hops (Track-A archive →

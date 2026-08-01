@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-01                           |
 | Total Concerns    | 71                                   |
-| Open Concerns     | 25                                   |
-| Resolved Concerns | 46                                   |
+| Open Concerns     | 24                                   |
+| Resolved Concerns | 47                                   |
 
 ---
 
@@ -130,20 +130,6 @@ Tier recalibrated from 2 to 3 during review-rr (2026-06-02): the gap is maintain
 **Update 2026-06-24 (narrowed):** the `mapping.py` dimension is gone (C-39 — the `geopandas`/`shapely`/`joblib`/`multiprocessing` imports were deleted; `cachetools` dropped from `pyproject.toml`). Residual: `unfao.py` imports `pandas`/`polars`/`python-dotenv` undeclared, arriving transitively via `views-pipeline-core` (which *is* declared). Much smaller surface (Tier 4-ish); consider resolving outright if the transitive-via-pipeline-core guarantee is deemed sufficient.
 
 **Update 2026-07-31 (review-rr — narrative corrected against the tree):** the 2026-06-24 residual is now overstated. Verified: **`polars` has zero references repo-wide**; **`python-dotenv` is dead** (þing-01 #134 killed the implicit ensemble-dotenv borrow — see `unfao/appwrite_env.py`); `cachetools` is gone. Meanwhile `views-frames` and `pyarrow` became **declared** direct dependencies. **The residual is `pandas` alone**, imported directly at the three locations above and arriving transitively via `views-pipeline-core`. One undeclared package on a path that is itself being retired (epic #85) — genuinely Tier 4-ish now; resolve outright if the transitive guarantee is deemed sufficient, or declare `pandas` explicitly in the same PR that closes #89.
-
----
-
-### C-09: Publish workflow validates version against wrong PyPI package
-
-| Field | Value |
-|-------|-------|
-| ID | C-09 |
-| Tier | 4 |
-| Source | `repo-assimilation` (2026-06-02) |
-| Trigger | When publishing a new release of `views-postprocessing`, the version check may incorrectly pass or fail because it compares against `views-pipeline-core` on PyPI |
-| Location | `.github/workflows/publish_package.yml:33` |
-
-The "Validate Version" step fetches the latest version from `https://pypi.org/pypi/views-pipeline-core/json` instead of `https://pypi.org/pypi/views-postprocessing/json`. This compares the local `views-postprocessing` version against `views-pipeline-core`'s PyPI version, which is a different package entirely. The check may incorrectly block a valid release or allow a version that collides with an existing `views-postprocessing` release.
 
 ---
 
@@ -740,6 +726,22 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-09: Publish workflow validates version against wrong PyPI package — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-09 |
+| Resolved | 2026-08-01 |
+| Resolution | **Fully fixed 2026-08-01 (release PR #168).** This entry recorded that the publish workflow compared the local version against **views-pipeline-core**'s PyPI release rather than this package's. That half was fixed earlier (branch `fix/publish-version-check-10`), but the fix introduced a second, sharper defect that nobody could have hit yet: querying an **unpublished** package returns HTTP 404 with body `{"message": "Not Found"}`, `jq -r .info.version` prints the literal string `null` and exits 0, and `packaging.version.parse('null')` raises `InvalidVersion`. **The first-ever release of this package was therefore guaranteed to fail its own version gate** — with an error reading like a version-parsing bug rather than "not published yet". Surfaced by the `/code-review` pass on the release merge, verified concretely rather than inferred (the 404 body, jq's exit code and output, and `parse('null')` were each checked). Fixed with `jq -r '.info.version // empty'` plus an explicit first-release branch that logs and skips the comparison. Note the merge to `main` *changed the failure mode* — main's version compared against a published package and failed cleanly with `AssertionError`; the post-fix-pre-this-PR state crashed instead. |
+| Tier | 4 |
+| Source | `repo-assimilation` (2026-06-02) |
+| Trigger | When publishing a new release of `views-postprocessing`, the version check may incorrectly pass or fail because it compares against `views-pipeline-core` on PyPI |
+| Location | `.github/workflows/publish_package.yml:33` |
+
+The "Validate Version" step fetches the latest version from `https://pypi.org/pypi/views-pipeline-core/json` instead of `https://pypi.org/pypi/views-postprocessing/json`. This compares the local `views-postprocessing` version against `views-pipeline-core`'s PyPI version, which is a different package entirely. The check may incorrectly block a valid release or allow a version that collides with an existing `views-postprocessing` release.
+
+---
 
 ### C-29: Manager reads fetch result via disk side-channel instead of return value — RESOLVED
 
