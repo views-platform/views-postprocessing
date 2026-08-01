@@ -65,6 +65,15 @@ def _headings(body: str) -> list[str]:
     return re.findall(r"^### ([CD]-\d+:.*)$", body, flags=re.M)
 
 
+def _open_blocks(register: str) -> list[tuple[str, str]]:
+    """[(entry id, entry body)] for every concern under ``## Open Concerns``."""
+    body = dict(_sections(register))["Open Concerns"]
+    return [
+        (block.split(":", 1)[0].strip(), block)
+        for block in re.split(r"^### ", body, flags=re.M)[1:]
+    ]
+
+
 def _header_counts(text: str) -> dict[str, int]:
     return {
         field: int(value)
@@ -137,11 +146,8 @@ def test_concerns_and_disagreements_are_not_filed_under_each_other(register):
 def test_every_concern_entry_declares_the_required_fields(register):
     # Open concerns carry Tier/Source/Trigger/Location; resolved ones may instead
     # carry Resolved/Resolution. Either shape is fine — silence is not.
-    sections = dict(_sections(register))
-    blocks = re.split(r"^### ", sections["Open Concerns"], flags=re.M)[1:]
     missing = []
-    for block in blocks:
-        entry_id = block.split(":", 1)[0].strip()
+    for entry_id, block in _open_blocks(register):
         for field in ("ID", "Tier", "Source", "Trigger", "Location"):
             if not re.search(rf"^\| {field} \|", block, flags=re.M):
                 missing.append(f"{entry_id}: {field}")
@@ -177,6 +183,88 @@ def test_internal_references_resolve_and_foreign_ones_are_namespaced(register):
     assert not unresolved, (
         "references that neither resolve to an entry in this register nor name the "
         f"repository that owns them: {unresolved}"
+    )
+
+
+# ── Closing conditions must not already be met (S2 / #183) ───────────────────
+#
+# The guards above catch a heading that SAYS it is resolved. They cannot catch an
+# entry that says it is open while the thing it is waiting for has arrived — and
+# that turned out to be this register's actual failure mode. Six instances in two
+# days: C-63 and C-47 (open, defect fixed), C-43, C-59 and C-61 (open, each
+# naming a test that existed and passed), and C-74's cousin in `test_validation.py`.
+#
+# The stale-OPEN direction is the safe one — nothing is claimed fixed that is not —
+# but it inflates the open set with finished work, so prioritisation lies. C-43 in
+# particular carried its own closing condition in its body and sat under Open with
+# it met, which is what makes this mechanisable at all: the entry told us what to
+# check, in writing.
+#
+# Deliberately narrow. Two phrasings, both unambiguous past-tense claims, and the
+# path-gated one only fires when the named file actually EXISTS. A guard that
+# cries wolf gets deleted — this repo already deleted one over-fragile test this
+# week for exactly that reason (C-61's `-1` monkeypatch). False negatives are the
+# accepted cost.
+_CLOSING_CONDITION = re.compile(r"closes when\b", re.I)
+
+#: Exact strings, and that is the point: these are CONVENTIONS the register writes
+#: and this guard enforces by matching them. "Mitigation - landed" (hyphen) slips
+#: through, deliberately — see the false-negatives note above.
+_LANDED = "Mitigation — landed"
+_PARTIAL = "Partial mitigation"
+
+#: A backticked token is treated as a closing artifact when it looks repo-relative.
+#:
+#: **Executable roots only.** For a test or a script, "the file exists" is close to
+#: what a closing condition means, because the suite then RUNS it — C-43's condition
+#: was "committed and green", and the 18 tests are what make the second half true.
+#: For `docs/` the two come apart completely: an ADR file has existed since July,
+#: while the section an entry is waiting on may never have been written. Including
+#: doc paths here would fire on correctly-open entries and the guard would be
+#: deleted rather than fixed, which is the failure this whole check exists to avoid.
+_ARTIFACT_ROOTS = ("tests/", "scripts/")
+
+
+def test_no_open_entry_names_a_closing_artifact_that_already_exists(register):
+    """An entry that says "closes when `tests/x.py` is committed" and finds it there.
+
+    C-43's own words: *"C-43 closes when tests/test_gaul_lookup_fidelity.py is
+    committed and green."* The file was committed, the 18 tests passed, and the
+    entry stayed under Open for two days. Nothing objected, because nothing was
+    asked to.
+    """
+    repo = _REGISTER.parent.parent
+    satisfied = []
+    for entry_id, block in _open_blocks(register):
+        for match in _CLOSING_CONDITION.finditer(block):
+            window = block[match.end() : match.end() + 300]
+            for token in re.findall(r"`([^`]+)`", window):
+                path = token.split("::", 1)[0].strip()
+                if path.startswith(_ARTIFACT_ROOTS) and (repo / path).exists():
+                    satisfied.append(f"{entry_id} -> {path}")
+    assert not satisfied, (
+        "open concern(s) whose own stated closing condition is already met — the "
+        "named artifact exists. Move the entry to Resolved citing it, or reword "
+        f"the condition to say what is actually outstanding: {sorted(set(satisfied))}"
+    )
+
+
+def test_no_open_entry_claims_its_mitigation_has_landed(register):
+    """A recorded landed mitigation is a past-tense claim that the fix shipped.
+
+    C-59 and C-61 both carried it, both naming tests that existed and passed, and
+    both sat under Open. If a fix genuinely landed only in part, say so — the
+    escape hatch is the phrase "Partial mitigation", which is itself a declaration
+    rather than an ambiguity.
+    """
+    claimed = [
+        entry_id
+        for entry_id, block in _open_blocks(register)
+        if _LANDED in block and _PARTIAL not in block
+    ]
+    assert not claimed, (
+        f"open concern(s) recording a landed mitigation: {claimed}. Either move the "
+        f"entry to Resolved, or write {_PARTIAL!r} and state what remains."
     )
 
 
