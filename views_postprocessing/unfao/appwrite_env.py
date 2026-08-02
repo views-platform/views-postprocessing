@@ -7,8 +7,10 @@ platform's original failure (þing-01 sáttmál S6):
 
     https://github.com/views-platform/views-appwrite/blob/47172af/docs/ADRs/platform/coordinate_registry.toml
 
-That pin is registry **v1.3.0** (ratified, þing-02). A pinned URL does not rot, but
-it does go stale — naming the version is what makes the staleness legible here.
+That pin is registry **v1.3.0** (ratified, þing-02) — declared below as
+``SEAM_CONTRACT_VERSION`` / ``SEAM_CONTRACT_COMMIT`` so the pin is a value a test can
+check rather than a fact buried in prose. A pinned URL does not rot, but it does go
+stale, and nothing in this repository could previously tell you it had (register C-57).
 
 **Pin from the tip of `main`, never from a sibling checkout's `HEAD`** (#196). The
 first pin taken here was resolved with `git -C ../views-appwrite rev-parse HEAD` on a
@@ -33,6 +35,17 @@ import logging
 import os
 
 logger = logging.getLogger(__name__)
+
+#: The Appwrite Seam Contract edition these names were verified against, and the commit
+#: this repo cites. **A version string and a sha are not coordinate values** — the
+#: registry forbids copying its values, and nothing here copies one. What is recorded is
+#: *which edition was read*, which is exactly what makes drift detectable.
+#:
+#: Bumping these is not bookkeeping: it asserts that someone re-checked this module's
+#: declaration against that edition of the registry. ``tests/test_env_declaration.py``
+#: enforces the pair against a local views-appwrite checkout when one is present.
+SEAM_CONTRACT_VERSION = "1.3.0"
+SEAM_CONTRACT_COMMIT = "47172af"
 
 CONNECTION_ENV = (
     "APPWRITE_ENDPOINT",

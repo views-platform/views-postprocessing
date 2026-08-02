@@ -14,14 +14,18 @@ views-pipeline-core, absent in test environments, so the manager-side facts are
 pinned by source scan instead — the repo's standing pattern.
 """
 
+import ast
 import logging
 import re
 from pathlib import Path
 
 import pytest
 
+from tests.conftest import commit_is_on_main, git_output, require_sibling, sibling_repo
 from views_postprocessing.contract import launch_config
 from views_postprocessing.unfao import appwrite_env
+
+_PKG = Path(__file__).resolve().parent.parent / "views_postprocessing"
 
 
 _MANAGER_SOURCE = (
@@ -192,3 +196,237 @@ def test_secret_env_names_follow_the_seam_contract_naming_rule():
     )
     secrets = {n for n in declared if n.endswith(("_API_KEY", "_PASSWORD", "_TOKEN"))}
     assert secrets == {"APPWRITE_DATASTORE_API_KEY"}
+
+
+# ── drift against the Appwrite Seam Contract's registry (S6 / #187, C-57) ────
+#
+# The registry is the authority for every name below and lives in views-appwrite. It
+# is deliberately **referenced, never copied** — one owner, no duplicated values, no
+# drift-by-fork — and that is the right call. What it leaves is C-57's gap: nothing
+# mechanical tells you when the two have diverged.
+#
+# Checked 2026-08-02: there is no live drift. This builds the detector while the
+# answer is known-good, which is the cheap moment; the alternative is discovering it
+# during a failed delivery.
+#
+# **Never assert on a coordinate VALUE.** The registry holds non-secret identifiers,
+# and copying one into a test is the same violation as copying it into code. These
+# compare names, declared classes, and the edition — nothing else.
+
+_REGISTRY_RELPATH = Path("docs") / "ADRs" / "platform" / "coordinate_registry.toml"
+
+#: How this module treats each declared name, vs. the registry's own `class` field.
+#:
+#: **Written out, not derived.** An earlier draft built this by suffix — anything ending
+#: `_API_KEY` is a secret, everything else in CONNECTION_ENV is a connection. That is the
+#: precise inference the registry's header forbids ("class is DECLARED here, never
+#: inferred from a name's prefix"), reproduced inside the test written to enforce it.
+#: It happened to be correct, which is what makes the habit worth breaking rather than
+#: excusing. Adding a name without classifying it now fails below.
+_EXPECTED_CLASS = {
+    "APPWRITE_ENDPOINT": "connection",
+    "APPWRITE_DATASTORE_PROJECT_ID": "connection",
+    "APPWRITE_DATASTORE_API_KEY": "secret",
+    "APPWRITE_PROD_FORECASTS_BUCKET_ID": "target",
+    "APPWRITE_PROD_FORECASTS_BUCKET_NAME": "target",
+    "APPWRITE_PROD_FORECASTS_COLLECTION_ID": "target",
+    "APPWRITE_PROD_FORECASTS_COLLECTION_NAME": "target",
+    "APPWRITE_UNFAO_BUCKET_ID": "target",
+    "APPWRITE_UNFAO_BUCKET_NAME": "target",
+    "APPWRITE_UNFAO_COLLECTION_ID": "target",
+    "APPWRITE_UNFAO_COLLECTION_NAME": "target",
+    "APPWRITE_METADATA_DATABASE_ID": "target",
+    "APPWRITE_METADATA_DATABASE_NAME": "target",
+}
+
+
+def test_every_declared_name_is_classified_here():
+    """The map above must cover the module exactly — no silent gaps, no strays.
+
+    Without this, adding a name to one of the ENV tuples would simply not be checked
+    against the registry, and the drift test would keep passing while covering less.
+    That is register **C-74**'s shape: a guard quietly narrower than it claims.
+    """
+    declared = set(
+        appwrite_env.CONNECTION_ENV + appwrite_env.PROD_FORECASTS_ENV + appwrite_env.UNFAO_ENV
+    )
+    assert set(_EXPECTED_CLASS) == declared, (
+        f"unclassified: {sorted(declared - set(_EXPECTED_CLASS))}; "
+        f"stale: {sorted(set(_EXPECTED_CLASS) - declared)}"
+    )
+
+
+def _load_registry(repo: Path) -> dict:
+    tomllib = pytest.importorskip(
+        "tomllib",
+        reason="tomllib is stdlib from Python 3.11; pyproject declares >=3.11, so a "
+               "conforming environment has it. CI runs 3.11.",
+    )
+    return tomllib.loads((repo / _REGISTRY_RELPATH).read_text())
+
+
+def _declared_classes(registry: dict) -> dict[str, str]:
+    """name -> the class the registry DECLARES for it (never inferred from the name)."""
+    return {
+        name: body.get("class")
+        for section in ("connection", "target", "secret")
+        for name, body in registry.get(section, {}).items()
+    }
+
+
+def test_every_declared_name_exists_in_the_registry_with_the_class_we_treat_it_as():
+    """C-57: a rename or reclassification upstream must not be silent here."""
+    repo = require_sibling("views-appwrite")
+    declared = _declared_classes(_load_registry(repo))
+
+    missing = sorted(n for n in _EXPECTED_CLASS if n not in declared)
+    assert not missing, (
+        f"names this package requires are absent from the Appwrite Seam Contract's "
+        f"registry: {missing}. Either the registry retired them or this module invented "
+        "them; the registry is the authority."
+    )
+    misclassified = {
+        n: (expected, declared[n])
+        for n, expected in _EXPECTED_CLASS.items()
+        if declared[n] != expected
+    }
+    assert not misclassified, (
+        f"class mismatch (expected, registry) {misclassified}. Class is DECLARED by the "
+        "registry, never inferred from a name's prefix — a coordinate treated as a "
+        "secret (or the reverse) is a redaction bug waiting to happen."
+    )
+
+
+def test_the_pinned_contract_edition_still_matches_the_registry():
+    """The check that catches everything the other one cannot — including additions.
+
+    Names and classes catch a rename. The edition catches **any** other change: a new
+    target this repo ought to adopt, a retired secret slot, a reworded rule. It fails
+    loudly and tells you what to do rather than what broke.
+    """
+    repo = require_sibling("views-appwrite")
+    actual = _load_registry(repo)["meta"]["version"]
+    assert actual == appwrite_env.SEAM_CONTRACT_VERSION, (
+        f"the Appwrite Seam Contract's registry moved to v{actual}; this repo declares "
+        f"v{appwrite_env.SEAM_CONTRACT_VERSION}. Re-verify appwrite_env's declaration "
+        f"against v{actual}, then bump SEAM_CONTRACT_VERSION and SEAM_CONTRACT_COMMIT "
+        "together. Do not bump one alone — the pair is the claim."
+    )
+
+
+def test_the_pinned_commit_is_reachable_from_the_contract_repos_main():
+    """Existence is not reachability, and that distinction cost a merged PR (#196).
+
+    S3 pinned a commit resolved with ``rev-parse HEAD`` on a views-appwrite checkout
+    that happened to be sitting on an unmerged branch. The commit existed. Both cited
+    files existed at it. Every check anyone had written passed. It had never reached
+    ``main``, declared a version that was never ratified, and was withdrawn.
+    """
+    repo = require_sibling("views-appwrite")
+    commit = appwrite_env.SEAM_CONTRACT_COMMIT
+    if not git_output(repo, "cat-file", "-t", commit):
+        pytest.skip(
+            f"{commit} is not in the local views-appwrite checkout — run `git fetch` "
+            "there; a stale clone cannot answer whether the pin reached main"
+        )
+    assert commit_is_on_main(repo, commit), (
+        f"the pinned commit {commit!r} is not an ancestor of views-appwrite's main. A "
+        "pin taken from a working copy's HEAD can land on an unmerged branch — that is "
+        "#196, verbatim. Re-pin from `git rev-parse --short origin/main`."
+    )
+
+
+def test_the_drift_check_would_catch_a_rename(tmp_path):
+    """A gated test that cannot fail is decoration — so prove this one bites in CI.
+
+    Runs with **no** views-appwrite checkout: a synthetic registry with one name
+    renamed and one reclassified, fed to the same comparison the gated tests use.
+    """
+    registry = {
+        "meta": {"version": appwrite_env.SEAM_CONTRACT_VERSION},
+        "connection": {"APPWRITE_ENDPOINT": {"class": "connection"}},
+        "target": {"APPWRITE_UNFAO_BUCKET_ID": {"class": "secret"}},  # reclassified
+        "secret": {"APPWRITE_DATASTORE_API_KEY": {"class": "secret"}},
+    }
+    declared = _declared_classes(registry)
+
+    assert "APPWRITE_DATASTORE_PROJECT_ID" not in declared, "fixture should omit it"
+    missing = sorted(n for n in _EXPECTED_CLASS if n not in declared)
+    assert missing, "the detector reported no missing names against a registry that omits most"
+
+    mismatched = [
+        n for n, expected in _EXPECTED_CLASS.items()
+        if n in declared and declared[n] != expected
+    ]
+    assert "APPWRITE_UNFAO_BUCKET_ID" in mismatched, (
+        "a target reclassified as a secret went unnoticed — that is the case where "
+        "getting it wrong leaks or hides a value"
+    )
+
+
+def _docstring_nodes(tree: ast.AST) -> set[int]:
+    """ids of the string Constants that are docstrings — prose, not values."""
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            first = node.body[0] if node.body else None
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                out.add(id(first.value))
+    return out
+
+
+def test_no_coordinate_value_is_copied_into_this_repo():
+    """The registry's own rule: *"never bake a value into code, an example, or a
+    dataclass default."* Consumers READ and VALIDATE; the launcher supplies values.
+
+    **Two wrong narrowings before this one, both instructive.**
+
+    A substring text scan over every ``.py`` flagged three "leaks": ``file_metadata``
+    (a **function name** in ``contract/store_metadata.py``), ``production_forecasts``
+    and ``unfao_bucket`` (only in refusal labels and docstrings naming which store a
+    function serves). None was a copy, and a guard that fails on
+    ``def file_metadata(record)`` gets deleted — after which the real rule is unguarded.
+
+    Narrowing to *assignments and default arguments* then went too far in the other
+    direction: it caught neither a dict value nor a keyword argument, and the keyword
+    argument is the shape this repo would actually produce —
+    ``AppwriteConfig(bucket_id=...)`` is how every store is configured, and swapping one
+    ``os.getenv`` for a literal there is the violation.
+
+    The right axis was **exact equality on string constants**, not statement shape. It
+    catches dict values and kwargs, while all three original false positives fall out on
+    their own: a function name is not a ``Constant``; ``"unfao_bucket datastore"`` is not
+    equal to ``"unfao_bucket"``; docstrings are excluded outright.
+    """
+    repo = sibling_repo("views-appwrite")
+    if repo is None:
+        pytest.skip("views-appwrite checkout not found — set VIEWS_APPWRITE")
+    registry = _load_registry(repo)
+    values = {
+        body["value"]
+        for section in ("connection", "target")
+        for body in registry.get(section, {}).values()
+        if isinstance(body.get("value"), str) and len(body["value"]) > 6
+    }
+
+    copied = []
+    for source in sorted(_PKG.rglob("*.py")):
+        tree = ast.parse(source.read_text())
+        docstrings = _docstring_nodes(tree)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value in values
+                and id(node) not in docstrings
+            ):
+                copied.append(f"{source.relative_to(_PKG)}:{node.lineno} = {node.value!r}")
+    assert not copied, (
+        f"coordinate value(s) from the registry are copied into code: {copied}. The "
+        "registry is referenced, never copied — values reach this package through the "
+        "environment the launcher assembles, validated by assert_env_declared."
+    )
