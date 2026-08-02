@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-02                           |
 | Total Concerns    | 74                                   |
-| Open Concerns     | 19                                   |
-| Resolved Concerns | 55                                   |
+| Open Concerns     | 18                                   |
+| Resolved Concerns | 56                                   |
 
 ---
 
@@ -63,7 +63,7 @@ covered a single open entry (see Historical clusters below).
 **Entries:** C-59, C-61 (build-time guarantees unenforced), C-60 (provenance stamp can silently degrade), C-46 (the one cross-repo check is CI-skipped on a hardcoded path), C-43 (the value-correctness debt this cluster's fix discharges)
 **Highest tier:** 3 (C-59, C-60, C-61 — C-59 recalibrated 2→3 on 2026-07-31 mutation evidence)
 **Fix strategy:** one test file — `tests/test_gaul_lookup_fidelity.py` — split into an always-on half (gid uniqueness, region-set equality, coordinate formula against a committed ground-truth sample, no nulls, no `-1` codes) and a `skipif`-gated half comparing all 7 GAUL columns against the datafactory sibling. Plus two one-line hardenings in `scripts/build_gaul_lookup.py`: assert index uniqueness, and convert the bare `assert`s to explicit raises.
-**Resolution scope:** Full for C-59/C-61/C-43's residual guard; partial for C-60 (needs the flat declared `lookup_version` key) and C-46 (needs the hardcoded path removed).
+**Resolution scope:** Full for all five. C-59/C-61/C-43 discharged by the one test file this strategy predicted; C-60 by the flat declared `lookup_version` key (S5 / #186); C-46 by one declared way of resolving the producer's checkout (S7 / #188).
 
 **✅ MOSTLY CLOSED 2026-08-02 (S2 / #183).** The prediction held: **one test file discharged three entries.** `tests/test_gaul_lookup_fidelity.py` (18 tests) closed **C-43**, **C-59** and **C-61** together, exactly as the fix strategy above said it would — the always-on half against the committed artifact, the `skipif` half against views-datafactory, plus the builder's bare `assert`s converted to `LookupBuildError` raises.
 
@@ -71,7 +71,11 @@ covered a single open entry (see Historical clusters below).
 
 **The lesson, and it generalises past this cluster.** C-43's residual said the forward-check *"was a one-off session result, not a standing guarantee"* — and the fix was to attach it to something the interpreter runs. The entries then reproduced the identical error one level up: they stated their closing conditions in prose and attached them to nothing. S2 therefore added a closing-condition check to `test_register_integrity.py`. **A guarantee needs a check, and that applies to the register's own guarantees too.**
 
-**C-60 closed 2026-08-02 (S5 / #186)** — the flat declared key landed and the committed artifact was rebuilt, metadata-only. **Remaining in this cluster: C-46 alone** (the hardcoded datafactory path — S7 / #188), which is the last thing keeping the cluster open.
+**✅ CLOSED 2026-08-02 (epic #181).** All five entries resolved: C-59 and C-61 (build-time guarantees, S2), C-43 (the value-correctness debt, S2), C-60 (the declared `lookup_version`, S5) and C-46 (the machine-specific path, S7).
+
+**The fix strategy predicted the shape correctly** — *"one test file, split into an always-on half and a `skipif`-gated half, plus two one-line hardenings in the builder"* — and that is what discharged three of the five. What it did not anticipate is that the cluster's own tooling was part of the problem: the gated half it prescribed could not run for anyone but the maintainer (C-46), and the provenance stamp it relied on could silently become the string `"unknown"` (C-60). A cluster about *"the artifact is trusted but unverified"* had a verification apparatus that was itself partly unverifiable.
+
+**What remains is not this repo's:** the artifact is now checked value-for-value against views-datafactory's parquets, but whether the **producer's** area-majority join is correct at high latitudes is views-datafactory#387. C-43's scope split holds — transcription fidelity is proven, assignment correctness is not ours to prove.
 
 ### Cluster L: The won migration was never cleaned up
 **Root cause:** the frame-native contract path replaced the pandas path and **won** — run-0 delivered global-land on 2026-07-27 and FAO has been served from it since. The replaced path was deliberately kept behind a config fork "until run 0 proves the contract path live" (C-40) and was then never removed. Everything below is residue of that one omission, not independent defects.
@@ -386,24 +390,6 @@ This entry's trigger holds the bump on **two** conditions. Their status has dive
 
 ---
 
-### C-46: `test_datafactory_deploy_readiness` is hardcoded to a local path — CI-skipped, and currently failing on the one machine that runs it `[backlog]`
-
-| Field | Value |
-|-------|-------|
-| ID | C-46 |
-| Tier | 4 |
-| Source | `repo-assimilation` (2026-06-27) |
-| Trigger | When treating `test_datafactory_deploy_readiness` as a release gate (it never runs in CI), or when a contributor's local `pytest` fails on it — re-promote / re-pin the strict-xfail now that views-datafactory has advanced to `1.5.0`-dev past its `v1.4.0` tag |
-| Location | `tests/test_datafactory_deploy_readiness.py` (`_DF = Path("/home/simon/.../views-datafactory")`, `skipif(not _DF.exists())`) |
-
-The cross-repo deploy-readiness gates introduced under C-36 are guarded by `skipif` on a **hardcoded local datafactory checkout path**, so they are **skipped in CI** and only ever execute on one developer's machine. There, `test_version_bumped_past_latest_tag` is currently **failing**: it is an `xfail(strict)` that flipped to XPASS because datafactory moved to `1.5.0`-dev past its `v1.4.0` tag — exactly the auto-flip C-36's resolution anticipated, but because of the hardcoded path the flip surfaces as a **local red** rather than a CI signal, and breaks local `pytest` runs (the suite is run with this test deselected). No correctness/reliability impact on the delivery → **Tier 4** (test hygiene). C-36 (resolved) converted these gates to strict-xfail but did not capture the local-path / CI-skip dimension.
-
-See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the datafactory version-state coupling).
-
-**Tagged `[backlog]` during review-rr (2026-07-31):** Tier 4, single-machine scope, mechanical fix. Kept in the register for completeness rather than active risk management — see the Register Conventions note on the `[backlog]` tag.
-
----
-
 ### C-58: A wrong Appwrite coordinate auto-provisions a new empty target instead of raising — both client lineages, on every write
 
 | Field | Value |
@@ -649,6 +635,43 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-46: `test_datafactory_deploy_readiness` is hardcoded to a local path — CI-skipped, and currently failing on the one machine that runs it — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-46 |
+| Resolved | 2026-08-02 |
+| Resolution | **Closed by S7 (#188).** Four sites resolved views-datafactory four different ways; one of them was `Path("/home/simon/Documents/scripts/views_platform/views-datafactory")`, so the repo's only cross-repo release gate had **never run anywhere but one laptop**. All four now go through one declared resolution — `$VIEWS_DATAFACTORY`, else the conventional directory beside this repo, never an absolute path to a particular machine.
+
+| site | was |
+|---|---|
+| `tests/test_datafactory_deploy_readiness.py` | an absolute path to one developer's home directory |
+| `tests/test_gaul_lookup_fidelity.py` | its own `_REPO.parent / "views-datafactory"` |
+| `tests/test_delivery_coverage.py` | its own `parents[2] / …` (a fourth site, found while doing the work — the issue listed three) |
+| `scripts/build_gaul_lookup.py` | the shape that was already right, kept |
+
+Verified 2026-08-02: `grep -rn "/home/" tests/ scripts/ views_postprocessing/ --include=*.py` → **0**. With the sibling present the deploy gate runs (1 passed, 3 xfailed — its deliberately-tuned `xfail`s untouched); without it, 13 clean skips and no errors. Every skip names `VIEWS_DATAFACTORY` **and** the conventional path, so a contributor can run the test rather than watch it skip.
+
+**The builder keeps its own resolver, deliberately.** A script must not import from `tests/` — that is the dependency direction backwards — and the contracts genuinely differ: the script returns a `Path` even when the checkout is absent so `main` can raise naming both the flag and the variable, while the test helper returns `None` because a missing sibling is a normal skip. WET before DRY: two copies that are understood beat one abstraction that is guessed. What is guarded instead is the property that actually matters — that they **agree** — because a builder writing from one checkout while the tests verify against another would report success on a lookup compared to a producer it was not built from.
+
+**Residual, and the decision it needs.** These checks still do not run in CI. There are three such gated groups now — this deploy gate, the fidelity suite's producer-comparison half, and **C-57**'s registry-drift half — and the question should be answered once for all three rather than three times.
+
+**Recommendation, for whoever takes it:** do **not** add sibling checkouts to the per-PR workflow. It couples this repo's CI to another repo's default branch, so an unrelated upstream commit turns this repo red — precisely the flapping `TestReleaseGate` already documents and was re-pinned for once. The always-on halves already guard the committed artifact; the gated halves answer *"is the producer's current state still consistent with ours?"*, which is a **scheduled** cross-repo question, not a merge gate. If it is wanted, the vehicle is a weekly workflow that opens an issue on divergence. **Named trigger:** the next time an upstream change reaches FAO through this repo without anyone noticing first. |
+| Tier | 4 |
+| Source | `repo-assimilation` (2026-06-27) |
+| Trigger | When treating `test_datafactory_deploy_readiness` as a release gate (it never runs in CI), or when a contributor's local `pytest` fails on it — re-promote / re-pin the strict-xfail now that views-datafactory has advanced to `1.5.0`-dev past its `v1.4.0` tag |
+| Location | `tests/test_datafactory_deploy_readiness.py` (`_DF = Path("/home/simon/.../views-datafactory")`, `skipif(not _DF.exists())`) |
+
+The cross-repo deploy-readiness gates introduced under C-36 are guarded by `skipif` on a **hardcoded local datafactory checkout path**, so they are **skipped in CI** and only ever execute on one developer's machine. There, `test_version_bumped_past_latest_tag` is currently **failing**: it is an `xfail(strict)` that flipped to XPASS because datafactory moved to `1.5.0`-dev past its `v1.4.0` tag — exactly the auto-flip C-36's resolution anticipated, but because of the hardcoded path the flip surfaces as a **local red** rather than a CI signal, and breaks local `pytest` runs (the suite is run with this test deselected). No correctness/reliability impact on the delivery → **Tier 4** (test hygiene). C-36 (resolved) converted these gates to strict-xfail but did not capture the local-path / CI-skip dimension.
+
+See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the datafactory version-state coupling).
+
+**Was tagged `[backlog]` at review-rr (2026-07-31)** — Tier 4, single-machine scope, mechanical fix — and kept for completeness rather than active risk management. The tag was dropped when S7 resolved it. Worth noting for the convention itself: a `[backlog]` entry is deprioritised, not dormant, and this one turned out to be blocking three gated cross-repo checks from running anywhere but one machine.
+
+---
+
+---
 
 ### C-57: PLATFORM-001 coordinate registry is referenced by URL, so nothing detects drift between it and this repo's declared environment — RESOLVED
 
