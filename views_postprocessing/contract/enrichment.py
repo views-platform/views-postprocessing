@@ -74,6 +74,16 @@ class GaulLookupEnricher:
             logger.error(err_msg)
             raise ValueError(err_msg)
 
+        if table.num_rows == 0:
+            err_msg = (
+                f"GAUL lookup at {self._lookup_path} is empty. Every cell would gather "
+                "to null and the delivery would fail downstream complaining about "
+                "missing metadata rather than about a missing lookup. Rebuild it with "
+                "scripts/build_gaul_lookup.py."
+            )
+            logger.error(err_msg)  # ADR-008: logged persistently AND raised
+            raise ValueError(err_msg)
+
         # Sort the whole table once by key, in arrow, so the gather below is a binary
         # search per row rather than a scan. `take` reorders every column together —
         # doing it column-by-column in python was measurably quadratic and is exactly
@@ -85,12 +95,20 @@ class GaulLookupEnricher:
         # One `to_pylist` per column, not per row. Lists rather than numpy arrays
         # because the columns are of mixed kind (float codes, string names) and the
         # output is assembled per column anyway.
+        #
+        # DTYPE CHANGE, deliberate and measured (S4 / #89). The pandas merge this
+        # replaced produced `category` name columns, inherited from the artifact's
+        # dictionary encoding; assigning lists produces `object`. On a 200-row output:
+        # category 1,795,191 bytes vs object 60,061 — a categorical carries the full
+        # 64,742-entry dictionary whatever the output size, so this is far lighter for
+        # the small frames this object actually sees and heavier only past the point
+        # where the dictionary amortises. The builder's `# names/iso categorical (C-32
+        # memory)` note governs the ARTIFACT; it never governed this method's output.
         self._values = {col: table.column(col).to_pylist() for col in METADATA_COLS}
-        self._n_cells = table.num_rows
         self.lookup_version = self._read_version(self._lookup_path)
         logger.info(
             "Loaded GAUL lookup: %d cells from %s (version=%s)",
-            self._n_cells, self._lookup_path, self.lookup_version,
+            len(self._keys), self._lookup_path, self.lookup_version,
         )
 
     def _gather(self, gids) -> tuple[dict, np.ndarray]:
@@ -102,10 +120,13 @@ class GaulLookupEnricher:
         exists to catch, not a sentinel it would pass.
         """
         wanted = np.asarray(gids, dtype=np.int64)
-        pos = np.searchsorted(self._keys, wanted)
-        clipped = np.clip(pos, 0, max(len(self._keys) - 1, 0))
-        found = (len(self._keys) > 0) & (self._keys[clipped] == wanted)
-        idx = clipped
+        # `self._keys` is non-empty — __init__ refuses an empty lookup. An earlier draft
+        # guarded with `(len(self._keys) > 0) & (...)`, which READS as a guard and is
+        # not one: `&` evaluates both operands, so the index happened regardless and an
+        # empty lookup raised IndexError from inside the gather rather than ValueError
+        # from the constructor. Guard where the condition is knowable, not where it bites.
+        idx = np.clip(np.searchsorted(self._keys, wanted), 0, len(self._keys) - 1)
+        found = self._keys[idx] == wanted
         out = {
             col: [vals[i] if hit else None for i, hit in zip(idx, found)]
             for col, vals in self._values.items()

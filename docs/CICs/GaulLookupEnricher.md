@@ -33,15 +33,29 @@ views-datafactory area-majority join), so this class does only a table join.
 
 ## 3. Responsibilities and Guarantees
 
-- Loads exactly one lookup Parquet at construction and verifies it carries the 9
-  contract columns; missing columns raise at construction.
+- Loads exactly one lookup Parquet at construction and verifies it carries the key
+  plus the 9 contract columns; missing columns raise at construction, and so does an
+  **empty** lookup — every cell would gather to null and the delivery would then
+  complain about missing metadata rather than about a missing lookup (S4 / #89).
 - Returns the input frame augmented with exactly the 9 columns of
-  `gaul_schema.METADATA_COLS`, with their dtypes preserved from the lookup
-  (codes numeric, coordinates float, names/iso categorical).
+  `gaul_schema.METADATA_COLS`: codes numeric, coordinates float, **names and iso as
+  `object`**.
+  *Changed in S4 (#89).* They were `category`, inherited from the pandas merge that
+  read the artifact's dictionary encoding. The gather that replaced it assigns plain
+  values. Measured on a 200-row output: category 1,795,191 bytes, object 60,061 —
+  a categorical carries the artifact's full 64,742-entry dictionary whatever the
+  output size. The builder still writes the artifact with dictionary-encoded names
+  (`# names/iso categorical (C-32 memory)`); that governs the file, not this output.
 - A cell id present in the lookup is enriched with that cell's metadata.
 - A cell id **absent** from the lookup yields **null** metadata for that row —
   never a sentinel, never a fabricated value (fail-loud downstream).
-- Row count and row order of the input are preserved (left merge).
+- Row count, row order **and index** of the input are preserved. Verified against the
+  previous implementation across eight input shapes, including a non-default index,
+  duplicated gids, unknown gids and empty input.
+  On **empty** input this is now *more* true than before: the pandas merge replaced the
+  input's `RangeIndex` with an object-dtype `Index`, where the gather leaves it
+  untouched. The only behavioural difference found, and it is in the direction the
+  guarantee above already claimed.
 
 ---
 
@@ -60,7 +74,12 @@ views-datafactory area-majority join), so this class does only a table join.
 ## 5. Outputs and Side Effects
 
 - Output: the input frame (or, with `only_metadata=True`, just `pg_id_col` +
-  `time_id_col`) left-merged with the 9 metadata columns.
+  `time_id_col`) with the 9 metadata columns attached by **keyed gather**.
+  *Changed in S4 (#89):* this was a pandas left-merge on the lookup's index. The
+  lookup is now read with pyarrow, sorted once, and addressed by `np.searchsorted`.
+  Attaching metadata to a frame is a keyed gather, not frame algebra, and it never
+  needed a merge — which is also what frees the builder to stop writing pandas index
+  metadata (S5 / #90).
 - Public attribute: `lookup_version` — a short, stampable id read from the
   lookup's **declared** `lookup_version` metadata key at construction
   (`<region>@<8-char source digest>`). Delegates to
@@ -93,7 +112,11 @@ views-datafactory area-majority join), so this class does only a table join.
 
 ## 7. Boundaries and Interactions
 
-- Allowed to depend on: pandas, `gaul_schema`, and a local Parquet file.
+- Allowed to depend on: numpy, pyarrow, `gaul_schema`, and a local Parquet file.
+  **pandas is interface-only** — callers hand this class DataFrames and get one back,
+  but nothing here constructs, reads or joins one, and its import is under
+  `if TYPE_CHECKING` (S4 / #89). `tests/test_doc_accuracy.py` asserts by AST that the
+  package has **zero** runtime pandas importers.
 - Must **not** depend on: geopandas/shapely, the runtime mapper, the
   datafactory, viewser, Appwrite, or any network resource.
 - Treats the lookup table as an opaque, trusted artifact produced by the build
