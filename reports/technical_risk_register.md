@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-02                           |
 | Total Concerns    | 74                                   |
-| Open Concerns     | 22                                   |
-| Resolved Concerns | 52                                   |
+| Open Concerns     | 21                                   |
+| Resolved Concerns | 53                                   |
 
 ---
 
@@ -112,24 +112,6 @@ that indexes only deleted code is noise.
 ---
 
 ## Open Concerns
-
-### C-03: Test coverage gaps in manager validation and the enrich→validate path
-
-| Field | Value |
-|-------|-------|
-| ID | C-03 |
-| Tier | 3 |
-| Source | `repo-assimilation` (2026-06-02), `test-review` (2026-06-02) |
-| Trigger | When modifying the manager's `_validate()` or the enricher, verify that the test suite covers the changed behavior — end-to-end coverage across the enrich→validate path is still absent |
-| Location | `tests/test_validation.py`, `views_postprocessing/unfao/managers/unfao.py` |
-
-Initial state was zero test coverage. A 73-test suite was written (2026-06-02) covering the (now-deleted) mapper's core guarantees and the validation logic (missing columns, null rejection, error messages). Remaining gaps after the mapper removal: (1) the validation tests replicate `_validate()` logic in a standalone function because `views-pipeline-core` is unavailable in test environments — if the real `_validate()` diverges, tests pass while production fails; (2) no end-to-end test enriches through `GaulLookupEnricher` then validates through the manager.
-
-Tier recalibrated from 2 to 3 during review-rr (2026-06-02): the gap is maintainability (test-code divergence, missing integration path), not structural fragility.
-
-**Update 2026-06-24:** narrowed with the mapper deletion (C-39, PR #42). The mapper-coverage dimension is gone with the mapper (`tests/test_mapping.py` deleted; the determinism/cache/shapefile/`ThreadPoolExecutor` gaps no longer exist). Two manager-side gaps remain: the standalone `_validate()` replica and the missing enrich→validate end-to-end test.
-
----
 
 ### C-07: Undeclared direct runtime dependencies in pyproject.toml
 
@@ -711,6 +693,37 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-03: Test coverage gaps in manager validation and the enrich→validate path — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-03 |
+| Resolved | 2026-08-02 |
+| Resolution | **Closed by S4 (#185): one of its two residuals is gone, the other is relocated to a tracker that already exists.**
+
+**Residual 1 — the `_validate()` replica — REMOVED.** `tests/test_validation.py` defined its own `validate_dataframe` and then tested *that*: forty-odd parametrised cases exercising a function declared twelve lines above them and **no production code at all**. A closed loop that could not fail while the delivery broke. Its header claimed *"the logic tested matches unfao.py:_validate() exactly"* — false since **#149**, which stopped `_validate` null-gating entirely (its docstring now says *"Neither payload is null-gated here"*). It also carried `REQUIRED_METADATA_COLS` as a nine-element literal, a hand copy of the contract **C-70** was resolved to make single-source.
+
+Replaced by tests of `contract/historical.assert_metadata_complete` — the code that actually gates a delivery — parametrised over the **imported** `METADATA_COLS`, plus source-scan pins that the gate stays at build time and is still invoked. Verified 2026-08-02: `pytest -q tests/test_validation.py` → **14 passed**. Mutation-tested: narrowing the gate to a single column fails **9 of 14**; the old suite passed that mutation untouched, because it was not testing the gate.
+
+**Residual 2 — the enrich→validate end-to-end test — RELOCATED to #18**, per the Register Conventions' relocation rule (a relocation is not complete until the destination exists and is cited by number). Every *leg* is now covered — enrichment (`test_enrichment.py`, 16), artifact build (`test_historical_builder.py`, 7), reader parity (`test_historical_parity.py`, 3), the invariants on primitives (`test_input_integrity_e2e.py`, 8), the wire end to end (`test_hop_b_sink_e2e.py`, 6), the null-gate (`test_validation.py`, 14). What remains uncovered is **the manager orchestrating them**, which needs views-pipeline-core and a production-like Appwrite environment — and þing-02 **D2** forbids integration tests against the production project, no non-production one existing.
+
+That gap has **two standing trackers already**, which is why keeping a third here is noise rather than signal: issue **#18** (open since 2026-06-04) and `tests/test_falsification_campaign_3_5.py`, an `xfail(strict)` probe that **flips to XPASS the moment someone writes the test** — a self-surfacing tracker, which is more than this entry was doing. |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-06-02), `test-review` (2026-06-02) |
+| Trigger | When modifying the manager's `_validate()` or the enricher, verify that the test suite covers the changed behavior — end-to-end coverage across the enrich→validate path is still absent |
+| Location | `tests/test_validation.py`, `views_postprocessing/unfao/managers/unfao.py` |
+
+Initial state was zero test coverage. A 73-test suite was written (2026-06-02) covering the (now-deleted) mapper's core guarantees and the validation logic (missing columns, null rejection, error messages). Remaining gaps after the mapper removal: (1) the validation tests replicate `_validate()` logic in a standalone function because `views-pipeline-core` is unavailable in test environments — if the real `_validate()` diverges, tests pass while production fails; (2) no end-to-end test enriches through `GaulLookupEnricher` then validates through the manager.
+
+Tier recalibrated from 2 to 3 during review-rr (2026-06-02): the gap is maintainability (test-code divergence, missing integration path), not structural fragility.
+
+**Update 2026-06-24:** narrowed with the mapper deletion (C-39, PR #42). The mapper-coverage dimension is gone with the mapper (`tests/test_mapping.py` deleted; the determinism/cache/shapefile/`ThreadPoolExecutor` gaps no longer exist). Two manager-side gaps remain: the standalone `_validate()` replica and the missing enrich→validate end-to-end test.
+
+---
+
+---
+
 ### C-43: ADR-011 enrichment swap shipped without its output-equivalence proof — and the proof is now unrecoverable — RESOLVED
 
 | Field | Value |
@@ -760,7 +773,7 @@ This is a textbook instance of **C-42**'s registered hazard (acting on a mis-sta
 
 **Residual (why this entry stays open):** the verification was a one-off session result, not a standing guarantee. Nothing in CI re-runs it, so a future lookup rebuild against a wrong or stale datafactory would ship silently exactly as before. **C-43 closes when `tests/test_gaul_lookup_fidelity.py` is committed and green** — the entry should then cite the test, not the session. Tracked as **Cluster K**; the same test discharges C-59 and C-61.
 
-See also C-03 (the sibling enrich→validate test-coverage gap), C-22 (no post-delivery correction/recall process — **now acute: the consequence path is live**), C-39 / C-31 / C-23 (the resolved mapper-deletion cluster this emerged from), C-30 (coverage — discharged by the same run that left this standing), C-32 / C-34 (RESOLVED — the go-global scale risks that fired cleanly), D-08 (the swap-to-lookup-first decision whose verification debt this is), #131 (run-0 delivery-integrity verification).
+See also C-03 (the sibling enrich→validate test-coverage gap — RESOLVED 2026-08-02; its manager-orchestration residual relocated to #18), C-22 (no post-delivery correction/recall process — **now acute: the consequence path is live**), C-39 / C-31 / C-23 (the resolved mapper-deletion cluster this emerged from), C-30 (coverage — discharged by the same run that left this standing), C-32 / C-34 (RESOLVED — the go-global scale risks that fired cleanly), D-08 (the swap-to-lookup-first decision whose verification debt this is), #131 (run-0 delivery-integrity verification).
 
 ---
 
