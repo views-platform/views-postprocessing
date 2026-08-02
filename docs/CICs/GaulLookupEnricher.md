@@ -62,9 +62,16 @@ views-datafactory area-majority join), so this class does only a table join.
 - Output: the input frame (or, with `only_metadata=True`, just `pg_id_col` +
   `time_id_col`) left-merged with the 9 metadata columns.
 - Public attribute: `lookup_version` — a short, stampable id read from the
-  lookup's embedded provenance at construction (`<region>@<short digest>`, or
-  `"unknown"` if the lookup carries none). The manager stamps it on each
-  delivery so a delivery is traceable to the exact lookup build.
+  lookup's **declared** `lookup_version` metadata key at construction
+  (`<region>@<8-char source digest>`). Delegates to
+  `contract.gaul_lookup.version`. The manager stamps it on each delivery so a
+  delivery is traceable to the exact lookup build.
+  **It does not degrade.** An artifact carrying no declared key raises
+  `gaul_lookup.LookupVersionError` (logged at ERROR first, per ADR-008) rather
+  than returning a placeholder. Until S5 (#186) this returned the string
+  `"unknown"` whenever views-datafactory's ingestion-ledger shape moved under
+  it — silently, in the one field register C-15 exists to answer *after* a
+  suspect delivery. See register **C-60**.
 - Side effects: logs the lookup size + version at construction (INFO); logs a
   WARNING with the count and sample of unmatched cell ids when any occur; logs
   ignored mapper-only kwargs at DEBUG. No file writes, no network.

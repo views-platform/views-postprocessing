@@ -11,9 +11,15 @@ These pin the fix rather than the symptom: one declared home for the artifact, o
 read per run, and the read *injected* into both consumers rather than fetched by each.
 """
 
+import ast
+import importlib
+import inspect
+import logging
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
 
 from views_postprocessing.contract import gaul_lookup
 
@@ -34,13 +40,80 @@ def test_load_returns_the_arrow_table():
     assert "priogrid_gid" in table.column_names
 
 
-def test_version_reports_the_build_stamp():
+def test_version_reports_the_declared_build_stamp():
+    """C-60: the stamp is read from one declared key, not reconstructed.
+
+    This used to assert ``stamp != "unknown"`` — a real check while ``version()``
+    could *return* that placeholder. It no longer can: the branch is gone and the
+    function raises instead. What is worth pinning now is the shape a delivery
+    traces by.
+    """
     stamp = gaul_lookup.version()
-    assert stamp != "unknown", (
-        "the lookup's provenance stamp did not resolve — a delivery would ship "
-        "untraceable provenance (register C-60)"
+    assert "@" in stamp, f"expected `<region>@<short digest>`, got {stamp!r}"
+    region, digest = stamp.split("@", 1)
+    assert region and len(digest) == 8, stamp
+
+
+def test_version_raises_rather_than_degrading_when_the_key_is_absent(tmp_path):
+    """The load-bearing half of C-60's fix, without which it is unproven.
+
+    An artifact built before the declared key existed — or by a future builder that
+    forgets it — must stop the delivery, not hand it a placeholder that reads like a
+    version. ``"unknown"`` in a provenance record is worse than a crash: it is
+    written, stored and shipped, and nothing downstream can tell it from a real stamp.
+    """
+    unstamped = tmp_path / "no_version.parquet"
+    pq.write_table(pa.table({"priogrid_gid": pa.array([1, 2, 3])}), unstamped)
+    with pytest.raises(gaul_lookup.LookupVersionError, match="lookup_version"):
+        gaul_lookup.version(unstamped)
+
+
+def test_version_logs_before_it_raises(tmp_path, caplog):
+    """ADR-008:48/51, matching the shape S1 (#182) gave the entry validators."""
+    unstamped = tmp_path / "no_version.parquet"
+    pq.write_table(pa.table({"priogrid_gid": pa.array([1])}), unstamped)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(gaul_lookup.LookupVersionError):
+            gaul_lookup.version(unstamped)
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1 and "lookup_version" in errors[0].getMessage()
+
+
+def test_version_no_longer_knows_the_producers_ledger_schema():
+    """The declare-don't-infer half: the consumer stopped traversing upstream shape.
+
+    ``version()`` reached three levels into views-datafactory's ingestion ledger —
+    ``source_provenance`` → ``land_gaul_region`` → ``content_digest`` — inside a bare
+    ``except … pass``. A rename upstream made every delivery untraceable with no
+    signal. The builder composes the stamp now; this reads one key.
+
+    **Tested by mechanism, not by word.** An earlier draft scanned the file for those
+    key names and failed on the docstring above, which names them in order to explain
+    the fix. Prose that records why a thing changed is not the thing. So this asserts
+    the two capabilities the traversal required and the degrade depended on: JSON
+    decoding of the producer's blob, and an exception handler that swallows. Neither
+    can be present without the defect being reachable, and neither is triggered by a
+    sentence.
+    """
+    module = importlib.import_module("views_postprocessing.contract.gaul_lookup")
+    tree = ast.parse(inspect.getsource(module))
+
+    imports = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert "json" not in imports, (
+        "gaul_lookup imports json again — decoding the producer's provenance blob is "
+        "how the consumer came to know views-datafactory's schema (register C-60)."
     )
-    assert "@" in stamp  # `<region>@<digest>`
+
+    handlers = [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]
+    assert not handlers, (
+        f"gaul_lookup has {len(handlers)} exception handler(s). The stamp degraded to "
+        '"unknown" through a bare `except … pass`; this module now declares or raises.'
+    )
 
 
 def test_the_delivery_reads_the_lookup_exactly_once(monkeypatch):
