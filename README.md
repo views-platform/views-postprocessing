@@ -72,11 +72,14 @@ In practice the manager is constructed and run by **views-models**
 
 | Stage | Method(s) | What happens |
 |-------|-----------|--------------|
-| **Read** | `_read_historical_data`, `_read_forecast_data` | Historical actuals from views-datafactory (via the inherited loader); the forecast file from the Appwrite prediction store. The forecast file's identity is checked before use (C-25). |
-| **Transform** | `_transform` → `_append_metadata` | Joins the 9 GAUL metadata columns onto each frame via `GaulLookupEnricher` (a parquet lookup). Prediction values are **not** transformed. |
-| **Validate** | `_validate`, `_check_coverage` | Null-gate on the metadata columns; region coverage + GAUL-excluded-cell guards (C-34 / C-30). |
-| **Clip** | `_clip_observed_history` | Drops fabricated zero-padded tail months from the historical actuals (C-26); the forecast is untouched. |
-| **Save** | `_save` | Writes parquet and uploads to the UN FAO bucket with structured provenance (C-15). |
+| **Read** | `_read_historical_frame`, `_read_forecast_data_contract` | Historical actuals from views-datafactory arrive **frame-native** (#126); the forecast run is resolved from the Appwrite store by its **run manifest**, with each shard's header verified on load (ADR-013 §4.3). |
+| **Transform** | `_transform` | Resolution only. Prediction values are **not** transformed — no collapse, no reconciliation. |
+| **Validate** | `_validate`, `_check_coverage` | Asserts the read resolved, then enforces the region coverage + GAUL-excluded-cell contract (C-34 / C-30). The metadata null-gate fires later, at artifact build (`contract/historical.assert_metadata_complete`). |
+| **Save** | `_save` → `_save_contract` | Builds the ADR-013 wire — arrow shards, the §5 GAUL sidecar, the historical artifact — commits the run **manifest last**, and stamps each upload with structured provenance (C-15). |
+
+The pandas metadata-join and history-clip stages were retired with the legacy delivery path
+in #149; their rules survive as called invariants under `delivery/`. See the
+[manager README](views_postprocessing/unfao/managers/README.md) for what moved where.
 
 ### Output schema (geographic metadata columns)
 

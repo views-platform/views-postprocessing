@@ -24,10 +24,36 @@ _PKG = _REPO / "views_postprocessing"
 
 # --- 1. deleted-symbol scan -------------------------------------------------------------
 
-# Symbols that name code removed in ADR-011 / C-39. None should appear as *current* in a
-# living onboarding doc.
+# Symbols naming code this repo has deleted. None should appear as *current* in a living
+# onboarding doc.
+#
+# **This list must grow with every deletion, and that is the lesson of S11 (#197).** It
+# carried only the ADR-011 / C-39 entries for six weeks while epic #148 deleted a whole
+# delivery path (#149) and moved the machinery out of `unfao/` (#153). The guard kept
+# passing over four documents describing methods and files that no longer existed —
+# including `unfao/managers/README.md`, which documented the Template Method as
+# `_transform → _append_metadata` and pointed readers at a deleted test file, sitting
+# inside the package next to the code it misdescribed.
+#
+# The guard was not wrong. It was not updated. A deletion PR that does not extend this
+# regex has not finished.
 _BANNED = re.compile(
-    r"PriogridCountryMapper|mapping/README|use_disk_cache|cachetools|geopandas",
+    "|".join((
+        # ADR-011 / C-39 — the runtime mapper and its shapefile toolchain (June 2026)
+        r"PriogridCountryMapper", r"mapping/README", r"use_disk_cache", r"cachetools",
+        r"geopandas",
+        # #149 — methods of the retired pandas delivery path (2026-07-31)
+        r"_append_metadata", r"_delivery_description", r"_clip_observed_history",
+        r"LEGACY_FORECAST_FILTERS", r"test_append_metadata",
+        # #150 / #151 / #153 — modules retired or moved out of `unfao/` by epic #148
+        r"delivery/identity", r"unfao/extraction", r"unfao/frames",
+        r"unfao/historical", r"unfao/gaul_schema", r"unfao/wire",
+        # #149 — pipeline-core's pandas container, no longer referenced by this repo.
+        # Negative lookbehind: `FAO_PGMDataset` is views-faoapi's class and is live.
+        # It inherits IGNORECASE, so `fao_PGMDataset` is spared too — no such spelling
+        # exists, but the lookbehind is not case-exact and a reader should not assume it.
+        r"(?<!FAO_)PGMDataset",
+    )),
     re.IGNORECASE,
 )
 
@@ -40,14 +66,29 @@ def _living_docs() -> list[Path]:
     return [d for d in docs if d.exists()]
 
 
-def test_living_docs_have_no_deleted_symbol_references():
+def _label(doc: Path) -> str:
+    """Repo-relative path where possible — three living docs are named ``README.md``,
+    so a bare basename cannot say which one failed."""
+    try:
+        return doc.relative_to(_REPO).as_posix()
+    except ValueError:
+        return doc.name  # a doc injected from tmp_path by the guard's own tests
+
+
+def _deleted_symbol_offenders(docs: list[Path]) -> list[str]:
+    """Scan ``docs`` for banned symbols, honouring the line-scoped ``legacy-ok`` opt-out."""
     offenders = []
-    for doc in _living_docs():
+    for doc in docs:
         for i, line in enumerate(doc.read_text().splitlines(), start=1):
             if "legacy-ok" in line:  # explicit opt-out for an intentional historical mention
                 continue
             if _BANNED.search(line):
-                offenders.append(f"{doc.relative_to(_REPO)}:{i}: {line.strip()}")
+                offenders.append(f"{_label(doc)}:{i}: {line.strip()}")
+    return offenders
+
+
+def test_living_docs_have_no_deleted_symbol_references():
+    offenders = _deleted_symbol_offenders(_living_docs())
     assert not offenders, "deleted-symbol references in living docs:\n" + "\n".join(offenders)
 
 
@@ -192,4 +233,66 @@ def test_the_retired_contract_name_is_gone_from_code():
         f"code: {offenders}. Use 'the Appwrite Seam Contract' and cite the registry by "
         "pinned URL (views-appwrite/docs/ADRs/platform/coordinate_registry.toml). "
         "Historical narration belongs in docs/ADRs or reports/, not here."
+    )
+
+
+def test_the_ban_covers_the_post_148_deletions_and_spares_the_live_lookalike():
+    """A ban list that was not updated when the code changed is why S11 (#197) existed.
+
+    Two failure modes, both real, so both are pinned:
+
+    1. **Entries going missing** — someone trims the list and a document quietly starts
+       describing deleted code again. The loop below fails if any known entry stops
+       matching. Note what it *cannot* catch: a future deletion whose symbol nobody adds
+       is invisible to this test and to the guard alike, which is why the comment above
+       ``_BANNED`` says a deletion PR that does not extend it has not finished. No test
+       can substitute for that; only the habit can.
+    2. **Too broad** — `FAO_PGMDataset` is a *views-faoapi* class, alive and correctly
+       cited in `contract/gaul_schema.py` and `contract/enrichment.py`. A careless
+       `PGMDataset` pattern would ban a true statement about another repo's code.
+    """
+    for deleted in (
+        "_append_metadata", "_delivery_description", "_clip_observed_history",
+        "LEGACY_FORECAST_FILTERS", "tests/test_append_metadata.py",
+        "delivery/identity.py", "unfao/extraction.py", "unfao/frames.py",
+        "unfao/historical.py", "unfao/gaul_schema.py", "unfao/wire/sink.py",
+        "PGMDataset", "PriogridCountryMapper", "geopandas",
+    ):
+        assert _BANNED.search(deleted), (
+            f"{deleted!r} names code this repo deleted, but the ban list does not cover "
+            "it — a living doc could describe it as current and nothing would object"
+        )
+
+    assert not _BANNED.search("FAO_PGMDataset._METADATA_COLS"), (
+        "the ban caught `FAO_PGMDataset`, which is views-faoapi's live class and the "
+        "consumer contract our sidecar is written against — banning a true statement "
+        "about another repo's code is how a guard earns its own deletion"
+    )
+
+
+def test_the_ban_actually_fires_on_a_living_doc(tmp_path):
+    """The scan, not just the regex — a pattern nothing applies is decoration."""
+    doc = tmp_path / "README.md"
+    doc.write_text("The manager joins metadata in `_append_metadata`.\n")
+    assert _deleted_symbol_offenders([doc]), (
+        "the scan reported nothing on a doc naming a deleted method"
+    )
+
+
+def test_the_legacy_ok_marker_still_works(tmp_path):
+    """The escape hatch the retirement records depend on — line-scoped, deliberately.
+
+    Four documents now name deleted methods in order to say where the work went. That is
+    better than a gap, and it only stays possible while this marker keeps working. It is
+    line-scoped: a marker on the following line does not excuse the mention above it.
+    """
+    excused = tmp_path / "ok.md"
+    excused.write_text("`_append_metadata` was retired in #149. <!-- legacy-ok: retirement record -->\n")
+    assert not _deleted_symbol_offenders([excused])
+
+    wrong_line = tmp_path / "wrong.md"
+    wrong_line.write_text("`_append_metadata` was retired.\n<!-- legacy-ok -->\n")
+    assert _deleted_symbol_offenders([wrong_line]), (
+        "a marker on the NEXT line excused the mention — the opt-out must stay line-scoped, "
+        "or a single marker silently covers a whole document"
     )
