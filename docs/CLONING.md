@@ -80,6 +80,17 @@ used to select a retired code path silently (register C-63).
 4. Run `pytest tests/test_clone_readiness.py` in the clone. If it fails, the boundary
    moved.
 
+## Before your first delivery, not after
+
+**Answer your partner's correction questions before you ship to them, not after a bad
+delivery.** `docs/operations/correction_procedure.md` is FAO's, and its steps 1–3 and 5
+transfer unchanged — they are contract mechanics, not partner specifics. **Step 4 does
+not:** who contacts your partner, through what channel, how fast, and whether they
+expect a retraction or a supersession are answers only your partner can give.
+
+This repo shipped run-0 to the UN FAO on 2026-07-27 with that step undecided (register
+C-22), and it is still undecided. Do not inherit that.
+
 ## Where the reasoning lives
 
 `docs/ADRs/013_sampled_forecast_wire_contract.md` — the wire contract ·

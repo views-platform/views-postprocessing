@@ -81,6 +81,12 @@ The pandas metadata-join and history-clip stages were retired with the legacy de
 in #149; their rules survive as called invariants under `delivery/`. See the
 [manager README](views_postprocessing/unfao/managers/README.md) for what moved where.
 
+### If a delivered value turns out to be wrong
+
+`docs/operations/correction_procedure.md` — how to establish which deliveries are
+affected, confirm the fault offline, and supersede on the wire. The contract has no
+retraction primitive; a correction is a new complete run, manifest last.
+
 ### Output schema (geographic metadata columns)
 
 These 9 columns are the delivered geography contract (declared in `contract/gaul_schema.py`):
