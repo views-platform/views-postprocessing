@@ -90,6 +90,40 @@ covered a single open entry (see Historical clusters below).
 
 **The lesson worth carrying, and it is D-11's:** WET-before-DRY was applied *correctly* — the pandas and frame seams ran as deliberate siblings through the migration, and a premature abstraction would have outlived the implementation it existed to unify. What went wrong was not the duplication; it was that the removal condition (*"until run 0 proves the contract path live"*) was written down without a **named trigger to act on**, so the box expired on 2026-07-27 and nobody opened it. D-11 predicted exactly this. **A deferral needs an owner and a trigger, not just a reason.**
 
+### Epic #181 closeout — "every claim checkable" (2026-08-02)
+
+**Eleven stories, ten register entries closed, one cluster closed, one ADR written.** Recorded here rather than only in the issue tracker, because an epic that ends in a closed issue ends nowhere a future reader looks.
+
+| closed | by | proven by |
+|---|---|---|
+| **C-71** ADR-008 in the entry validator | S1 | a check parametrised over **both** validators, so the pair cannot drift again |
+| **C-43, C-59, C-61** Cluster K's build-time guarantees | S2 | `tests/test_gaul_lookup_fidelity.py`, 26 tests |
+| **C-03** the `_validate` replica | S4 | 43 self-referential tests replaced by 14 against the real gate |
+| **C-60** the lookup's declared version | S5 | the artifact rebuilt, values byte-identical, stamp unchanged |
+| **C-57** coordinate-registry drift | S6 | four checks, each mutation-proven |
+| **C-46** the machine-specific path | S7 | `grep -rn "/home/"` over the repo → 0 |
+| **C-74** the þing-01 redaction guard | S10 | scan coverage 6 → 17 files |
+| **C-22** the correction procedure | S8 | written for the delivery that exists; partner-facing step decided 2026-08-02 |
+
+Plus, outside the register: #158's rename finished and the **broken URL it created** in ADR-013 §7d repaired (Erratum E2); #154's undone half completed across four living documents; #15 superseded; a cross-repo pin re-taken after #196 showed it sat on an unmerged branch.
+
+**Open count 24 → 15.** Every remaining entry is classified: **six** blocked on the views-pipeline-core 3.0.0 publish (Cluster M), **five** owned by another repo (C-13, C-24, C-26, C-27, C-28), **four** deliberately deferred (C-15, C-30, C-33, C-40). None is unexamined.
+
+**What the epic did NOT do, stated because a closeout that reports only successes is the defect this epic exists to fix:**
+
+1. **Cluster M is untouched and correctly so.** Six entries, two of them Tier 2, all resolving on one upstream publish. No engineering here moves them.
+2. **The CI question is decided in writing but not implemented.** Three gated cross-repo checks run nowhere automatic. C-46's residual carries the argued recommendation — *do not couple per-PR CI to another repo's default branch; if wanted, a weekly scheduled check that opens an issue on divergence* — with a named trigger. **It is a decision awaiting an owner, not a task awaiting effort.**
+3. **Withdrawal of a bad delivery is the chosen policy and is not built.** Supersession is in force because it is what the wire does. Deliberately not started: it needs an ADR-013 amendment plus views-faoapi work, and FAO's answer on audit requirements (Pre-Release Note 07, B.2) decides whether it is wanted at all.
+4. **Two questions are with the UN FAO**, not with us — recipients and notification timing (B.1), withdrawal versus supersession (B.2).
+5. **`test_datafactory_deploy_readiness`'s `xfail` tuning was left alone**, deliberately: S7 fixed how the checkout is found, not what the gate asserts. If it needs re-pinning now that datafactory has moved past `v1.4.0`, that is a separate judgement.
+6. **The local Python is 3.10 while `pyproject` declares `>=3.11`**, so three checks skip on the maintainer's machine and run in CI. Not a repo defect; recorded because "a gate that does not run" is the shape C-46 was open for.
+
+**The lessons are in [ADR-014](../docs/ADRs/014_claims_and_the_guards_that_carry_them.md)** — including §5, the one rule no test can carry, which is written down *because* it cannot be mechanised. The attempt to mechanise it is recorded there too, so the next person does not repeat it.
+
+**The sharpest thing the epic produced** is smaller than any of its stories: **existence is not reachability.** A cross-repo pin existed, its files existed at it, every check written at the time passed — and it had never reached `main`.
+
+---
+
 ### Cluster M: Six open concerns, one upstream publish
 **Root cause:** this repo pins `views-pipeline-core >=2.1.3,<3.0.0`, which resolves 2.3.0 from PyPI. Every fix and every removal below exists **only** on pipeline-core's unreleased 3.0.0. None is engineering work here; all five arrive together with one pin bump, and none can be taken before that bump.
 **Entries:** **C-44** (the bump itself, deliberately held), **C-62** (the transitive drag — 3.4 GB venv, 31 of 32 Dependabot alerts), **C-72** (the pyarrow CVE whose fix our ceiling excludes), **C-73** (the Tier-2 stale-run selection defect, fixed upstream in their #341), **C-58** (the Tier-2 auto-provision-instead-of-raise, fixed upstream in their #322/#331/#332), **C-07** (the undeclared `appwrite` dependency, whose transitive path their #345 withdraws).
