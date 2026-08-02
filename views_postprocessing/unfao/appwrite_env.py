@@ -5,10 +5,17 @@ target classes) plus the one operator-issued secret slot. The contract is homed 
 views-appwrite and referenced by pinned URL, never copied — copies were the
 platform's original failure (þing-01 sáttmál S6):
 
-    https://github.com/views-platform/views-appwrite/blob/b54928f/docs/ADRs/platform/coordinate_registry.toml
+    https://github.com/views-platform/views-appwrite/blob/47172af/docs/ADRs/platform/coordinate_registry.toml
 
-That pin is registry **v1.4.0**. A pinned URL does not rot, but it does go stale —
-naming the version is what makes the staleness legible to a reader here.
+That pin is registry **v1.3.0** (ratified, þing-02). A pinned URL does not rot, but
+it does go stale — naming the version is what makes the staleness legible here.
+
+**Pin from the tip of `main`, never from a sibling checkout's `HEAD`** (#196). The
+first pin taken here was resolved with `git -C ../views-appwrite rev-parse HEAD` on a
+checkout that happened to be sitting on an unmerged feature branch. That commit
+declared v1.4.0, never reached `main`, and was withdrawn. A pin is a claim about what
+the contract *says*; `HEAD` answers a different question — what someone was working
+on.
 
 The LAUNCHER assembles the environment
 (views-models M3: run.sh reads the owned registry; the secret stays the operator
