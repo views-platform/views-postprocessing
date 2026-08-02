@@ -689,10 +689,10 @@ a "simplification."
   this contract governs the **data** crossing the Appwrite seam; the
   **identity/config** crossing the same seam (which key, which coordinates,
   sourced from where, named how) is governed by
-  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/b54928f/docs/ADRs/platform/appwrite_seam_contract.md)**,
+  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/47172af/docs/ADRs/platform/appwrite_seam_contract.md)**,
   homed in views-appwrite and referenced here **by pinned URL, never by copy** —
   with its coordinate registry
-  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/b54928f/docs/ADRs/platform/coordinate_registry.toml), v1.4.0)
+  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/47172af/docs/ADRs/platform/coordinate_registry.toml), v1.3.0)
   as the canonical source of the non-secret coordinates this repo's runtime
   resolves. This repo's declared environment (`unfao/appwrite_env.py`, fail-loud
   entry validation) follows that registry's names.
@@ -703,8 +703,14 @@ a "simplification."
   the URL**, producing a path containing spaces that could not resolve. The upstream file
   has since been renamed to `appwrite_seam_contract.md` independently. Both now point at
   a pinned commit, which is what "referenced by URL, never by copy" was always supposed
-  to mean — an unpinned `main` link drifts silently, and the registry moved 1.3.0 → 1.4.0
-  on 2026-08-02.
+  to mean — an unpinned `main` link drifts silently under the reader.
+
+  **Re-pinned same day (#196).** The first pin taken here was resolved from a local
+  views-appwrite checkout's `HEAD` — which was sitting on an unmerged branch. That
+  commit declared registry v1.4.0, never reached `main`, and has been withdrawn. Both
+  links now pin `47172af`, the tip of `main`, carrying the **ratified v1.3.0**. The
+  lesson is narrow and worth keeping: **resolve a cross-repo pin from the tip of the
+  other repo's `main`, not from whatever its working copy has checked out.**
 
 ---
 
@@ -874,12 +880,19 @@ record execution progress against it.
   a path containing spaces. #158 was then closed while four `PLATFORM-001` citations
   also survived in this repo's `.py`, one of them inside the message raised by
   `appwrite_env.assert_env_declared`. Corrected in place (dated marker in §7d): the
-  upstream file is `appwrite_seam_contract.md`, and **both** §7d links are now pinned to
-  views-appwrite `b54928f` (registry v1.4.0) rather than tracking `main`. §7d claimed
-  *"referenced by URL, never by copy"* — true in letter and false in effect while an
-  unpinned link could drift under it, which it did: the registry moved 1.3.0 → 1.4.0 on
-  this date. `tests/test_doc_accuracy.py` now refuses the retired name in code.
-  (#184, epic #181.)
+  upstream file is `appwrite_seam_contract.md`, and **both** §7d links are now pinned
+  rather than tracking `main`. §7d claimed *"referenced by URL, never by copy"* — true in
+  letter and false in effect while an unpinned link could drift under it.
+  `tests/test_doc_accuracy.py` now refuses the retired name in code. (#184, epic #181.)
+
+  **Amended the same day (#196):** the first pin was taken from a local views-appwrite
+  checkout's `HEAD` while it sat on the unmerged `feat/s1-single-writer-rule` branch. That
+  commit declared registry v1.4.0 and has been **withdrawn unmerged** (views-appwrite #30,
+  #27); its sha is deliberately not repeated here, so that grepping for it finds nothing.
+  Both links now pin **`47172af`** — the tip of `main`, registry **v1.3.0**, ratified at
+  þing-02. Verified before re-pinning: the withdrawn commit is reachable only from that
+  branch, `47172af` is `origin/main`, and both cited files exist at it. **Resolve a
+  cross-repo pin from the other repo's `main`, never from its working copy's `HEAD`.**
 - **2026-07-15 — §4.1a's recorded inconsistency CONFIRMED live.** During the Hop-B
   legacy-guard work (faoapi PR #200), a read-only audit of the live `unfao_bucket`
   found **six `orange_ensemble`-named forecast documents** stranded by the `name`
