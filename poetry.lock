@@ -4537,14 +4537,14 @@ dataframe = ["pandas (>=1.5.3,<2.0.0)"]
 
 [[package]]
 name = "views-frames"
-version = "1.6.0"
+version = "1.10.2"
 description = "The VIEWS platform data-contract layer: immutable array+identifier frames (numpy only, root of the dependency DAG)."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "views_frames-1.6.0-py3-none-any.whl", hash = "sha256:bcd09ebf71275f6ad81111dd028fc7e969fc1d514a4364b72f12a3b155d1bf5e"},
-    {file = "views_frames-1.6.0.tar.gz", hash = "sha256:081f8f236d9587fe23ed4ae542399f64c0cfe3745b74f37c835a12f905931871"},
+    {file = "views_frames-1.10.2-py3-none-any.whl", hash = "sha256:ace7f6a09bdb743edbb39e7e95139a0c647ef7c6100ef4c612a3ce5975078ef0"},
+    {file = "views_frames-1.10.2.tar.gz", hash = "sha256:96b4916afe9b64389045043ec1cf05fa2ea9b872ac0d12cb57f0d629ffd88106"},
 ]
 
 [package.dependencies]
@@ -4552,6 +4552,7 @@ numpy = ">=1.26,<3"
 
 [package.extras]
 arrow = ["pyarrow (>=14,<20)"]
+docs = ["jupyterlab (>=4,<5)", "matplotlib (>=3.8,<4)", "nbmake (>=1.5,<2)", "pyarrow (>=14,<20)", "scipy (>=1.11,<2)"]
 
 [[package]]
 name = "views-pipeline-core"
@@ -4800,4 +4801,4 @@ viz = ["matplotlib", "nc-time-axis", "seaborn"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "5f2d192a6a36dd429b473195ca6dc30424b57aed8890fbce99741895015578ef"
+content-hash = "81e3ce9892400ac7a3aa4469015b2695f2d3f9c3cee244e5c56c8fe8fee4077a"
