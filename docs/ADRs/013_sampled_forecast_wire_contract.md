@@ -689,13 +689,22 @@ a "simplification."
   this contract governs the **data** crossing the Appwrite seam; the
   **identity/config** crossing the same seam (which key, which coordinates,
   sourced from where, named how) is governed by
-  **[the Appwrite Seam Contract — Identity, Secrets & Configuration Contract (VIEWS Appwrite seam)](https://github.com/views-platform/views-appwrite/blob/main/docs/ADRs/platform/the Appwrite Seam Contract_identity_secrets_configuration_contract.md)**,
-  homed in views-appwrite and referenced here **by URL, never by copy** — with its
-  coordinate registry
-  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/main/docs/ADRs/platform/coordinate_registry.toml))
+  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/b54928f/docs/ADRs/platform/appwrite_seam_contract.md)**,
+  homed in views-appwrite and referenced here **by pinned URL, never by copy** —
+  with its coordinate registry
+  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/b54928f/docs/ADRs/platform/coordinate_registry.toml), v1.4.0)
   as the canonical source of the non-secret coordinates this repo's runtime
   resolves. This repo's declared environment (`unfao/appwrite_env.py`, fail-loud
   entry validation) follows that registry's names.
+
+  **Corrected 2026-08-02 (#184).** Both links were previously unpinned (`/blob/main/`),
+  and the first was **broken**: #158's rename of `PLATFORM-001` → *the Appwrite Seam
+  Contract* was applied as a blanket find-and-replace and rewrote the **filename inside
+  the URL**, producing a path containing spaces that could not resolve. The upstream file
+  has since been renamed to `appwrite_seam_contract.md` independently. Both now point at
+  a pinned commit, which is what "referenced by URL, never by copy" was always supposed
+  to mean — an unpinned `main` link drifts silently, and the registry moved 1.3.0 → 1.4.0
+  on 2026-08-02.
 
 ---
 
@@ -857,6 +866,20 @@ runs can therefore never touch the live bucket by accident.
 Dated events after adoption. Errata correct errors in this document; other entries
 record execution progress against it.
 
+- **2026-08-02 — Erratum E2 (§7d links; `contract_version` stays 1.5):** §7d's first
+  link was **broken and had never resolved**. Issue #158 renamed the cross-repo contract
+  from `PLATFORM-001` to *the Appwrite Seam Contract* and the rename was applied as a
+  blanket find-and-replace, which rewrote the **filename inside the URL** — producing
+  `.../platform/the Appwrite Seam Contract_identity_secrets_configuration_contract.md`,
+  a path containing spaces. #158 was then closed while four `PLATFORM-001` citations
+  also survived in this repo's `.py`, one of them inside the message raised by
+  `appwrite_env.assert_env_declared`. Corrected in place (dated marker in §7d): the
+  upstream file is `appwrite_seam_contract.md`, and **both** §7d links are now pinned to
+  views-appwrite `b54928f` (registry v1.4.0) rather than tracking `main`. §7d claimed
+  *"referenced by URL, never by copy"* — true in letter and false in effect while an
+  unpinned link could drift under it, which it did: the registry moved 1.3.0 → 1.4.0 on
+  this date. `tests/test_doc_accuracy.py` now refuses the retired name in code.
+  (#184, epic #181.)
 - **2026-07-15 — §4.1a's recorded inconsistency CONFIRMED live.** During the Hop-B
   legacy-guard work (faoapi PR #200), a read-only audit of the live `unfao_bucket`
   found **six `orange_ensemble`-named forecast documents** stranded by the `name`

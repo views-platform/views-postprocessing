@@ -183,8 +183,9 @@ def test_the_environment_refusal_logs_names_and_never_values(monkeypatch, caplog
     )
 
 
-def test_secret_env_names_follow_the_platform_naming_rule():
-    # PLATFORM-001 D3: suffix _API_KEY/_PASSWORD/_TOKEN ⇒ secret. Exactly one
+def test_secret_env_names_follow_the_seam_contract_naming_rule():
+    # þing-01 D3, the Appwrite Seam Contract §3 ("Classification — declared, never
+    # inferred"): suffix _API_KEY/_PASSWORD/_TOKEN marks a secret. Exactly one
     # declared name is a secret; every other declared name is a coordinate.
     declared = set(
         appwrite_env.CONNECTION_ENV + appwrite_env.PROD_FORECASTS_ENV + appwrite_env.UNFAO_ENV

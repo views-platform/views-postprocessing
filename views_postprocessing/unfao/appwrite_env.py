@@ -1,7 +1,16 @@
 """The Appwrite-seam environment this package requires, DECLARED (þing-01 P1, #134).
 
-Names follow the PLATFORM-001 coordinate registry (connection + target classes)
-plus the one operator-issued secret slot. The LAUNCHER assembles the environment
+Names follow **the Appwrite Seam Contract**'s coordinate registry (connection +
+target classes) plus the one operator-issued secret slot. The contract is homed in
+views-appwrite and referenced by pinned URL, never copied — copies were the
+platform's original failure (þing-01 sáttmál S6):
+
+    https://github.com/views-platform/views-appwrite/blob/b54928f/docs/ADRs/platform/coordinate_registry.toml
+
+That pin is registry **v1.4.0**. A pinned URL does not rot, but it does go stale —
+naming the version is what makes the staleness legible to a reader here.
+
+The LAUNCHER assembles the environment
 (views-models M3: run.sh reads the owned registry; the secret stays the operator
 slot) — this package loads no dotenv and validates fail-loud instead (verdict D6).
 The old implicit borrow (`load_dotenv(ensemble_path_manager.dotenv)`) was the
@@ -64,9 +73,10 @@ def assert_env_declared(names: tuple, *, store: str) -> None:
         # APPWRITE_DATASTORE_API_KEY secret slot.
         err_msg = (
             f"{store}: the launcher did not assemble the required environment — "
-            f"missing {missing}. Coordinates come from the PLATFORM-001 registry "
-            "(views-models run.sh declares its sourcing); the secret is the "
-            "operator slot. This package no longer loads any dotenv (#134)."
+            f"missing {missing}. Coordinates come from the Appwrite Seam Contract's "
+            "coordinate registry, homed in views-appwrite (views-models run.sh "
+            "declares its sourcing); the secret is the operator slot. This package "
+            "no longer loads any dotenv (#134)."
         )
         logger.error(err_msg)  # ADR-008: logged persistently AND raised
         raise EnvironmentError(err_msg)

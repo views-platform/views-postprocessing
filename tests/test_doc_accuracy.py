@@ -149,3 +149,47 @@ def test_contract_package_does_not_import_the_partner():
         f"contract/ imports the partner package: {offenders}. The machinery must be "
         "reusable by views-crafdapi / views-productionapi without taking FAO (C-69)."
     )
+
+
+# --- 3. retired cross-repo contract name (S3 / #184, finishing #158) --------------------
+
+#: Retired 2026-07-31. The registry itself records the retirement:
+#: ``former_contract_name = "PLATFORM-001"   # retired 2026-07-31``.
+_RETIRED_CONTRACT_NAME = "PLATFORM-001"
+
+
+def test_the_retired_contract_name_is_gone_from_code():
+    """A citation naming a contract that no longer exists sends the reader nowhere.
+
+    #158 renamed ``PLATFORM-001`` to *the Appwrite Seam Contract* and was closed on
+    2026-08-01 — but only the documentation half landed. Four references survived in
+    ``.py``, and one of them was **inside the message raised by
+    ``appwrite_env.assert_env_declared``**: the text an operator reads when a delivery
+    refuses to launch, pointing them at a retired name in a repo they do not own, on
+    the day their run failed.
+
+    "Code" means all three roots that hold Python here — the package, the tests, and
+    ``scripts/`` (which builds the committed GAUL artifact and the §10 golden fixture).
+    Scanning fewer roots than the name claims is register **C-74**'s defect, found the
+    same day this test was written: a guard whose declared scope exceeds its actual
+    scan passes because the unscanned part happens to be clean.
+
+    ``docs/ADRs/`` and ``reports/`` are deliberately excluded. They legitimately use
+    the old name when narrating what was decided under it — an ADR describing a 2026-07
+    decision correctly says what the thing was called in 2026-07. Code has no such
+    excuse: it speaks in the present tense to whoever is reading it now.
+    """
+    offenders = []
+    roots = (_PKG, _REPO / "tests", _REPO / "scripts")
+    for source in sorted(f for root in roots for f in root.rglob("*.py")):
+        if source.resolve() == Path(__file__).resolve():
+            continue  # this file names it in order to ban it
+        for number, line in enumerate(source.read_text().splitlines(), 1):
+            if _RETIRED_CONTRACT_NAME in line:
+                offenders.append(f"{source.relative_to(_REPO)}:{number}")
+    assert not offenders, (
+        f"{_RETIRED_CONTRACT_NAME!r} was retired on 2026-07-31 and must not appear in "
+        f"code: {offenders}. Use 'the Appwrite Seam Contract' and cite the registry by "
+        "pinned URL (views-appwrite/docs/ADRs/platform/coordinate_registry.toml). "
+        "Historical narration belongs in docs/ADRs or reports/, not here."
+    )
