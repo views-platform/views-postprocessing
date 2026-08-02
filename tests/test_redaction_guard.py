@@ -1,5 +1,5 @@
 """Guards born from the þing-01 delivery-log/provenance redaction audit (#135,
-orð_09 §3 commitment; PLATFORM-001 multi-carrier redaction clause).
+orð_09 §3 commitment; the Appwrite Seam Contract's multi-carrier redaction clause).
 
 The audit (2026-07-28) found the delivery clean: no credential in any carrier —
 log lines carry filenames/run_ids/counts/regions, and the provenance description
