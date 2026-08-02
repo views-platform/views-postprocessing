@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-02                           |
 | Total Concerns    | 74                                   |
-| Open Concerns     | 20                                   |
-| Resolved Concerns | 54                                   |
+| Open Concerns     | 19                                   |
+| Resolved Concerns | 55                                   |
 
 ---
 
@@ -404,30 +404,6 @@ See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the dat
 
 ---
 
-### C-57: PLATFORM-001 coordinate registry is referenced by URL, so nothing detects drift between it and this repo's declared environment
-
-| Field | Value |
-|-------|-------|
-| ID | C-57 |
-| Tier | 3 |
-| Source | `manual` (2026-07-31) — review-rr blind-spot analysis, following the þing-01 verdict (`orð_dómr.md`, ratified as amended 2026-07-28) |
-| Trigger | When views-appwrite amends `coordinate_registry.toml` — renames a coordinate, retires the legacy secret slot in favour of `APPWRITE_{READ,WRITE,PROVISION}_API_KEY`, or adds a target — verify `views_postprocessing/unfao/appwrite_env.py` still matches. Nothing mechanical will tell you: the registry is deliberately **referenced, never copied**, and the two live in different repositories |
-| Location | `views_postprocessing/unfao/appwrite_env.py` (`CONNECTION_ENV`, `PROD_FORECASTS_ENV`, `UNFAO_ENV`); views-appwrite `docs/ADRs/platform/coordinate_registry.toml` (the authority); `tests/test_env_declaration.py` (guards this repo's half only); `docs/ADRs/013_sampled_forecast_wire_contract.md` §7(d) (the URL reference) |
-
-The þing-01 assembly (D1) settled that the PLATFORM-001 contract is **homed in views-appwrite and referenced by URL, never by copy** — a deliberate and correct choice: copies were the platform's original disease (sáttmál S6, the copy-chain this repo's own `load_dotenv` borrow was the runtime edge of, killed in #134/PR #137). But referencing-not-copying moves the failure mode rather than removing it: **the registry can now change without this repo noticing.**
-
-This repo's half is well guarded. `tests/test_env_declaration.py` pins that every `APPWRITE_*` name the manager reads is declared, that all three store paths validate before constructing an `AppwriteConfig`, that empty-string counts as missing, and that exactly one declared name is a secret by the D3 suffix rule. **What no test can see is the other side of the reference** — whether `coordinate_registry.toml` still spells the coordinates the way `appwrite_env.py` does. Divergence surfaces at runtime as a fail-loud `EnvironmentError` from `assert_env_declared` (good — that is D6 working), but only on a delivery run, and only after the launcher has already been reconfigured.
-
-Two named changes are already anticipated and will fire this trigger: the **retirement of the legacy `APPWRITE_DATASTORE_API_KEY`** in favour of the three-tier read/write/provision slots (D4), and any target-coordinate addition for the second store (issue #97). Tier 3 — coordination and cost-of-change across a repo boundary; the failure is loud, not silent, and D6's entry validation is the backstop that keeps it that way.
-
-**Deliberately out of scope here:** the þing-01 redaction clause is mechanically enforced (`tests/test_redaction_guard.py` — the delivery modules stay credential-blind and the provenance description is a closed keyset), and D2's ruling that **integration tests against the production Appwrite project are FORBIDDEN** (no non-production project exists) is a standing prohibition, not a drift risk.
-
-**⚠ CORRECTED 2026-08-02.** The word *already* above overclaimed: **C-74** showed that guard scans one of its five declared roots, four having pointed at paths that #153 moved. The keyset half is enforced; the credential-blindness half is enforced over `delivery/` only until C-74 lands.
-
-Cross-refs: C-74 (the guard this paragraph vouched for), C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
-
----
-
 ### C-58: A wrong Appwrite coordinate auto-provisions a new empty target instead of raising — both client lineages, on every write
 
 | Field | Value |
@@ -673,6 +649,57 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-57: PLATFORM-001 coordinate registry is referenced by URL, so nothing detects drift between it and this repo's declared environment — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-57 |
+| Resolved | 2026-08-02 |
+| Resolution | **Closed by S6 (#187).** The registry stays **referenced, never copied** — that was always the right call. What C-57 named was the gap it left: nothing mechanical could tell you the two had diverged. There is now a detector, built while the answer was known-good rather than after a failed delivery.
+
+`appwrite_env` declares the edition it was verified against — `SEAM_CONTRACT_VERSION = "1.3.0"` and `SEAM_CONTRACT_COMMIT = "47172af"`. **A version string and a sha are not coordinate values**; what is recorded is *which edition was read*, which is precisely what makes drift detectable. Four checks in `tests/test_env_declaration.py`, each mutation-proven:
+
+| check | mutation | result |
+|---|---|---|
+| every declared name exists, with the class the **registry declares** (never inferred from a prefix) | rename `APPWRITE_UNFAO_BUCKET_ID` here | 4 failures |
+| the registry's `[meta] version` matches the pin | pretend v1.2.0 | 1 failure, naming the version to re-verify against |
+| the pinned commit is **reachable from views-appwrite's `main`** | pin the withdrawn `b54928f` | 1 failure |
+| no coordinate value is baked into a constant or default | add `UNFAO_BUCKET = "unfao_bucket"` | 1 failure |
+
+**The reachability check exists because existence was not enough.** #196: S3 pinned a commit resolved with `rev-parse HEAD` on a checkout sitting on an unmerged branch. The commit existed, both cited files existed at it, every check anyone had written passed — and it had never reached `main`, declared a version never ratified, and was withdrawn. A pin is a claim about what the contract *says*; only reachability supports that claim.
+
+**The value-copy check took two wrong narrowings before the right one, and both are worth recording.** A substring text scan flagged three "leaks": `file_metadata` (a **function name** in `contract/store_metadata.py`), `production_forecasts` and `unfao_bucket` (only in refusal labels and docstrings naming which store a function serves). None was a copy, and a guard that fails on `def file_metadata(record)` gets deleted — after which the real rule is unguarded.
+
+Narrowing to *assignments and default arguments* then failed the other way: it caught neither a dict value nor a keyword argument, and the keyword argument is the shape this repo would actually produce — `AppwriteConfig(bucket_id=os.getenv(...))` is how every store is configured, and swapping one `os.getenv` for a literal there is the violation. Verified: that draft caught **zero** of the two.
+
+The right axis was **exact equality on string constants**, not statement shape. It catches dict values, keyword arguments and constants alike, while all three original false positives fall out on their own: a function name is not a `Constant`; `"unfao_bucket datastore"` is not equal to `"unfao_bucket"`; docstrings are excluded outright. The lesson is narrow and reusable: **when a guard cries wolf, check whether the matching is wrong before assuming the scope is.**
+
+**Gated, and honestly so.** The checks need a views-appwrite checkout and skip without one, naming `VIEWS_APPWRITE` and the conventional sibling path so a contributor can run them rather than merely watch them skip. The would-catch-a-rename proof runs in CI with no checkout at all. Resolution helper shared with **C-46** (S7) in `tests/conftest.py` — the second incident, which is this repo's named trigger for extracting.
+
+**Residual:** the gated half does not run in CI, which needs a views-appwrite checkout in the workflow — a CI-cost and cross-repo-coupling decision, not a code fix. Same shape as **C-46**'s residual and worth deciding once for both (S7 / #188).
+
+A second, smaller instance of the same shape: these checks parse TOML with `tomllib`, stdlib from Python 3.11, and `pyproject` declares `>=3.11`. CI runs 3.11 and executes them. The maintainer's box runs **3.10**, below the declared floor, so they skip there — the local suite is quietly weaker than a green `pytest -q` suggests. Not a repo defect and not worth its own entry; recorded because "a gate that does not run" is exactly what C-46 is open for, and the CI decision should cover both. |
+| Tier | 3 |
+| Source | `manual` (2026-07-31) — review-rr blind-spot analysis, following the þing-01 verdict (`orð_dómr.md`, ratified as amended 2026-07-28) |
+| Trigger | When views-appwrite amends `coordinate_registry.toml` — renames a coordinate, retires the legacy secret slot in favour of `APPWRITE_{READ,WRITE,PROVISION}_API_KEY`, or adds a target — verify `views_postprocessing/unfao/appwrite_env.py` still matches. Nothing mechanical will tell you: the registry is deliberately **referenced, never copied**, and the two live in different repositories |
+| Location | `views_postprocessing/unfao/appwrite_env.py` (`CONNECTION_ENV`, `PROD_FORECASTS_ENV`, `UNFAO_ENV`); views-appwrite `docs/ADRs/platform/coordinate_registry.toml` (the authority); `tests/test_env_declaration.py` (guards this repo's half only); `docs/ADRs/013_sampled_forecast_wire_contract.md` §7(d) (the URL reference) |
+
+The þing-01 assembly (D1) settled that the PLATFORM-001 contract is **homed in views-appwrite and referenced by URL, never by copy** — a deliberate and correct choice: copies were the platform's original disease (sáttmál S6, the copy-chain this repo's own `load_dotenv` borrow was the runtime edge of, killed in #134/PR #137). But referencing-not-copying moves the failure mode rather than removing it: **the registry can now change without this repo noticing.**
+
+This repo's half is well guarded. `tests/test_env_declaration.py` pins that every `APPWRITE_*` name the manager reads is declared, that all three store paths validate before constructing an `AppwriteConfig`, that empty-string counts as missing, and that exactly one declared name is a secret by the D3 suffix rule. **What no test can see is the other side of the reference** — whether `coordinate_registry.toml` still spells the coordinates the way `appwrite_env.py` does. Divergence surfaces at runtime as a fail-loud `EnvironmentError` from `assert_env_declared` (good — that is D6 working), but only on a delivery run, and only after the launcher has already been reconfigured.
+
+Two named changes are already anticipated and will fire this trigger: the **retirement of the legacy `APPWRITE_DATASTORE_API_KEY`** in favour of the three-tier read/write/provision slots (D4), and any target-coordinate addition for the second store (issue #97). Tier 3 — coordination and cost-of-change across a repo boundary; the failure is loud, not silent, and D6's entry validation is the backstop that keeps it that way.
+
+**Deliberately out of scope here:** the þing-01 redaction clause is mechanically enforced (`tests/test_redaction_guard.py` — the delivery modules stay credential-blind and the provenance description is a closed keyset), and D2's ruling that **integration tests against the production Appwrite project are FORBIDDEN** (no non-production project exists) is a standing prohibition, not a drift risk.
+
+**⚠ CORRECTED 2026-08-02.** The word *already* above overclaimed: **C-74** showed that guard scans one of its five declared roots, four having pointed at paths that #153 moved. The keyset half is enforced; the credential-blindness half is enforced over `delivery/` only until C-74 lands.
+
+Cross-refs: C-74 (the guard this paragraph vouched for), C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
+
+---
+
+---
 
 ### C-60: The lookup provenance stamp reaches into the producer's ledger schema and degrades to `"unknown"` on a bare except — RESOLVED
 
