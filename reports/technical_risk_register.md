@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-02                           |
 | Total Concerns    | 74                                   |
-| Open Concerns     | 16                                   |
-| Resolved Concerns | 58                                   |
+| Open Concerns     | 15                                   |
+| Resolved Concerns | 59                                   |
 
 ---
 
@@ -170,24 +170,6 @@ Tier recalibrated from 4 to 3 during falsification audit (2026-06-02): the missi
 **Mitigation landed (S5, 2026-06-26, `sprint/fao-input-integrity`):** a representation-free `delivery/provenance.py` (`build_provenance`) assembles structured provenance — `lookup_version`, `region`, `expected_cell_count`, `actual_cell_count`, `unmapped_count` — sourced from the enricher + S1 coverage + a new `extraction.unmapped_cell_count` seam (nothing hardcoded). Both `_save` uploads now carry it via `_delivery_description`. **Carrier constraint:** pipeline-core's `upload_data` exposes **no structured field** — only free-text `description` — so the dict is JSON-encoded into `description` behind a human prefix for now. A dedicated metadata field is requested upstream (**pipeline-core #245**); when it lands, only the manager's attach step changes (the provenance shape is already representation-free). `fill_count` is omitted until a fabricated-value count is available (cf. C-26). Residual is now just the carrier abuse, tracked by #245.
 
 See also C-14 (stale cache without version tracking), C-22 (no post-delivery correction process), C-26 (fabricated zeros — the eventual `fill_count` source).
-
----
-
-### C-22: No post-delivery correction process for wrong assignments
-
-| Field | Value |
-|-------|-------|
-| ID | C-22 |
-| Tier | 3 |
-| Source | `falsification-audit` (2026-06-02) |
-| Trigger | When the run-0 integrity verification (#131 q1) or any FAO/faoapi query surfaces a suspect delivered value — follow the correction procedure; **issue #15 must produce one first.** Re-check at every subsequent delivery until it exists. |
-| Location | `views_postprocessing/unfao/managers/unfao.py:442-494` (`_save_contract`), `:518-578` (legacy `_save`); issue #15 (the undocumented procedure) |
-
-The delivery chain has four stages beyond the code: Appwrite bucket → UN FAO download → FAO systems → operational decisions. When an error is discovered post-delivery, correction requires clearing cache, re-running, re-uploading, notifying FAO, and FAO retracting old data. Steps 3-5 have no documented procedure.
-
-Part of Cluster B (operational impact dimension). See also C-14 (RESOLVED — mapper-era cache), C-15.
-
-**Update 2026-07-31 (review-rr — the conditional is spent):** this entry was written conditionally — "*if* wrong data ever reaches FAO." **Run-0 delivered on 2026-07-27** (108 arrow shards + sidecar + manifest to `unfao_bucket`, plus 28,356,996 historical rows at 64,742 cells), and its integrity verification is still open (#131 q1). There is now delivered, unverified data in the partner's store and still no documented correction/recall procedure. Tier held at 3 (process gap, no code defect), but this is the acute member of Cluster J — **issue #15 is now the blocking artifact, not a nice-to-have.**
 
 ---
 
@@ -583,6 +565,41 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-22: No post-delivery correction process for wrong assignments — RESOLVED (procedure written; the partner-facing step is an open OPERATOR decision)
+
+| Field | Value |
+|-------|-------|
+| ID | C-22 |
+| Resolved | 2026-08-02 |
+| Resolution | **Closed by S8 (#189)** — `docs/operations/correction_procedure.md`, written against the delivery that exists rather than the one #15 described in June (disk caches and shapefiles, both deleted with the runtime mapper).
+
+**What it establishes.** Affected deliveries are identified by `run_id` and `lookup_version`, both present by construction — and `lookup_version` can no longer be the string `"unknown"`, because **C-60** made the reader raise instead of degrading. That is the dependency this story waited on: a procedure whose identification step rests on a field that can silently become a placeholder is not a procedure. Confirmation is offline against committed artifacts (`tests/test_gaul_lookup_fidelity.py`, 26 tests), so investigating does not change the thing being investigated.
+
+**The wire mechanism is supersession, not retraction**, and the document says so plainly rather than inventing one: manifest-last commit ordering (ADR-013 §4) means a run is replaced by publishing a new complete run. It also states the consequence a reader would otherwise discover the hard way — views-faoapi selects **the newest manifest over a broad filter**, so a correction is picked up because it is *newer*, not because it is *correct*, and a test or partial correction published to the production bucket is indistinguishable from the real one. That is **C-73**, cited rather than re-solved, with **#133** named as the fix that would let a consumer select on intent.
+
+Pinned by three checks in `tests/test_doc_accuracy.py`: the document exists and names the identification fields; it describes ADR-013 mechanisms and none of the deleted ones; and it still flags its undecided step.
+
+**⚠ RESIDUAL — one step is written but NOT decided, and it is the step that reaches the partner.** Two questions belong to the operator (`CLAUDE.md`: anything touching an external party):
+
+1. **Who contacts the UN FAO when a delivery is found wrong, through what channel, and how fast?** No named person, no address, no timing expectation. In practice it would be improvised by whoever noticed, under time pressure.
+2. **Does FAO expect retraction or supersession?** Supersession is what the contract does. Retraction has **no wire mechanism** and would need an ADR-013 amendment plus agreement from views-faoapi. It is a question for them, not a decision for us.
+
+The document states both verbatim and instructs the reader to stop and ask rather than improvise. **C-22 closes because the procedure now exists and says exactly where it stops**; what remains is a decision, not engineering. Registered as the standing gap rather than left as an open concern that would read as unfinished work.
+
+`docs/CLONING.md` carries the same warning forward: a clone should answer its partner's correction questions **before** first delivery. This repo shipped run-0 on 2026-07-27 with that step undecided, and it still is. |
+| Tier | 3 |
+| Source | `falsification-audit` (2026-06-02) |
+| Trigger | When the run-0 integrity verification (#131 q1) or any FAO/faoapi query surfaces a suspect delivered value — follow the correction procedure; **issue #15 must produce one first.** Re-check at every subsequent delivery until it exists. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:442-494` (`_save_contract`), `:518-578` (legacy `_save`); issue #15 (the undocumented procedure) |
+
+The delivery chain has four stages beyond the code: Appwrite bucket → UN FAO download → FAO systems → operational decisions. When an error is discovered post-delivery, correction requires clearing cache, re-running, re-uploading, notifying FAO, and FAO retracting old data. Steps 3-5 have no documented procedure.
+
+Part of Cluster B (operational impact dimension). See also C-14 (RESOLVED — mapper-era cache), C-15.
+
+**Update 2026-07-31 (review-rr — the conditional is spent):** this entry was written conditionally — "*if* wrong data ever reaches FAO." **Run-0 delivered on 2026-07-27** (108 arrow shards + sidecar + manifest to `unfao_bucket`, plus 28,356,996 historical rows at 64,742 cells), and its integrity verification is still open (#131 q1). There is now delivered, unverified data in the partner's store and still no documented correction/recall procedure. Tier held at 3 (process gap, no code defect), but this is the acute member of Cluster J — **issue #15 is now the blocking artifact, not a nice-to-have.**
+
+---
 
 ### C-71: `appwrite_env.assert_env_declared` raises without logging — ADR-008 non-compliance in an entry-validation seam — RESOLVED
 

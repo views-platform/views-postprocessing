@@ -296,3 +296,63 @@ def test_the_legacy_ok_marker_still_works(tmp_path):
         "a marker on the NEXT line excused the mention — the opt-out must stay line-scoped, "
         "or a single marker silently covers a whole document"
     )
+
+
+# --- 4. the post-delivery correction procedure (S8 / #189, register C-22) ---------------
+
+_CORRECTION = _REPO / "docs" / "operations" / "correction_procedure.md"
+
+
+def test_the_correction_procedure_exists_and_names_how_to_identify_a_delivery():
+    """C-22's trigger fired on 2026-07-27 and there was no written procedure.
+
+    Run-0 put 64,742 cells x 36 months into a partner's store, live. The procedure
+    that existed (#15, June) described disk caches and shapefiles — both deleted with
+    the runtime mapper. This pins the two things a correction cannot start without:
+    the fields that say *which* delivery is affected.
+
+    Mirrors ``test_clone_readiness.py::test_the_cloning_guide_exists_and_names_what_
+    must_be_supplied`` — the human half of a guarantee, checked mechanically.
+    """
+    assert _CORRECTION.exists(), f"the correction procedure is missing: {_CORRECTION}"
+    text = _CORRECTION.read_text()
+    for required in ("run_id", "lookup_version", "manifest"):
+        assert required in text, (
+            f"the correction procedure does not mention {required!r} — without it a "
+            "reader cannot establish which deliveries are affected before acting"
+        )
+
+
+def test_the_correction_procedure_describes_the_delivery_that_exists():
+    """It must not describe the pre-#149 pipeline, which is how #15 became useless.
+
+    ``_BANNED`` already covers the deleted symbols; this asserts the *positive* — that
+    the document names the ADR-013 mechanisms a correction actually runs through.
+    """
+    text = _CORRECTION.read_text()
+    offenders = [
+        line.strip()
+        for line in text.splitlines()
+        if "legacy-ok" not in line and _BANNED.search(line)
+    ]
+    assert not offenders, f"the correction procedure describes deleted code: {offenders}"
+    for mechanism in ("supersed", "commit marker", "source_selection", "C-73"):
+        assert mechanism in text, (
+            f"the procedure does not mention {mechanism!r}. A correction that ignores "
+            "how the consumer SELECTS a run will publish a fix nobody picks up."
+        )
+
+
+def test_the_procedure_states_the_questions_only_the_operator_can_answer():
+    """The two external-party decisions must stay visible, not quietly become defaults.
+
+    Who contacts the UN FAO, and whether they expect retraction or supersession. Per
+    CLAUDE.md both are the operator's; the failure mode is that an undecided step gets
+    silently improvised the first time it is needed, under time pressure.
+    """
+    text = _CORRECTION.read_text()
+    assert "not decided" in text.lower(), (
+        "the procedure no longer flags its undecided step — if it has been decided, "
+        "replace the marker with the decision and say who made it"
+    )
+    assert "UN FAO" in text and "supersede" in text
