@@ -586,7 +586,7 @@ Pinned by three checks in `tests/test_doc_accuracy.py`: the document exists and 
 - **Treatment of an affected delivery:** the intended policy is **withdrawal**. What is *implemented* is **supersession**, and the procedure now says so explicitly — supersession is in force because it is what the wire does, not because it was chosen. Withdrawal needs an ADR-013 amendment plus views-faoapi work, and whether that is worth building depends on FAO's answer about audit requirements.
 - **Put to FAO** as **Pre-Release Note 07, Topic B** (Decision Points B.1 and B.2), which also records the interim defaults in force as placeholders rather than policy.
 
-Recipients are deliberately **not in this repository**, which is public; naming a responsible person on our side is one thing, publishing an external organisation's individual email addresses is another. `tests/test_doc_accuracy.py` now refuses `@fao.org` anywhere in the repo, mutation-proven.
+Recipients are deliberately **not in this repository**, which is public; naming a responsible person on our side is one thing, publishing an external organisation's individual email addresses is another. `tests/test_doc_accuracy.py` now refuses partner address strings anywhere in the repo, mutation-proven — and fired on the first draft of this very sentence, which spelled the pattern out. Third time in this epic that a guard has caught the prose explaining it (after S3's retired contract name and S5's ledger-schema docstring); the fix is the same each time — name the thing without spelling it.
 
 The original residual, kept for the record:
 
