@@ -16,6 +16,7 @@ intentional historical mention in a living doc can be whitelisted with an inline
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -139,16 +140,48 @@ _MANAGER = _PKG / "unfao" / "managers" / "unfao.py"
 _MANAGER_LINE_BUDGET = 450  # epic #148's bound; 406 at close, 636 before #149
 
 
-def test_pandas_has_exactly_one_importer():
-    """ADR-012's 'Representation Seam' row says pandas is isolated to one module."""
-    importers = sorted(
-        f.relative_to(_PKG).as_posix()
-        for f in _PKG.rglob("*.py")
-        if re.search(r"^\s*(?:import pandas|from pandas\b)", f.read_text(), re.M)
+def test_pandas_is_not_imported_at_runtime_anywhere_in_the_package():
+    """ADR-012's 'Representation Seam' row — now a stronger claim than it was.
+
+    It used to be *one* pandas-aware module (``contract/enrichment.py``). After S4
+    (#89) that module's lookup side is numpy + pyarrow and its pandas import is
+    **type-only**, under ``if TYPE_CHECKING``: pandas is in the enricher's interface
+    (callers hand it DataFrames) but no longer in its implementation.
+
+    So the assertion is now *zero runtime importers*, and it is checked by **AST**
+    rather than by regex — a regex matching an indented ``import pandas`` cannot tell a
+    real import from one inside a ``TYPE_CHECKING`` guard, and would have passed
+    unchanged while the meaningful property changed underneath it.
+    """
+    runtime, type_only = [], []
+    for source in sorted(_PKG.rglob("*.py")):
+        tree = ast.parse(source.read_text())
+        guards = [
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.If) and "TYPE_CHECKING" in ast.dump(n.test)
+        ]
+        guarded = {id(n) for g in guards for n in ast.walk(g)}
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            names = [getattr(node, "module", None) or a.name for a in node.names]
+            if not any((n or "").split(".")[0] == "pandas" for n in names):
+                continue
+            # The FILE is the claim; the line number is not. Pinning a line means any
+            # edit above it fails a test about imports, which is how a guard earns a
+            # reputation for crying wolf (ADR-014 §3).
+            where = source.relative_to(_PKG).as_posix()
+            (type_only if id(node) in guarded else runtime).append(where)
+
+    assert not runtime, (
+        f"pandas is imported at RUNTIME in the package: {runtime}. The delivery path "
+        "is numpy/pyarrow end to end (epic #85); a runtime pandas import re-materialises "
+        "the representation the migration removed. If it is genuinely needed, put it "
+        "behind `if TYPE_CHECKING` or say in ADR-012 why it is not."
     )
-    assert importers == ["contract/enrichment.py"], (
-        f"ADR-012 claims one pandas-aware module; found {importers}. Either the claim "
-        "or the code moved — fix whichever is wrong, do not leave the ADR lying."
+    assert type_only == ["contract/enrichment.py"], (
+        f"the type-only pandas imports moved: {type_only}. Not necessarily wrong — but "
+        "ADR-012 names the seam, so update it rather than letting the claim drift."
     )
 
 

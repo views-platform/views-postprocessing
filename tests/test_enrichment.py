@@ -8,6 +8,7 @@ that swapping it in for the runtime mapper (Stage 3) is invisible downstream.
 import pandas as pd
 import pytest
 
+from views_postprocessing.contract import gaul_lookup
 from views_postprocessing.contract.enrichment import (
     GaulLookupEnricher,
     METADATA_COLS,
@@ -28,8 +29,24 @@ def enricher():
 
 
 @pytest.fixture(scope="module")
-def lookup(enricher):
-    return enricher._lookup
+def lookup():
+    """The committed artifact as a pandas frame, built here rather than reached for.
+
+    Until S4 (#89) this was ``enricher._lookup`` — the enricher's own private pandas
+    frame. It no longer has one: the lookup side is numpy + pyarrow, and pandas is a
+    type-only import there. These tests are about the **artifact**, not the enricher,
+    so they load it directly.
+
+    The ``set_index`` is deliberate and forward-looking. ``to_pandas()`` currently
+    restores ``priogrid_gid`` as the index from the parquet's embedded pandas
+    metadata — metadata that **S5 (#90) removes** when the builder becomes
+    pyarrow-native. Handling both shapes means these tests do not have to change
+    again then.
+    """
+    df = gaul_lookup.load().to_pandas()
+    if "priogrid_gid" in df.columns:
+        df = df.set_index("priogrid_gid")
+    return df
 
 
 class TestLookupIntegrity:
