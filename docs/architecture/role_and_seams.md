@@ -55,8 +55,9 @@ pattern:
   `_read → _transform → _validate → _save` in order.
 - this repo **fills in the steps** for the FAO path (the `_read*/_transform/_validate/_save`
   overrides in `unfao/managers/unfao.py`).
-- pipeline-core also **provides the tools** the steps use: `ViewsDataLoader`, `PGMDataset`,
+- pipeline-core also **provides the tools** the steps use: `ViewsDataLoader`,
   `DatastoreModule`, `AppwriteConfig`, the path managers.
+  (`PGMDataset` was on this list until #149 retired the pandas delivery path; this repo no longer references it — see Seam B.) <!-- legacy-ok: retirement record -->
 
 So the runtime control flow is *inverted* ("don't call us, we'll call you"): views-models
 calls `manager.execute()`, which lives in **pipeline-core's base**, which calls back into
@@ -110,12 +111,12 @@ The manager **calls** the invariants; it never makes them methods of itself. The
 always `extract (seam) → call invariant → raise`. This is why the guards are testable
 without the framework, and why they survive a representation change untouched.
 
-**And they did survive one.** This seam was `unfao/extraction.py` (pandas) until #151.
+**And they did survive one.** This seam was `unfao/extraction.py` (pandas) until #151. <!-- legacy-ok: retirement record -->
 When the pandas delivery was retired, the invariants needed **no change at all** — only
 which module fed them. That is the design working exactly as this section claims, and it is
-the evidence for the claim rather than a restatement of it. `delivery/identity.py` was also
-retired (#150): the forecast-identity rule now lives in the wire layer, checked per shard
-header against declared provenance — see §5 Seam C.
+the evidence for the claim rather than a restatement of it. `delivery/identity.py` was also <!-- legacy-ok: retirement record -->
+retired (#150): the forecast-identity rule now lives in the wire layer, checked per shard <!-- legacy-ok: retirement record -->
+header against declared provenance — see §5 Seam C. <!-- legacy-ok: retirement record -->
 
 ### Seam B — the inherited pandas base, and the C-40 gate
 
@@ -123,7 +124,7 @@ Because this repo *is-a* pipeline-core postprocessor (section 3), three **concre
 pieces are inherited, not chosen:
 
 1. the input loader (`ViewsDataLoader` → parquet → pandas),
-2. the dataset container (`PGMDataset`, a pandas `DataFrame` with object-dtype cells),
+2. the dataset container (`PGMDataset`, a pandas `DataFrame` with object-dtype cells), <!-- legacy-ok: describes the pre-2026-07-27 state, as this section states -->
 3. the prediction-store parquet I/O.
 
 **This section described the state until 2026-07-27; it is no longer true and is kept
@@ -147,7 +148,7 @@ samples per cell). This is where representation matters most:
 
 - views-frames stores a distribution natively as a contiguous `(N, S)` float32 array (sample
   axis explicit; a point is just `S=1`).
-- pandas `PGMDataset` stores it as **object-dtype list-in-cell** — a separate numpy array
+- pandas `PGMDataset` stores it as **object-dtype list-in-cell** — a separate numpy array <!-- legacy-ok: comparative reasoning for the frame-native path -->
   boxed in each of N cells. Cost scales ~linearly with S (memory, an encode/decode tax at
   every parquet/API boundary, a silent resize on mismatched sample counts).
 
