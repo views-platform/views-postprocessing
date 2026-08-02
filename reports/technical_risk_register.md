@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-02                           |
 | Total Concerns    | 74                                   |
-| Open Concerns     | 21                                   |
-| Resolved Concerns | 53                                   |
+| Open Concerns     | 20                                   |
+| Resolved Concerns | 54                                   |
 
 ---
 
@@ -71,7 +71,7 @@ covered a single open entry (see Historical clusters below).
 
 **The lesson, and it generalises past this cluster.** C-43's residual said the forward-check *"was a one-off session result, not a standing guarantee"* — and the fix was to attach it to something the interpreter runs. The entries then reproduced the identical error one level up: they stated their closing conditions in prose and attached them to nothing. S2 therefore added a closing-condition check to `test_register_integrity.py`. **A guarantee needs a check, and that applies to the register's own guarantees too.**
 
-**Remaining in this cluster:** **C-60** (the flat declared `lookup_version` key — S5 / #186) and **C-46** (the hardcoded datafactory path — S7 / #188). Both unblocked, both in epic #181.
+**C-60 closed 2026-08-02 (S5 / #186)** — the flat declared key landed and the committed artifact was rebuilt, metadata-only. **Remaining in this cluster: C-46 alone** (the hardcoded datafactory path — S7 / #188), which is the last thing keeping the cluster open.
 
 ### Cluster L: The won migration was never cleaned up
 **Root cause:** the frame-native contract path replaced the pandas path and **won** — run-0 delivered global-land on 2026-07-27 and FAO has been served from it since. The replaced path was deliberately kept behind a config fork "until run 0 proves the contract path live" (C-40) and was then never removed. Everything below is residue of that one omission, not independent defects.
@@ -454,26 +454,6 @@ Cross-refs: C-57 (registry drift — the most likely way a coordinate goes wrong
 
 ---
 
-### C-60: The lookup provenance stamp reaches into the producer's ledger schema and degrades to `"unknown"` on a bare except
-
-| Field | Value |
-|-------|-------|
-| ID | C-60 |
-| Tier | 3 |
-| Source | `expert-code-review` (2026-07-31) — Ousterhout lens (information leakage / silent degradation) |
-| Trigger | When views-datafactory renames or restructures its ingestion-ledger entries (`dataset` key, `content_digest` field, or the `land_gaul_region` entry name) — verify `lookup_version` still resolves to a real value rather than the string `"unknown"`; nothing fails if it does not |
-| Location | `views_postprocessing/unfao/enrichment.py:61-79` (`_read_version`); written at `scripts/build_gaul_lookup.py:89-107` (`_provenance`) and `:163-164`; consumed as the C-15 provenance field via the manager's delivery description |
-
-`_read_version` reconstructs the stamp by traversing three levels of the producer's schema — parquet metadata → `source_provenance` JSON → `land_gaul_region` → `content_digest` — and wraps the traversal in `except (ValueError, AttributeError): pass`, returning `"unknown"` when anything along the path is absent. This is a **declare-don't-infer violation at the consumer**: the value that ties a delivered artifact to the exact lookup build (C-15's traceability provenance) can silently become a placeholder, and no gate notices.
-
-No wrong data results — this is a traceability failure, not a correctness one → **Tier 3**. But it defeats the specific question C-15 exists to answer *after* a suspect delivery ("which lookup produced this?"), and C-22 has no correction procedure that could compensate.
-
-**Mitigation:** have `build_gaul_lookup.py` write a **flat, declared `lookup_version` key** into the parquet metadata, and have `_read_version` read that one key and **raise** if absent. The consumer stops knowing the producer's nested ledger schema, and the stamp stops being able to vanish quietly. Separately worth stamping `lookup_version` into the sidecar's own parquet metadata so a delivered artifact is self-describing without the store document.
-
-Cross-refs: C-15 (the provenance this field serves), C-22 (the recall process that would need it), C-57 (the same class — a cross-repo fact this repo reads without a way to detect drift), **Cluster K**.
-
----
-
 ### C-62: The pinned pipeline-core release still installs geopandas and torch into a repo that architecturally excised them
 
 | Field | Value |
@@ -693,6 +673,38 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-60: The lookup provenance stamp reaches into the producer's ledger schema and degrades to `"unknown"` on a bare except — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-60 |
+| Resolved | 2026-08-02 |
+| Resolution | **Closed by S5 (#186).** The builder composes the stamp and writes one flat `lookup_version` key; `contract/gaul_lookup.version` reads that key and **raises** `LookupVersionError` (logged first, ADR-008) when it is absent. The three-level traversal of views-datafactory's ledger shape, the bare `except … pass` and the `"unknown"` branch are all gone — pinned by `tests/test_gaul_lookup_access.py`, which asserts by **AST** rather than by word-matching that the module imports no `json` and holds zero exception handlers. An untraceable *build* now fails at build time, where a human is present, instead of surfacing as a placeholder in production.
+
+**The committed artifact was rebuilt, metadata-only.** 64,742 rows, column order and dtypes unchanged, a content hash over every column's values identical, and the stamp resolves to `land_gaul@f74d3b2b` — the same string the old traversal produced, so no delivered provenance changes meaning. ADR-013 untouched: `contract_version` 1.5, `tests/fixtures/` byte-identical (`build_sidecar` constructs a fresh table, so lookup metadata cannot reach the wire — verified empirically, sidecar schema metadata is `[]`).
+
+**⚠ The fix reintroduced this entry's own defect class, caught in review before merge.** The first draft read `provenance.get("land_gaul_region") or provenance.get("gaul_admin_area_majority")`. Since `_provenance` takes no region, `land_gaul_region` is present for *every* build — so `--region all` would have been stamped `all@f74d3b2b`, the land_gaul region definition's digest, on a global artifact: authoritative-looking, wrong, silent. Replaced by a declared `stamp_dataset(region)` with no fallback; a region whose ledger entry is absent is **refused**, not substituted. Verified: `all@272cdb01`, `land_gaul@f74d3b2b`, `africa_me_legacy` → raises. Worth keeping visible — the reflex that produced C-60 reappeared while fixing C-60.
+
+**Residual, deliberately deferred:** stamping `lookup_version` into the **sidecar's own** parquet metadata, so a delivered artifact is self-describing without the store document. Not done here because it changes wire bytes and therefore `contract_version` — an ADR-013 amendment with three repos to notify. Named trigger: **the next ADR-013 version bump**, whatever prompts it.
+
+**Also recorded from review:** the ingestion ledger is append-only and the **last entry per dataset wins** (14 `gaul_admin_area_majority` entries, 2 `land_gaul_region`). Harmless while provenance was decorative; load-bearing now that the stamp raises, so it is stated in `_provenance` rather than left implicit — the same shape **C-73** was opened for on the forecast path, intended here and now said. `docs/CICs/GaulLookupEnricher.md` still documented the `"unknown"` degrade and was corrected. |
+| Tier | 3 |
+| Source | `expert-code-review` (2026-07-31) — Ousterhout lens (information leakage / silent degradation) |
+| Trigger | When views-datafactory renames or restructures its ingestion-ledger entries (`dataset` key, `content_digest` field, or the `land_gaul_region` entry name) — verify `lookup_version` still resolves to a real value rather than the string `"unknown"`; nothing fails if it does not |
+| Location | `views_postprocessing/unfao/enrichment.py:61-79` (`_read_version`); written at `scripts/build_gaul_lookup.py:89-107` (`_provenance`) and `:163-164`; consumed as the C-15 provenance field via the manager's delivery description |
+
+`_read_version` reconstructs the stamp by traversing three levels of the producer's schema — parquet metadata → `source_provenance` JSON → `land_gaul_region` → `content_digest` — and wraps the traversal in `except (ValueError, AttributeError): pass`, returning `"unknown"` when anything along the path is absent. This is a **declare-don't-infer violation at the consumer**: the value that ties a delivered artifact to the exact lookup build (C-15's traceability provenance) can silently become a placeholder, and no gate notices.
+
+No wrong data results — this is a traceability failure, not a correctness one → **Tier 3**. But it defeats the specific question C-15 exists to answer *after* a suspect delivery ("which lookup produced this?"), and C-22 has no correction procedure that could compensate.
+
+**Mitigation:** have `build_gaul_lookup.py` write a **flat, declared `lookup_version` key** into the parquet metadata, and have `_read_version` read that one key and **raise** if absent. The consumer stops knowing the producer's nested ledger schema, and the stamp stops being able to vanish quietly. Separately worth stamping `lookup_version` into the sidecar's own parquet metadata so a delivered artifact is self-describing without the store document.
+
+Cross-refs: C-15 (the provenance this field serves), C-22 (the recall process that would need it), C-57 (the same class — a cross-repo fact this repo reads without a way to detect drift), **Cluster K**.
+
+---
+
+---
 
 ### C-03: Test coverage gaps in manager validation and the enrich→validate path — RESOLVED
 

@@ -315,15 +315,28 @@ def _synthetic_source(n: int = 6):
     )
 
 
-def _build_with(monkeypatch, source, tmp_path):
+#: A resolvable ledger entry, so a synthetic build can reach the invariant block.
+#: Keyed on the area-majority dataset because ``_build_with`` builds ``region="all"``,
+#: whose DECLARED stamp source is that entry — see ``builder.stamp_dataset``.
+_SYNTHETIC_PROVENANCE = {"gaul_admin_area_majority": {"content_digest": "0123456789abcdef"}}
+
+
+def _build_with(monkeypatch, source, tmp_path, provenance=None):
     """Run the builder against ``source``, bypassing the datafactory entirely.
 
-    ``region="all"`` short-circuits ``_region_gids`` (returns None), and
-    ``_provenance`` is best-effort, so no checkout is required.
+    ``region="all"`` short-circuits ``_region_gids`` (returns None). Provenance is
+    stubbed for the same reason the source is: since C-60 the builder **refuses** a
+    build whose ledger yields no digest, so a synthetic run needs a synthetic ledger
+    to reach the invariants these tests are about. That refusal is not bypassed —
+    it is proven directly by ``test_builder_refuses_a_build_it_cannot_stamp``.
     """
     import scripts.build_gaul_lookup as builder
 
     monkeypatch.setattr(builder, "_load_source", lambda _df: source)
+    monkeypatch.setattr(
+        builder, "_provenance",
+        lambda _df, **_kw: _SYNTHETIC_PROVENANCE if provenance is None else provenance,
+    )
     return builder.build(Path("/nonexistent"), "all", tmp_path / "lookup.parquet")
 
 
@@ -384,3 +397,77 @@ def test_coord_dtypes_are_wire_stable(lookup):
         )
     for col in COORD_COLS:
         assert lookup.schema.field(col).type == "double", f"{col} must be float64"
+
+
+# ── the declared build stamp (S5 / #186, register C-60) ─────────────────────
+
+def test_builder_refuses_a_build_it_cannot_stamp(monkeypatch, tmp_path):
+    """C-60: an untraceable artifact must fail at BUILD, not degrade at delivery.
+
+    Before this, an unresolvable ledger produced the string ``"unknown"`` in the
+    delivery's provenance — silently, in the one field C-15 exists to answer after a
+    suspect delivery. The record was still written; it just stopped meaning anything.
+    Moving the failure to the build puts it where a human is present to fix it.
+    """
+    import scripts.build_gaul_lookup as builder
+
+    with pytest.raises(builder.LookupBuildError, match="lookup_version"):
+        _build_with(monkeypatch, _synthetic_source(), tmp_path, provenance={})
+
+
+def test_the_builder_writes_the_declared_version_key(monkeypatch, tmp_path):
+    """The producer composes the stamp; nothing downstream reconstructs it."""
+    import pyarrow.parquet as pq
+
+    out = tmp_path / "lookup.parquet"
+    _build_with(monkeypatch, _synthetic_source(), tmp_path)
+    meta = {k.decode(): v.decode() for k, v in (pq.read_metadata(out).metadata or {}).items()}
+    assert meta["lookup_version"] == "all@01234567", (
+        "the builder must write a flat, declared lookup_version — <region>@<digest[:8]>"
+    )
+
+
+def test_the_committed_artifact_declares_its_version():
+    """The artifact this repo actually ships, not a synthetic one."""
+    from views_postprocessing.contract import gaul_lookup
+
+    stamp = gaul_lookup.version()
+    assert stamp.startswith("land_gaul@"), stamp
+    assert "@" in stamp and len(stamp.split("@")[1]) == 8, (
+        f"expected <region>@<8-char digest>, got {stamp!r}"
+    )
+
+
+def test_the_stamp_source_is_declared_per_region_never_borrowed():
+    """C-60, review of #186: the first draft borrowed whatever entry was present.
+
+    ``_provenance`` does not take a region, so ``land_gaul_region`` is in the blob for
+    *every* build. A ``land_gaul_region or gaul_admin_area_majority`` fallback would
+    therefore have stamped ``--region all`` as ``all@<land_gaul digest>`` — an
+    authoritative-looking claim about a global artifact, sourced from one region's
+    definition. That is the defect class C-60 exists to close, one level up.
+    """
+    import scripts.build_gaul_lookup as builder
+
+    assert builder.stamp_dataset("all") == builder.AREA_MAJORITY_DATASET
+    assert builder.stamp_dataset("land_gaul") == "land_gaul_region"
+    assert builder.stamp_dataset("africa_me_legacy") == "africa_me_legacy_region"
+
+    # A region whose declared entry is absent is REFUSED, not silently substituted —
+    # even though another dataset's digest is sitting right there in the blob.
+    blob = {"land_gaul_region": {"content_digest": "f74d3b2bdeadbeef"}}
+    assert builder._lookup_version("land_gaul", blob) == "land_gaul@f74d3b2b"
+    with pytest.raises(builder.LookupBuildError, match="africa_me_legacy_region"):
+        builder._lookup_version("africa_me_legacy", blob)
+
+
+def test_a_short_digest_is_refused_rather_than_truncated_silently():
+    """Producer and consumer must agree on what a valid stamp is.
+
+    ``[:8]`` alone would emit ``land_gaul@abcd`` from a 4-char digest — accepted by
+    the builder, rejected by ``test_the_committed_artifact_declares_its_version``.
+    """
+    import scripts.build_gaul_lookup as builder
+
+    with pytest.raises(builder.LookupBuildError, match="at least 8 characters"):
+        builder._lookup_version("land_gaul", {"land_gaul_region": {"content_digest": "abcd"}})
