@@ -228,9 +228,11 @@ def test_views_pipeline_core_has_exactly_one_importer():
         for f in _PKG.rglob("*.py")
         if "views_pipeline_core" in f.read_text()
     )
-    assert importers == ["unfao/managers/unfao.py"], (
-        f"views_pipeline_core is imported by {importers}. ADR-012 and register C-40 both "
-        "state it is one file wide; a second importer widens C-40's blast radius."
+    assert importers == ["crafd/managers/crafd.py", "unfao/managers/unfao.py"], (
+        f"views_pipeline_core is imported by {importers}. ADR-012 and register C-40 state it "
+        "is confined to the per-partner manager seam — one file per delivery (unfao, crafd). "
+        "An importer OUTSIDE those managers widens C-40's blast radius; a new partner manager "
+        "is expected and joins this list."
     )
 
 
