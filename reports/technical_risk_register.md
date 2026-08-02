@@ -580,6 +580,16 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 
 Pinned by three checks in `tests/test_doc_accuracy.py`: the document exists and names the identification fields; it describes ADR-013 mechanisms and none of the deleted ones; and it still flags its undecided step.
 
+**⚠ UPDATE 2026-08-02, later the same day — the operator answered the PRIO half; the FAO half is now formally asked.**
+
+- **Who notifies:** **Simon Polichinel von der Maase**, by direct email, as soon as the scope of the error is established. Adopted.
+- **Treatment of an affected delivery:** the intended policy is **withdrawal**. What is *implemented* is **supersession**, and the procedure now says so explicitly — supersession is in force because it is what the wire does, not because it was chosen. Withdrawal needs an ADR-013 amendment plus views-faoapi work, and whether that is worth building depends on FAO's answer about audit requirements.
+- **Put to FAO** as **Pre-Release Note 07, Topic B** (Decision Points B.1 and B.2), which also records the interim defaults in force as placeholders rather than policy.
+
+Recipients are deliberately **not in this repository**, which is public; naming a responsible person on our side is one thing, publishing an external organisation's individual email addresses is another. `tests/test_doc_accuracy.py` now refuses `@fao.org` anywhere in the repo, mutation-proven.
+
+The original residual, kept for the record:
+
 **⚠ RESIDUAL — one step is written but NOT decided, and it is the step that reaches the partner.** Two questions belong to the operator (`CLAUDE.md`: anything touching an external party):
 
 1. **Who contacts the UN FAO when a delivery is found wrong, through what channel, and how fast?** No named person, no address, no timing expectation. In practice it would be improvised by whoever noticed, under time pressure.
