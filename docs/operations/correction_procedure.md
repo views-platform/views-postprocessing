@@ -80,9 +80,21 @@ defect; fix the producer and rebuild.
 
 ## 3. Correct on the wire
 
-**The contract has no retraction primitive. It has supersession**, and that is
-deliberate: the manifest-last commit ordering means the way to replace a run is to
-publish a *new complete run*, not to mutate an old one.
+**The intended policy is WITHDRAWAL. What is implemented is SUPERSESSION.** That gap is
+deliberate, recorded, and you need to know about it before you act.
+
+- **Intended** (operator decision, 2026-08-02): a delivery found to be materially wrong
+  should be *removed or blocked* so it can no longer be served. Data known to be wrong
+  should not stay retrievable through the production interface.
+- **In force**: supersession. The manifest-last commit ordering means a run is replaced
+  by publishing a *new complete run*; the old one stays in the bucket and remains
+  retrievable by a client that asks for it specifically.
+
+Supersession is in force **because it is what the wire does**, not because it was chosen.
+Withdrawal has no mechanism today: it needs an ADR-013 amendment and matching work in
+views-faoapi. Put to FAO as **Pre-Release Note 07, Decision Point B.2**, which also asks
+whether they have an audit or reproducibility requirement that would argue *against*
+withdrawal — that answer decides whether the amendment is worth building.
 
 1. Fix the cause — the lookup, the producer, or the code — and land it.
 2. Rebuild any affected artifact. For the lookup:
@@ -112,31 +124,37 @@ because it is *correct*. Two consequences:
 
 ---
 
-## 4. Telling the UN FAO — **not decided; the operator must answer this**
+## 4. Telling the UN FAO
 
-Everything above can be executed by whoever is on the keyboard. This cannot, and it is
-the step that matters most to the partner.
+**Simon Polichinel von der Maase is responsible for making contact.** Not an automated
+alert — a correction needs judgement about scope and impact that an automated message
+cannot carry.
 
-**Two questions, in plain language:**
+**Recipients and channel are recorded outside this repository.** This repo is **public**,
+and publishing named FAO staff members' email addresses in it is not something to do by
+default. The contacts are in the FAO-02 project materials
+(`brain/2_projects/fao02/…/prerelease_notes/fao_02_pre_release_note_07/`, Decision
+Point B.1) and in the operator's address book.
 
-> **1. When a delivery is found to be wrong, who contacts the UN FAO, through what
-> channel, and how quickly?**
-> Right now nobody has said. There is no named person, no address, and no expectation
-> about timing — so in practice the answer would be improvised by whoever noticed,
-> under time pressure, which is the worst moment to invent a process.
+**Send as soon as the scope of the error is established** — not after a correction has
+been prepared. The partner's ability to act is time-sensitive and independent of our
+remediation timeline.
 
-> **2. Does the UN FAO expect us to *retract* the bad delivery, or to *supersede* it?**
-> These need different behaviour. Supersession is what the contract does today: the old
-> run stays in the bucket and a newer one wins. Retraction would mean removing or
-> marking the old run so it cannot be served — which the wire has no mechanism for, and
-> which would need an ADR-013 amendment and agreement from views-faoapi.
-> **This is a question for them, not a decision for us.**
+### Still awaiting FAO's answer
 
-Per `CLAUDE.md`, anything touching an external party is the operator's call. Until both
-are answered, treat this step as: **stop, and ask Simon.** Do not contact the partner
-ad hoc; an inconsistent first message is harder to correct than a slow one.
+Two things are proposed but not confirmed, and both are put to FAO in **Pre-Release
+Note 07, Topic B**:
 
----
+1. **Are those the right recipients, and is there an expected notification period?** A
+   named individual on leave is a single point of failure in exactly the situation where
+   delay is costly. FAO may prefer a shared address or a rota.
+2. **Does FAO expect a correction notice for *every* error, or only one material to
+   published outputs?** A wrong admin label on a handful of cells and a wrong forecast
+   across a region are different events; treating them alike either floods them with
+   immaterial notices or buries a serious one.
+
+Until FAO answers, follow what is written above. Do not improvise a different channel —
+an inconsistent first message to a partner is harder to correct than a slow one.
 
 ## 5. Preserve the evidence
 

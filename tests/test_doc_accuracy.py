@@ -343,16 +343,70 @@ def test_the_correction_procedure_describes_the_delivery_that_exists():
         )
 
 
-def test_the_procedure_states_the_questions_only_the_operator_can_answer():
-    """The two external-party decisions must stay visible, not quietly become defaults.
+def test_the_procedure_names_who_notifies_and_still_flags_what_fao_has_not_answered():
+    """Half of §4 is decided; half is not, and both halves must stay visible.
 
-    Who contacts the UN FAO, and whether they expect retraction or supersession. Per
-    CLAUDE.md both are the operator's; the failure mode is that an undecided step gets
-    silently improvised the first time it is needed, under time pressure.
+    **Decided 2026-08-02 (operator):** Simon Polichinel von der Maase makes contact, and
+    the intended treatment of a bad delivery is *withdrawal*. **Not decided:** whether
+    FAO agrees the recipients and timing (B.1), and whether they have an audit
+    requirement arguing against withdrawal (B.2). Both are put to them in Pre-Release
+    Note 07, Topic B.
+
+    An earlier version of this test asserted the document said "not decided", and its
+    docstring instructed whoever removed that marker to replace it with the decision.
+    That is what happened — the guard fired on the operator's answer, which is the
+    behaviour it was written for rather than a false positive.
+
+    The failure mode it now guards is subtler: a half-answered question quietly becoming
+    a whole answer, so the outstanding half stops being asked.
     """
     text = _CORRECTION.read_text()
-    assert "not decided" in text.lower(), (
-        "the procedure no longer flags its undecided step — if it has been decided, "
-        "replace the marker with the decision and say who made it"
+    assert "Simon Polichinel von der Maase is responsible" in text, (
+        "the procedure no longer names who contacts the partner — an unowned step is "
+        "improvised by whoever notices, under time pressure"
     )
-    assert "UN FAO" in text and "supersede" in text
+    assert "Still awaiting FAO's answer" in text, (
+        "the procedure no longer flags what FAO has not answered. If they have "
+        "answered, record the answer and the date — do not simply drop the question."
+    )
+    assert "Pre-Release Note 07" in text, (
+        "the procedure must cite where the outstanding questions were put, or they "
+        "become questions nobody remembers asking"
+    )
+
+
+def test_the_procedure_distinguishes_intended_policy_from_what_is_implemented():
+    """The gap that would otherwise be discovered mid-incident.
+
+    Withdrawal is the decision; supersession is what the wire actually does, and it is
+    in force only because nothing else exists. An operator reading this at 22:00 must
+    not believe a bad delivery becomes unretrievable when it does not.
+    """
+    text = _CORRECTION.read_text()
+    assert "intended policy is WITHDRAWAL" in text.replace("**", "")
+    assert "implemented is SUPERSESSION" in text.replace("**", "")
+    assert "ADR-013 amendment" in text, (
+        "the procedure must say what withdrawal would COST — otherwise the gap reads "
+        "as an oversight rather than as unbuilt work with a known price"
+    )
+
+
+def test_no_partner_contact_details_are_published_in_this_repository():
+    """This repo is public. FAO staff email addresses do not belong in it.
+
+    The contacts live in the FAO-02 project materials and the operator's address book.
+    Naming a responsible person on our side is fine; publishing an external
+    organisation's individual addresses to a public repository is not something to do
+    as a side effect of documenting a runbook.
+    """
+    offenders = []
+    for doc in (*sorted(_REPO.rglob("*.md")), *sorted(_PKG.rglob("*.py"))):
+        if ".git" in doc.parts:
+            continue
+        for number, line in enumerate(doc.read_text(errors="ignore").splitlines(), 1):
+            if "@fao.org" in line.lower():
+                offenders.append(f"{doc.relative_to(_REPO)}:{number}")
+    assert not offenders, (
+        f"partner contact addresses appear in this public repository: {offenders}. "
+        "Keep them in the project materials; reference the decision, not the address."
+    )
