@@ -7,18 +7,29 @@ They are written against a local views-datafactory checkout and FAIL BY DESIGN
 until the datafactory deploy candidate is actually releasable and the served
 artifact matches the branch.
 
-Point _DF at the local datafactory checkout to run.
+Resolution is the repo's one declared way of finding a sibling checkout
+(``tests/conftest.sibling_repo``): ``$VIEWS_DATAFACTORY``, else the conventional
+directory beside this repo. Never an absolute path to a particular machine — that
+was C-46, and it kept this gate from ever running anywhere but one laptop.
 """
 
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 
-_DF = Path("/home/simon/Documents/scripts/views_platform/views-datafactory")
-_pytestmark = pytest.mark.skipif(not _DF.exists(), reason="datafactory checkout not present")
-pytestmark = _pytestmark
+from tests.conftest import sibling_repo
+
+_DF = sibling_repo("views-datafactory")
+pytestmark = pytest.mark.skipif(
+    _DF is None,
+    reason=(
+        "views-datafactory checkout not found — set VIEWS_DATAFACTORY=/path/to/"
+        "views-datafactory, or place it alongside this repo. Until S7 (#188) this "
+        "module hardcoded an absolute path to one developer's machine, so the only "
+        "cross-repo release gate in the repo could not run anywhere else (C-46)."
+    ),
+)
 
 
 def _git(*args: str) -> str:

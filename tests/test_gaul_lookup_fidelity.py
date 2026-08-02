@@ -33,12 +33,14 @@ Split by dependency, on purpose:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 import pyarrow.parquet as pq
 import pytest
 
+from tests.conftest import sibling_repo
 from views_postprocessing.delivery import coverage
 from views_postprocessing.contract.gaul_schema import (
     CODE_COLS,
@@ -57,13 +59,17 @@ _GROUND_TRUTH = _REPO / "tests" / "fixtures" / "priogrid_geometry" / "priogrid_c
 # The lookup is built for this region; its count is pinned in delivery/coverage.py.
 _REGION = "land_gaul"
 
-_DATAFACTORY = _REPO.parent / "views-datafactory"
-_HAS_DATAFACTORY = (_DATAFACTORY / "data" / "raw" / "gaul_admin").is_dir()
+_DATAFACTORY = sibling_repo("views-datafactory")
+_HAS_DATAFACTORY = _DATAFACTORY is not None and (
+    _DATAFACTORY / "data" / "raw" / "gaul_admin"
+).is_dir()
 _needs_datafactory = pytest.mark.skipif(
     not _HAS_DATAFACTORY,
     reason=(
-        "views-datafactory sibling checkout not present — the producer-comparison half "
-        "cannot run here. The always-on tests in this module still guard the artifact."
+        "views-datafactory checkout not found — set VIEWS_DATAFACTORY=/path/to/"
+        "views-datafactory, or place it alongside this repo. Only the "
+        "producer-comparison half is skipped; the always-on tests still guard the "
+        "committed artifact."
     ),
 )
 
@@ -471,3 +477,37 @@ def test_a_short_digest_is_refused_rather_than_truncated_silently():
 
     with pytest.raises(builder.LookupBuildError, match="at least 8 characters"):
         builder._lookup_version("land_gaul", {"land_gaul_region": {"content_digest": "abcd"}})
+
+
+def test_the_builder_and_the_tests_resolve_the_same_datafactory():
+    """The one thing worth guarding about the deliberate duplication (S7 / #188).
+
+    ``scripts/build_gaul_lookup._resolve_datafactory`` and
+    ``tests/conftest.sibling_repo`` are separate on purpose — a script must not import
+    from ``tests/``, and their contracts differ (a Path even when absent, versus None).
+    Register **C-46** was never about there being two functions; it was about one of
+    them being an absolute path to a single machine.
+
+    What must not drift is the **answer**. If the builder wrote an artifact from one
+    checkout while these tests verified it against another, the fidelity suite would be
+    comparing a lookup to a producer it was not built from — and reporting success.
+    """
+    import scripts.build_gaul_lookup as builder
+
+    # The FALLBACK is the only place they can diverge — both read $VIEWS_DATAFACTORY
+    # first — and it is exercised precisely when no checkout exists. So compare the
+    # computed paths unconditionally: gating this on a checkout being present would
+    # skip the one case the test is for, and skip it in CI, where it matters most.
+    if "VIEWS_DATAFACTORY" not in os.environ:
+        assert builder._resolve_datafactory() == _REPO.parent / "views-datafactory", (
+            "the builder's fallback and the tests' fallback resolve different "
+            "directories; with no environment override they would disagree silently"
+        )
+
+    resolved = sibling_repo("views-datafactory")
+    if resolved is None:
+        return  # nothing further to compare; the fallback agreement is asserted above
+    assert builder._resolve_datafactory().resolve() == resolved.resolve(), (
+        "the builder and the tests resolve different views-datafactory checkouts; a "
+        "rebuilt artifact would be verified against a producer it was not built from"
+    )

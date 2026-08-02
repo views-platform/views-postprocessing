@@ -52,6 +52,22 @@ def _resolve_datafactory() -> Path:
 
     Order: $VIEWS_DATAFACTORY, then the sibling repo next to this one
     (views_platform/views-datafactory). Overridable with --datafactory.
+
+    **Deliberately duplicated with** ``tests/conftest.sibling_repo`` (S7 / #188,
+    register C-46). Not an oversight and not laziness:
+
+    - a script must not import from ``tests/`` — that is the dependency direction
+      backwards, and it would make the build depend on the test tree;
+    - the contracts differ. This returns a ``Path`` **even when the checkout is
+      absent**, so ``main`` can raise its own message naming both the flag and the
+      variable. The test helper returns ``None``, because a missing sibling is a
+      normal skip, not an error.
+
+    Two copies that are understood beat one abstraction that is guessed. What is
+    guarded instead is the thing that actually matters — that they **agree** —
+    pinned by ``tests/test_gaul_lookup_fidelity.py``. If they ever resolve to
+    different checkouts, a rebuilt artifact would be verified against a producer it
+    was not built from.
     """
     env = os.environ.get("VIEWS_DATAFACTORY")
     if env:

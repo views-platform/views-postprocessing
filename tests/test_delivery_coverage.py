@@ -4,9 +4,10 @@ Pure primitives in, raise-or-pass out — no framework, no pandas.
 """
 
 import json
-from pathlib import Path
 
 import pytest
+
+from tests.conftest import sibling_repo
 
 from views_postprocessing.delivery.coverage import (
     EXPECTED_CELLS,
@@ -93,12 +94,16 @@ def test_no_excluded_cells_is_noop_when_region_unpinned():
 
 # Cross-check the frozen manifest against the live producer when its checkout is present
 # (CI has no sibling → skip). This is the drift tripwire C-30 asks for.
-_DF = Path(__file__).resolve().parents[2] / "views-datafactory" / "src" / "datafactory_query"
+_DATAFACTORY = sibling_repo("views-datafactory")
+_DF = None if _DATAFACTORY is None else _DATAFACTORY / "src" / "datafactory_query"
 
 
 @pytest.mark.skipif(
-    not (_DF / "land_pgids.json").exists(),
-    reason="views-datafactory sibling checkout not present",
+    _DF is None or not (_DF / "land_pgids.json").exists(),
+    reason=(
+        "views-datafactory checkout not found — set VIEWS_DATAFACTORY=/path/to/"
+        "views-datafactory, or place it alongside this repo"
+    ),
 )
 def test_manifest_matches_datafactory_land_minus_land_gaul():
     land = {int(x) for x in json.loads((_DF / "land_pgids.json").read_text())}
