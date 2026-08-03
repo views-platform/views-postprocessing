@@ -689,10 +689,10 @@ a "simplification."
   this contract governs the **data** crossing the Appwrite seam; the
   **identity/config** crossing the same seam (which key, which coordinates,
   sourced from where, named how) is governed by
-  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/47172af/docs/ADRs/platform/appwrite_seam_contract.md)**,
+  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/20dfd0f/docs/ADRs/platform/appwrite_seam_contract.md)**,
   homed in views-appwrite and referenced here **by pinned URL, never by copy** —
   with its coordinate registry
-  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/47172af/docs/ADRs/platform/coordinate_registry.toml), v1.3.0)
+  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/20dfd0f/docs/ADRs/platform/coordinate_registry.toml), v1.4.0)
   as the canonical source of the non-secret coordinates this repo's runtime
   resolves. This repo's declared environment (`unfao/appwrite_env.py`, fail-loud
   entry validation) follows that registry's names.
@@ -705,10 +705,21 @@ a "simplification."
   a pinned commit, which is what "referenced by URL, never by copy" was always supposed
   to mean — an unpinned `main` link drifts silently under the reader.
 
+  **Re-pinned again 2026-08-03 — the drift detector's first real firing.** The registry
+  moved to **v1.4.0** on 2026-08-02 (four CRAFD coordinates graduated from reserved to
+  real, and the CRAFD caller key was recorded as issued). `test_env_declaration.py`
+  failed on the next run, naming the version and telling the reader what to do, which is
+  what S6 (#187) built it for — its first firing was a true positive, not a false alarm.
+  Re-verified before bumping rather than after: all **13** names this repo declares are
+  present at v1.4.0 with unchanged class, and nothing was added or removed registry-wide,
+  so the registry's own claim that the bump *"imposes no new obligation on any consumer"*
+  holds here mechanically and not merely by assertion. Both links now pin `20dfd0f`.
+
   **Re-pinned same day (#196).** The first pin taken here was resolved from a local
   views-appwrite checkout's `HEAD` — which was sitting on an unmerged branch. That
   commit declared registry v1.4.0, never reached `main`, and has been withdrawn. Both
-  links now pin `47172af`, the tip of `main`, carrying the **ratified v1.3.0**. The
+  links were then pinned to `47172af`, the tip of `main` at that time, carrying the
+  ratified v1.3.0 (superseded 2026-08-03 — see the erratum above). The
   lesson is narrow and worth keeping: **resolve a cross-repo pin from the tip of the
   other repo's `main`, not from whatever its working copy has checked out.**
 
@@ -889,9 +900,10 @@ record execution progress against it.
   checkout's `HEAD` while it sat on the unmerged `feat/s1-single-writer-rule` branch. That
   commit declared registry v1.4.0 and has been **withdrawn unmerged** (views-appwrite #30,
   #27); its sha is deliberately not repeated here, so that grepping for it finds nothing.
-  Both links now pin **`47172af`** — the tip of `main`, registry **v1.3.0**, ratified at
-  þing-02. Verified before re-pinning: the withdrawn commit is reachable only from that
-  branch, `47172af` is `origin/main`, and both cited files exist at it. **Resolve a
+  Both links were then pinned to **`47172af`** — the tip of `main` at that time, registry
+  **v1.3.0**, ratified at þing-02 (superseded 2026-08-03 by v1.4.0 @ `20dfd0f`, when S6's
+  drift check fired). Verified before re-pinning: the withdrawn commit was reachable only
+  from that branch, `47172af` was `origin/main`, and both cited files existed at it. **Resolve a
   cross-repo pin from the other repo's `main`, never from its working copy's `HEAD`.**
 - **2026-07-15 — §4.1a's recorded inconsistency CONFIRMED live.** During the Hop-B
   legacy-guard work (faoapi PR #200), a read-only audit of the live `unfao_bucket`
