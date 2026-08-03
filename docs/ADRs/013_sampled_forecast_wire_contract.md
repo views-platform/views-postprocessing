@@ -718,7 +718,8 @@ a "simplification."
   **Re-pinned same day (#196).** The first pin taken here was resolved from a local
   views-appwrite checkout's `HEAD` — which was sitting on an unmerged branch. That
   commit declared registry v1.4.0, never reached `main`, and has been withdrawn. Both
-  links now pin `47172af`, the tip of `main`, carrying the **ratified v1.3.0**. The
+  links were then pinned to `47172af`, the tip of `main` at that time, carrying the
+  ratified v1.3.0 (superseded 2026-08-03 — see the erratum above). The
   lesson is narrow and worth keeping: **resolve a cross-repo pin from the tip of the
   other repo's `main`, not from whatever its working copy has checked out.**
 
@@ -899,9 +900,10 @@ record execution progress against it.
   checkout's `HEAD` while it sat on the unmerged `feat/s1-single-writer-rule` branch. That
   commit declared registry v1.4.0 and has been **withdrawn unmerged** (views-appwrite #30,
   #27); its sha is deliberately not repeated here, so that grepping for it finds nothing.
-  Both links now pin **`47172af`** — the tip of `main`, registry **v1.3.0**, ratified at
-  þing-02. Verified before re-pinning: the withdrawn commit is reachable only from that
-  branch, `47172af` is `origin/main`, and both cited files exist at it. **Resolve a
+  Both links were then pinned to **`47172af`** — the tip of `main` at that time, registry
+  **v1.3.0**, ratified at þing-02 (superseded 2026-08-03 by v1.4.0 @ `20dfd0f`, when S6's
+  drift check fired). Verified before re-pinning: the withdrawn commit was reachable only
+  from that branch, `47172af` was `origin/main`, and both cited files existed at it. **Resolve a
   cross-repo pin from the other repo's `main`, never from its working copy's `HEAD`.**
 - **2026-07-15 — §4.1a's recorded inconsistency CONFIRMED live.** During the Hop-B
   legacy-guard work (faoapi PR #200), a read-only audit of the live `unfao_bucket`
