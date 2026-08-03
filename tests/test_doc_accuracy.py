@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -117,6 +118,32 @@ def _link_checked_docs() -> list[Path]:
             out.append(d)
     return out
 
+
+
+def test_the_readme_geography_table_matches_the_declared_contract():
+    """README's 9-column table is a consumer's implementation spec — check it.
+
+    The order is normative (ADR-013 §5.1) and byte-pinned by the §10 golden fixture, so
+    a reader built from a reordered table reads the wrong column. Verified 2026-08-03
+    that the table had `admin1_gaul0_*` before `admin1_gaul1_*` and typed the four
+    `*_code` columns `int` where the wire dtype is `float64` — both wrong for months,
+    because nothing compared the prose to `gaul_schema.COLUMNS`.
+    """
+    from views_postprocessing.contract.gaul_schema import COLUMNS
+
+    rows = re.findall(r"^\|\s*`([a-z0-9_]+)`\s*\|\s*([a-z0-9]+)\s*\|",
+                      (_REPO / "README.md").read_text(), re.M)
+    documented = [(name, dtype) for name, dtype in rows
+                  if name in {c[0] for c in COLUMNS}]
+    declared = [(name, dtype) for name, _, dtype in COLUMNS]
+
+    assert documented == declared, (
+        f"README's geography table does not match contract/gaul_schema.COLUMNS.\n"
+        f"  README:   {documented}\n"
+        f"  declared: {declared}\n"
+        "The order is normative and the dtypes are the wire's. A consumer builds a "
+        "reader from this table."
+    )
 
 def test_internal_doc_links_resolve():
     dead = []
@@ -548,20 +575,36 @@ def test_the_procedure_names_who_notifies_and_still_flags_what_fao_has_not_answe
     )
 
 
-def test_the_procedure_distinguishes_intended_policy_from_what_is_implemented():
-    """The gap that would otherwise be discovered mid-incident.
+def test_the_procedure_names_the_mechanism_that_withdraws_a_bad_run():
+    """The first move in an incident must be findable in the first minute.
 
-    Withdrawal is the decision; supersession is what the wire actually does, and it is
-    in force only because nothing else exists. An operator reading this at 22:00 must
-    not believe a bad delivery becomes unretrievable when it does not.
+    **This guard used to pin the opposite claim, and pinned it faithfully.** It asserted
+    the procedure said withdrawal was unbuilt and would cost "an ADR-013 amendment" —
+    mutation-proven, green for a day, and wrong: views-faoapi had already shipped an
+    operator quarantine (`f1a59bf`, on its `main`) that drops a manifest file-id from
+    selection and atomically falls the consumer back to the previous run. The runbook
+    sent an operator to republish an entire corrected run, for hours, while the wrong
+    data stayed live.
+
+    ADR-014 §2 asks whether a guard bites. It does not ask whether the thing it bites on
+    is true — and a guard can hold a falsehood in place perfectly. What this now pins is
+    the mechanism itself, which is checkable against another repository rather than
+    against our own prose.
     """
     text = _CORRECTION.read_text()
-    assert "intended policy is WITHDRAWAL" in text.replace("**", "")
-    assert "implemented is SUPERSESSION" in text.replace("**", "")
-    assert "ADR-013 amendment" in text, (
-        "the procedure must say what withdrawal would COST — otherwise the gap reads "
-        "as an oversight rather than as unbuilt work with a known price"
+    assert "APPWRITE_UNFAO_QUARANTINED_FILE_IDS" in text, (
+        "the procedure must name the environment variable that withdraws a run. It is "
+        "the only step that stops the bleeding, and an operator cannot grep for a "
+        "mechanism the document does not name."
     )
+    assert "quarantine" in text.lower()
+    lowered = text.lower()
+    for token in ("withdrawal", "supersession"):
+        assert token in lowered, (
+            f"the procedure must still distinguish {token} from its sibling — they "
+            "compose (quarantine withdraws now, publishing supersedes durably) and an "
+            "operator who conflates them will do only half the correction"
+        )
 
 
 def test_no_partner_contact_details_are_published_in_this_repository():
@@ -573,7 +616,33 @@ def test_no_partner_contact_details_are_published_in_this_repository():
     as a side effect of documenting a runbook.
     """
     offenders = []
-    for doc in (*sorted(_REPO.rglob("*.md")), *sorted(_PKG.rglob("*.py"))):
+    # This repository's OWN tracked files. `rglob` from the repo root also walks any
+    # sibling checkout CI places inside the workspace (`_siblings/`) — proven 2026-08-03
+    # by planting an address in a checked-out views-crafdapi and watching this fail with
+    # "appear in this public repository", naming a file in a different repository. A
+    # commit in someone else's repo could turn `main` red here.
+    #
+    # The pathspec is the DIRECTORY, with the suffix filtered in Python. Not
+    # `views_postprocessing/**/*.py`: git's `**` does not match a top-level file, so that
+    # form silently skips anything added directly to `views_postprocessing/` — verified
+    # 2026-08-03 with a probe file. A security-adjacent scan on a public repository must
+    # not narrow by accident.
+    tracked = subprocess.run(
+        ["git", "-C", str(_REPO), "ls-files", "-z", "*.md", "views_postprocessing"],
+        capture_output=True, text=True, check=False, timeout=30,
+    ).stdout.split("\0")
+    scanned = [
+        _REPO / name for name in tracked
+        if name and name.endswith((".md", ".py")) and (_REPO / name).exists()
+    ]
+    assert scanned, (
+        "git ls-files returned nothing — this scan would pass over an empty set and "
+        "report success, which is register C-74's exact shape. If this repository is "
+        "not a git checkout, the guard cannot run and must say so rather than pass."
+    )
+    for doc in sorted(scanned):
+        if doc.resolve() == Path(__file__).resolve():
+            continue  # this file names the pattern in order to ban it
         if ".git" in doc.parts:
             continue
         for number, line in enumerate(doc.read_text(errors="ignore").splitlines(), 1):

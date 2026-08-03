@@ -8,11 +8,26 @@
 
 ---
 
+> **Corrected 2026-08-03 — this document named a collaborator the manager has never
+> called.** Six statements described enrichment as delegated to `GaulLookupEnricher`,
+> one naming the call `GaulLookupEnricher.enrich_dataframe_with_pg_info()`. The manager
+> contains **zero** references to it — `tests/test_gaul_lookup_access.py` actively
+> asserts its absence — and the sibling CIC has long said *"the manager does not call
+> this class."* Two contract documents asserted opposite things about the same call.
+> Geography is attached by `contract/historical.py` and `contract/wire/sidecar.py` from
+> a lookup the manager loads once per delivery. See register **C-75**.
+>
+> Five further claims in this file described deleted code and are corrected below:
+> a `dotenv` load that no longer happens, a "known gap" in env validation that
+> `assert_env_declared` closed, an upload count and file type that were wrong in three
+> ways, a selection precondition weaker than `source_selection` enforces, and two
+> "incorrect usage" examples for code paths that no longer exist.
+
 ## 1. Purpose
 
 > **What is this class for?**
 
-`UNFAOPostProcessorManager` orchestrates the end-to-end postprocessing pipeline that reads VIEWS conflict predictions, enriches them with geographic metadata via the precomputed GAUL lookup (`GaulLookupEnricher`, ADR-011), validates the output schema, and delivers the enriched data to the UN FAO via Appwrite cloud storage.
+`UNFAOPostProcessorManager` orchestrates the end-to-end postprocessing pipeline that reads VIEWS conflict predictions, enriches them with geographic metadata from the precomputed GAUL lookup (ADR-011), validates the output schema, and delivers the enriched data to the UN FAO via Appwrite cloud storage.
 
 It is the single entrypoint for producing and delivering UN FAO-formatted prediction data.
 
@@ -20,7 +35,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 
 ## 2. Non-Goals (Explicit Exclusions)
 
-- This class does **not** perform spatial mapping logic — it delegates enrichment to `GaulLookupEnricher` (a merge against the precomputed GAUL lookup)
+- This class does **not** perform spatial mapping logic — it reads the precomputed GAUL lookup (`contract/gaul_lookup.load()`) and the artifact builders attach geography from it
 - This class does **not** train, evaluate, or modify prediction models
 - This class does **not** define the spatial assignment algorithm
 - This class does **not** manage shapefile data or geographic reference assets
@@ -33,7 +48,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 - Guarantees a 4-stage pipeline: read → transform → validate → save
 - Guarantees that historical data is sourced from ViewsER via `ViewsDataLoader`
 - Guarantees that forecast data is sourced from the Appwrite production forecasts bucket
-- Guarantees that geographic metadata is added via `GaulLookupEnricher.enrich_dataframe_with_pg_info()` (a cell-id merge against the precomputed lookup)
+- Guarantees that geographic metadata is attached from the precomputed lookup — by `contract/historical.py` for the historical artifact and `contract/wire/sidecar.py` for the §5 GAUL sidecar, each a keyed gather on cell id
 - Guarantees that required metadata columns are validated before upload
 - Guarantees that both historical and forecast datasets are uploaded to the UN FAO Appwrite bucket with correct metadata (name, loa, type, category)
 - Logs structural failures before raising them (ADR-008): the config/`loa` guards, the `_validate` gates, and the dataset/`_save` guard all `logger.error`-then-raise (#13 / C-19 resolved); the `delivery/` invariants raise representation-free, with the manager logging context at each call site
@@ -45,11 +60,10 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 - Requires a `PostprocessorPathManager` at initialization pointing to valid model paths
 - Requires `configs` dict to contain an `ensemble` key naming the source ensemble
 - Requires environment variables for Appwrite connectivity (endpoint, project ID, API key, bucket/collection IDs)
-- Requires the ensemble's `.env` file to be loadable via `dotenv`
-- Requires the Appwrite production forecasts bucket to contain at least one file with `category="forecast"`
-- Requires the precomputed GAUL lookup parquet to be present so `GaulLookupEnricher` can load it at construction
+- Requires the Appwrite production forecasts bucket to contain a **complete run**: a manifest matching `{category: "forecast", type: "sampled_forecast_manifest"}`, a manifest per declared target, and every shard those manifests name. A bucket holding merely *some* `category="forecast"` file raises `SourceSelectionError` (`contract/wire/source_selection.py`)
+- Requires the precomputed GAUL lookup parquet to be present; it is read once per delivery via `contract/gaul_lookup.load()`
 
-Assumptions that are not met **must cause failure**, not fallback behavior. **Known gap:** the Appwrite env vars are read via `os.getenv()` without a startup validation — a missing var yields `None`, which is passed to `AppwriteConfig` unchecked rather than failing loud at the boundary (tracked by **C-19-adjacent / #11**; a fail-loud env check is the cheap fix).
+Assumptions that are not met **must cause failure**, not fallback behavior. The environment is validated fail-loud: `appwrite_env.assert_env_declared` runs before **both** `AppwriteConfig` constructions and names every missing variable, and an empty string counts as missing. *(This paragraph previously described that as a "known gap" with `os.getenv()` passing `None` through unchecked; C-19 closed it, and `tests/test_env_declaration.py` pins it.)*
 
 ---
 
@@ -63,8 +77,7 @@ Assumptions that are not met **must cause failure**, not fallback behavior. **Kn
 - Downloads data from ViewsER (network I/O)
 - Downloads forecast data from Appwrite (network I/O)
 - Writes timestamped parquet files to `data_generated/` directory
-- Uploads two parquet files to the UN FAO Appwrite bucket (network I/O)
-- Loads `.env` from ensemble path (modifies process environment)
+- Uploads to the UN FAO Appwrite bucket (network I/O) — **only when the §11.4 interlock is open**. `product.UPLOAD_ENABLED` is `False` by default, and the sink then makes **zero** store calls. Enabled, a run uploads one parquet per (target, month) — 108 at run-0 — plus the GAUL sidecar parquet, the historical parquet, and a **JSON** run manifest, committed last. Forecast-leg documents carry `{name, category, loa, filename, doc_type, targets}` and no `description`; only the historical artifact carries structured provenance
 - Logs pipeline progress at INFO/ERROR levels
 
 ---
@@ -95,7 +108,7 @@ The following **must never** fail silently:
 ## 7. Boundaries and Interactions
 
 **Allowed interactions:**
-- Delegates geographic enrichment to `GaulLookupEnricher` (a merge against the precomputed GAUL lookup)
+- Reads the precomputed GAUL lookup once and passes it to the artifact builders, which attach geography
 - Uses `views-pipeline-core` managers for path resolution, data loading, and Appwrite integration
 - Reads environment variables for external service configuration
 - Writes to local filesystem and Appwrite cloud storage
@@ -132,10 +145,16 @@ manager._save()
 
 ## 9. Examples of Incorrect Usage
 
-- **Calling `_transform()` before `_read()`** — datasets will be None, causing AttributeError
 - **Calling `_save()` without `_validate()`** — may upload incomplete data to partners
-- **Accessing `_enricher` directly to bypass the enrichment pipeline** — violates the orchestration boundary
 - **Hardcoding Appwrite configuration instead of reading from environment** — violates ADR-009
+- **Reaching past the manager into `contract/` to publish** — the sink is driven through
+  `_ContractStorePort` so the store is one seam; bypassing it also bypasses the
+  `result.success` check that turns a partial upload into a refusal
+
+*(Two entries were removed here on 2026-08-03 because they described code that no longer
+exists: "calling `_transform()` before `_read()`" — `_transform` is a documented no-op
+that cannot raise — and "accessing `_enricher` directly", an attribute removed in #152
+/ C-66.)*
 
 ---
 
@@ -157,7 +176,7 @@ The input-integrity guards (S0–S6, epic #51) are representation-free invariant
 - Partner-specific output formats are **evolving** — the UN FAO schema may change (see C-24, D-06 for schema divergence investigation)
 - The source of forecast data (Appwrite bucket/collection) is **evolving** — operational configuration
 - Null validation is **active** (C-01 resolved 2026-06-02)
-- The enrichment source is the **precomputed GAUL lookup table** (`GaulLookupEnricher`, ADR-011), as of the Stage 3 swap; the old runtime mapper was **removed** (C-39 / PR #42) — it no longer exists in the repo
+- The enrichment source is the **precomputed GAUL lookup table** (`views_postprocessing/data/gaul_lookup.parquet`, ADR-011), as of the Stage 3 swap; the old runtime mapper was **removed** (C-39 / PR #42) — it no longer exists in the repo
 
 ---
 
