@@ -689,10 +689,10 @@ a "simplification."
   this contract governs the **data** crossing the Appwrite seam; the
   **identity/config** crossing the same seam (which key, which coordinates,
   sourced from where, named how) is governed by
-  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/47172af/docs/ADRs/platform/appwrite_seam_contract.md)**,
+  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/20dfd0f/docs/ADRs/platform/appwrite_seam_contract.md)**,
   homed in views-appwrite and referenced here **by pinned URL, never by copy** —
   with its coordinate registry
-  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/47172af/docs/ADRs/platform/coordinate_registry.toml), v1.3.0)
+  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/20dfd0f/docs/ADRs/platform/coordinate_registry.toml), v1.4.0)
   as the canonical source of the non-secret coordinates this repo's runtime
   resolves. This repo's declared environment (`unfao/appwrite_env.py`, fail-loud
   entry validation) follows that registry's names.
@@ -704,6 +704,16 @@ a "simplification."
   has since been renamed to `appwrite_seam_contract.md` independently. Both now point at
   a pinned commit, which is what "referenced by URL, never by copy" was always supposed
   to mean — an unpinned `main` link drifts silently under the reader.
+
+  **Re-pinned again 2026-08-03 — the drift detector's first real firing.** The registry
+  moved to **v1.4.0** on 2026-08-02 (four CRAFD coordinates graduated from reserved to
+  real, and the CRAFD caller key was recorded as issued). `test_env_declaration.py`
+  failed on the next run, naming the version and telling the reader what to do, which is
+  what S6 (#187) built it for — its first firing was a true positive, not a false alarm.
+  Re-verified before bumping rather than after: all **13** names this repo declares are
+  present at v1.4.0 with unchanged class, and nothing was added or removed registry-wide,
+  so the registry's own claim that the bump *"imposes no new obligation on any consumer"*
+  holds here mechanically and not merely by assertion. Both links now pin `20dfd0f`.
 
   **Re-pinned same day (#196).** The first pin taken here was resolved from a local
   views-appwrite checkout's `HEAD` — which was sitting on an unmerged branch. That
