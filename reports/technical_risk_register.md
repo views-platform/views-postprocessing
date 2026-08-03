@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-03                           |
-| Total Concerns    | 82                                   |
-| Open Concerns     | 22                                   |
-| Resolved Concerns | 60                                   |
+| Total Concerns    | 83                                   |
+| Open Concerns     | 17                                   |
+| Resolved Concerns | 66                                   |
 
 ---
 
@@ -31,7 +31,8 @@ covered a single open entry (see Historical clusters below).
 
 ### Cluster G: Inherited pipeline-core surface
 **Root cause:** this repo *is-a* pipeline-core postprocessor by double inheritance, so it inherits that project's data loader, container, store I/O, and dependency tree — defects in that surface land in FAO delivery without this repo owning the fix.
-**Entries:** C-40 (root), C-07, C-13, C-26, C-27, C-28, C-29, C-44, C-58, C-62
+**Entries:** C-40 (root), C-26, C-27, C-28 — plus **C-07, C-13, C-29, C-44, C-58, C-62, all RESOLVED**
+**Update 2026-08-03 — the cluster halved at the 3.0.0 bump.** Six of its ten entries closed with the pin: the inherited surface stopped being a liability for timeouts (C-13), silent provisioning (C-58), the transitive drag (C-62) and the undeclared SDK (C-07). What remains is the root — the double inheritance itself — and the three genuinely upstream-owned data concerns (C-26, C-27, C-28). The cluster's thesis held: fixing the surface upstream fixed them here with a pin and no code.
 **Amended 2026-08-03:** the root's defining measurement — pipeline-core imported by exactly one module — became **two** when `crafd/managers/crafd.py` landed (PR #211). The count is still pinned by an explicit allowlist, so the cluster's boundary holds; what changed is that every fix in it now has two landing sites. See C-33 for why the second copy is deliberate and what triggers its removal.
 **Highest tier:** 1 (C-26)
 **Fix strategy:** the thin-shell de-inheritance C-40 prescribes — and which is **half-built**: the sink side landed (`_ContractStorePort`, `unfao.py:37-78`) and the invariants are already pipeline-core-free modules the manager calls (`delivery/*`, `unfao/historical.py`, `unfao/wire/`). The remaining half is the **input** side (loader + `PGMDataset`), gated on pipeline-core Epic #186/#207.
@@ -108,7 +109,7 @@ covered a single open entry (see Historical clusters below).
 
 Plus, outside the register: #158's rename finished and the **broken URL it created** in ADR-013 §7d repaired (Erratum E2); #154's undone half completed across four living documents; #15 superseded; a cross-repo pin re-taken after #196 showed it sat on an unmerged branch.
 
-**Open count 24 → 15.** Every remaining entry is classified: **six** blocked on the views-pipeline-core 3.0.0 publish (Cluster M), **five** owned by another repo (C-13, C-24, C-26, C-27, C-28), **four** deliberately deferred (C-15, C-30, C-33, C-40). None is unexamined.
+**Open count 24 → 15 (review-rr, 2026-07-31) → 16 at the #211 closeout → 16 after the 3.0.0 bump**, the bump having closed six while three governance entries were opened. Every remaining entry is classified: **one** still blocked upstream (C-72 — the pyarrow CVE whose fix changes wire bytes), **four** owned by another repo (C-24, C-26, C-27, C-28), **four** deliberately deferred (C-15, C-30, C-33, C-40), and the rest verification and governance debt (C-75 through C-82). None is unexamined.
 
 **What the epic did NOT do, stated because a closeout that reports only successes is the defect this epic exists to fix:**
 
@@ -127,10 +128,18 @@ Plus, outside the register: #158's rename finished and the **broken URL it creat
 
 ### Cluster M: Six open concerns, one upstream publish
 **Root cause:** this repo pins `views-pipeline-core >=2.1.3,<3.0.0`, which resolves 2.3.0 from PyPI. Every fix and every removal below exists **only** on pipeline-core's unreleased 3.0.0. None is engineering work here; all five arrive together with one pin bump, and none can be taken before that bump.
-**Entries:** **C-44** (the bump itself, deliberately held), **C-62** (the transitive drag — 3.4 GB venv, 31 of 32 Dependabot alerts), **C-72** (the pyarrow CVE whose fix our ceiling excludes), **C-73** (the Tier-2 stale-run selection defect, fixed upstream in their #341), **C-58** (the Tier-2 auto-provision-instead-of-raise, fixed upstream in their #322/#331/#332), **C-07** (the undeclared `appwrite` dependency, whose transitive path their #345 withdraws).
+**Entries:** **C-72** — and nothing else. **DISCHARGED 2026-08-03 apart from that one.**
+
+The cluster held six entries waiting on a single upstream publish. views-pipeline-core 3.0.0 reached PyPI on 2026-08-03 and the operator took the bump: **C-44** (the bump itself), **C-62** (the transitive drag — geopandas and torch out, 155 → 118 packages), **C-73** (the Tier-2 stale-run defect), **C-58** (the Tier-2 auto-provision), and **C-07** (the undeclared `appwrite` dependency) all closed together, each verified in the installed wheel rather than from the changelog.
+
+**C-72 does not close with them, and the difference is instructive.** The other five were fixed *upstream* and arrived with a version number. C-72's fix — a pyarrow release past the CVE — **changes delivered wire bytes**, so it needs a coordinated three-repo re-vendor of the ADR-013 §10 golden fixture. A pin bump cannot carry it. The pyarrow ceiling is deliberately unchanged at `>=16.1.0,<17.0.0`.
+
+*(An earlier version of this cluster claimed "Full" resolution for C-72 at the 3.0.0 bump — the error C-82 was registered for, corrected here.)*
 **Highest tier:** 2 (C-73)
 **Fix strategy:** none here. The chain is **views-evaluation 0.5.0 → views-pipeline-core 3.0.0 → this repo's pin bump**, and it moves on the maintainer's platform-wide release signal, not on engineering. What this repo owes at the bump is one verification, recorded in C-73's trigger: **confirm the delivery selects the run it expects**, comparing the resolved `run_id` against the producer's newest published run.
-**Resolution scope:** Full for C-62, C-72, C-73, C-58, C-07; C-44 closes as the act itself. **Six entries, two of them Tier 2, on one publish.**
+**Resolution scope:** Full for C-62, C-73, C-58, C-07; C-44 closes as the act itself. **C-72 does NOT close** — see above. Five entries, two of them Tier 2, on one publish.
+
+*(This line said "Full for C-62, **C-72**, C-73…" until 2026-08-03 — three lines below the paragraph correcting exactly that claim. I fixed the prose and left the scope line, which is the same defect one sentence apart. `test_register_integrity.py` has ten checks and none compares a cluster's scope line against its entries' actual status; that is why it passed. Recorded rather than quietly fixed, because it is C-82's subject occurring inside C-82's own correction.)*
 **Why this cluster is worth having:** it stops five entries reading as five backlog items. They are one blocked action, and the register should say so rather than let a reader triage them separately five times.
 
 ### Historical clusters (mapper era — all resolved or moot)
@@ -151,54 +160,6 @@ that indexes only deleted code is noise.
 ---
 
 ## Open Concerns
-
-### C-07: Undeclared direct runtime dependencies in pyproject.toml
-
-| Field | Value |
-|-------|-------|
-| ID | C-07 |
-| Tier | 3 |
-| Source | `repo-assimilation` (2026-06-02) |
-| Trigger | When `views-pipeline-core` updates its dependency tree (e.g., drops `geopandas` or `joblib`), verify that this package's imports still resolve |
-| Location | `pyproject.toml` (the dependency block); the partner managers, which are the only modules importing `views_pipeline_core`. *(This row previously cited `unfao/enrichment.py` and `unfao/extraction.py` — both moved or deleted by #151/#153.)* |
-
-`mapping.py` directly imports `geopandas`, `shapely`, `numpy`, `pandas`, `joblib`, and `multiprocessing`. `unfao.py` directly imports `pandas`, `polars`, and `python-dotenv`. Only `views-pipeline-core` and `cachetools` are declared in `pyproject.toml`. The undeclared dependencies presumably arrive transitively via `views-pipeline-core`, but this coupling is implicit and fragile. If the upstream package refactors its dependency tree, this package will break with `ImportError` at install time.
-
-**Update 2026-06-24 (narrowed):** the `mapping.py` dimension is gone (C-39 — the `geopandas`/`shapely`/`joblib`/`multiprocessing` imports were deleted; `cachetools` dropped from `pyproject.toml`). Residual: `unfao.py` imports `pandas`/`polars`/`python-dotenv` undeclared, arriving transitively via `views-pipeline-core` (which *is* declared). Much smaller surface (Tier 4-ish); consider resolving outright if the transitive-via-pipeline-core guarantee is deemed sufficient.
-
-**Update 2026-08-01 (`falsify`) — a SECOND undeclared dependency, and this one's transitive path is about to disappear.** `appwrite` is used in this repo (`contract/launch_config.py`, `unfao/managers/unfao.py`) and declared in **no** manifest — it arrives transitively via `views-pipeline-core`, exactly as `pandas` does. What makes it different from the pandas residual: **views-pipeline-core is making `appwrite` an optional extra** (their **#345**, on CRP grounds — three repos that never mention Appwrite currently install its SDK). **When that lands, the transitive path disappears.**
-
-**⚠ Corrected 2026-08-03 — the trigger has FIRED and the stated failure mode was wrong.**
-pipeline-core **#345 is CLOSED**, and 3.0.0 does make `appwrite` an optional extra. But
-this repository contains **zero** direct Appwrite SDK imports (`grep -rn '^\s*\(from\|import\) appwrite' views_postprocessing/` → 0);
-`contract/launch_config.py` mentions the word once, in a docstring naming its sibling
-`appwrite_env`. So "this repo breaks at import" was never true of *our* imports.
-
-The real and still-live risk is one level out: **pipeline-core's own `DatastoreModule`
-imports the SDK unguarded**, so bumping to 3.0.0 without declaring the `appwrite` extra
-breaks the delivery at import — inside a dependency, which is harder to diagnose than a
-break in our own code. That is a precondition on the C-44 bump, and it belongs there as
-much as here.
-
-So this entry is no longer "Tier 4-ish, resolve if the transitive guarantee is deemed sufficient" — the guarantee is being **withdrawn upstream, deliberately**. Fix is one line: declare `appwrite` in `pyproject.toml`, or depend on `views-pipeline-core[appwrite]`. Relayed in **#172**; registered here rather than as a new entry because it is the same problem type at a new location. **New trigger: before views-pipeline-core#345 lands.**
-
-**Update 2026-07-31 (review-rr — narrative corrected against the tree):** the 2026-06-24 residual is now overstated. Verified: **`polars` has zero references repo-wide**; **`python-dotenv` is dead** (þing-01 #134 killed the implicit ensemble-dotenv borrow — see `unfao/appwrite_env.py`); `cachetools` is gone. Meanwhile `views-frames` and `pyarrow` became **declared** direct dependencies. **The residual is `pandas` alone**, imported directly at the three locations above and arriving transitively via `views-pipeline-core`. One undeclared package on a path that is itself being retired (epic #85) — genuinely Tier 4-ish now; resolve outright if the transitive guarantee is deemed sufficient, or declare `pandas` explicitly in the same PR that closes #89.
-
----
-
-### C-13: No timeout on Appwrite operations — pipeline can hang indefinitely
-
-| Field | Value |
-|-------|-------|
-| ID | C-13 |
-| Tier | 2 |
-| Source | `expert-review` (2026-06-02) |
-| Trigger | When configuring Appwrite connection parameters — in `_ContractStorePort` (contract path) or `_save`/`_read_forecast_data` (legacy path) — verify that timeout parameters are set on the underlying HTTP client; currently no timeout exists and a hung endpoint blocks the pipeline indefinitely |
-| Location | `views_postprocessing/unfao/managers/unfao.py:37-64` (`_ContractStorePort` — all four contract-path store calls), `:247` (legacy selection), `:560`, `:571` (legacy uploads) |
-
-`prediction_store_manager.download_latest_file()` (line 131) and `dsm.upload_data()` (lines 262, 272) make network calls to Appwrite with no configured timeout. If the endpoint hangs (DNS resolution stalls, connection accepted but response never arrives, TLS handshake blocks), the pipeline blocks indefinitely. There is no watchdog timer, no circuit breaker, and no automated alert for a run that never completes. The only detection is manual observation that a scheduled run didn't finish.
-
----
 
 ### C-15: Upload metadata lacks enrichment provenance and carries test description
 
@@ -428,111 +389,6 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 
 ---
 
-### C-44: views-pipeline-core 3.0.0 dependency bump is pending and must not land until the platform runs on development across all repos
-
-| Field | Value |
-|-------|-------|
-| ID | C-44 |
-| Tier | 3 |
-| Source | `manual` (2026-06-26) — surfaced while consolidating a stranded local commit after the input-integrity sprint merge |
-| Trigger | When views-pipeline-core 3.0.0 is published to PyPI **and** the platform is confirmed running smoothly on `development` across all consumer repos — then bump `pyproject.toml` to a reproducible version pin (`views-pipeline-core = ">=3.0.0,<4.0.0"`), re-lock, and PR. Do **not** land the bump before both conditions hold, and do **not** source it from a moving git branch. |
-| Location | `pyproject.toml:13` (currently `views-pipeline-core = ">=2.1.3,<3.0.0"`); `poetry.lock` (pins `views-pipeline-core 2.3.0`, a reproducible PyPI wheel); the deferred change preserved on local branch `backup/pipeline-core-3.0.0-git-source` (commit `78d238e`) |
-
-`development` currently pins `views-pipeline-core = ">=2.1.3,<3.0.0"` and the committed `poetry.lock` resolves it to **2.3.0** from PyPI — reproducible, and the merged input-integrity sprint (#64) was CI-proven green against it. **3.0.0 is not yet on PyPI (political hold).** A local-only commit (`78d238e`, authored 2026-06-25 in a separate session, never pushed) repoints the dependency to pipeline-core's **git `development` branch** to track the unreleased 3.x "in tandem with other consumers."
-
-That change was deliberately **not** landed on `development` (2026-06-26), for three reasons: (a) sourcing from a **moving git branch** makes builds **non-reproducible** (the branch advances under us); (b) it is a **major-version switch** (2.x→3.x) whose breaking changes were never exercised against the just-merged sprint code; (c) it would require a **full re-lock** resolving 3.x + its transitive tree, rippling through `poetry.lock`. The maintainer's standing constraint: **the platform must run smoothly on `development` across all repos before taking the major dependency bump.** Until then the bump is premature.
-
-No silent corruption and no current breakage (development is green on 2.3.0) → **Tier 3** (coordination / release-sequencing / reproducibility).
-
-**GATE RE-ASSESSED 2026-07-31 — the second condition now has substantial evidence behind it; the first does not, and the difference matters.**
-
-This entry's trigger holds the bump on **two** conditions. Their status has diverged:
-
-**Condition 2 — "the platform is confirmed running smoothly on `development` across all consumer repos."** The strongest available evidence arrived on **2026-07-27**: run-0 delivered the first FAO global-land forecast end to end, every hop on `development` — views-models config (`region: land_gaul`, `data_format: feature_frame`) → pipeline-core's frame-native fetch and Track A publish → this repo's contract delivery (108 shards + sidecar + manifest, 64,742 cells, 28,356,996 rows, 5.6 GB peak, no OOM) → views-faoapi ingest. Confirmed serving live on **2026-07-31** (`scripts/smoke.py`, ALL PASS at v1.3.11; `IDN` present on both surfaces, a cell outside the old Africa-only region, so global serving is proven).
-
-**Scoped honestly:** that exercises the **FAO delivery chain** across five repos on `development`. It is *not* evidence about consumers outside that chain (views-reporting's report path, views-baseline, other model families). Whether "across all consumer repos" means the delivery chain or literally every consumer is a maintainer judgement this entry cannot make. What has changed is that the condition moved from *unevidenced* to *substantially evidenced for the path that matters most*.
-
-**Condition 1 — "views-pipeline-core 3.0.0 is published to PyPI."** Still **unmet**, and it is not blocked on engineering. Verified 2026-07-31: pipeline-core's `development` already carries `version = "3.0.0"` with the heavy dependency set removed; views-evaluation's `to_metric_frame` (the one real release-train edge in their runbook #313) **exists in code**, 8 commits past its `v0.4.0` tag, needing only a version bump and a publish. The chain their runbook fixes is: views-frames ✅ → **views-evaluation 0.5.0** → **views-pipeline-core 3.0.0** → views-reporting 0.3.0 → models/postprocessing envs — and it states plainly that it *"executes only on Simon's platform-wide signal."*
-
-**Net:** this entry is no longer waiting on two open questions. It is waiting on **one release signal**, with all the underlying code already written. That does **not** authorise the bump — the signal is the maintainer's alone, and the scoping caveat above is a real reason it might still be withheld. It is recorded so the next reader sees a gate that has *moved*, rather than assuming both conditions are still closed. **C-62 records what continuing to wait costs** (3.4 GB of unused dependencies, 2.7 GB of it CUDA libraries for an absent package).
- The deferred work is preserved (backup branch) and becomes a trivial, reproducible one-line pin once 3.0.0 ships and the cross-repo gate clears. Cross-refs C-40 (the underlying pipeline-core inheritance coupling that makes major bumps high-blast-radius), C-07 (the transitive-via-pipeline-core dependency surface), C-09 (publish-workflow version handling).
-
----
-
-### C-58: A wrong Appwrite coordinate auto-provisions a new empty target instead of raising — both client lineages, on every write
-
-| Field | Value |
-|-------|-------|
-| ID | C-58 |
-| Tier | 2 — a single wrong or drifted coordinate value silently redirects a delivery into a freshly created empty bucket/collection/database; the run reports success, FAO receives nothing, and no error is raised at the time of the mistake |
-| Source | `manual` (2026-07-31) — review-rr blind-spot analysis; the underlying code finding was verified from this seat during þing-01 (recorded in `orð_09.md`, and it revised the assembly's own sáttmál S8 and D8 trigger wording) |
-| Trigger | When any `APPWRITE_*_BUCKET_ID` / `_COLLECTION_ID` / `_DATABASE_ID` value changes — a registry amendment (C-57), a launcher reconfiguration, a second-store rollout (#97), or a typo — verify the delivery landed in the **intended** target rather than a newly created one: check the run's uploaded object count against the store's expected bucket, not just that the run exited 0 |
-| Location | views-pipeline-core `modules/datastore/datastore.py:350-370` (`upload_data` creates a missing bucket and retries; their ADR-046 §5); `modules/appwrite/file.py:2205/2351/2395` → `create_metadata_collection_if_not_exists` (`:1184`) → `create_database_if_not_exists` (`:905`) → `create_collection` (`:1250`) → `_create_dynamic_attributes` (`:1027`, failures logged only). Consumed at `views_postprocessing/unfao/managers/unfao.py:56` (`_ContractStorePort.upload`), `:560`, `:571` (legacy `_save`) |
-
-þing-01's **D5** ruled that a wrong coordinate **must RAISE**, that auto-provisioning must be **opt-in and default off**, and that a half-succeeded write must raise. The platform does not currently behave that way on the write path, and the assembly's own working document had this wrong until it was corrected from this seat: sáttmál S8 asserted "pipeline-core raises," which is true for reads and **false for writes**. Verified: **both** client lineages auto-provision. `DatastoreModule.upload_data` catches a missing bucket, creates it, and retries. `upload_file_with_metadata` traverses create-if-not-exists for the metadata collection, the database (the EXISTS short-circuit still exercises `databases.list`), the collection, and the dynamic attributes — on **every** metadata upload, with attribute-creation failures logged rather than raised. That correction is why the verdict's D8 trigger was widened to fire on a defect *common to* the client copies, not only on divergence between them.
-
-The practical exposure here is bounded but real. Coordinates are validated for **presence** (`appwrite_env.assert_env_declared`, D6) — never for **correctness**, which is unobservable from this seat by design: this repo has no console access and no introspection, and none should be added, because scopes and coordinates are *declared, not discovered*. Run-0 delivered to the correct bucket, which proves the currently-configured coordinates are right; it does **not** prove the guard exists, because a correct coordinate never exercises the auto-create branch. The nearest thing to a detector today is the `_ContractStorePort.upload` orphan check (`unfao.py:56-64`) and the manifest-last commit marker, neither of which catches "wrote successfully to the wrong place."
-
-Tier 2 rather than 1: no *value* is corrupted — the payload is exactly right, it lands in the wrong container — and the consequence is visible downstream (FAO serves nothing) rather than being wrong-but-plausible data. The precedent is already on record: six stranded `orange_ensemble` forecast documents sat invisible in `unfao_bucket` for months (ADR-013 Post-adoption, 2026-07-15) because a *name* filter mismatched — the same class of silent mis-addressing, discovered only by a deliberate read-only audit.
-
-**Update 2026-08-01 — the upstream fix has LANDED, and this entry now rides the 3.0.0 bump (Cluster M).** views-pipeline-core **#322** (*"[þing-01] ADR-046 §5 + write-path raise-by-default"*) is **CLOSED**, as are **#331** (relocate the four `create_*` sites into a dedicated provisioning module) and **#332** (assert the delivery path does not import provisioning). That is D5's ruling implemented: provisioning moved out of the ordinary write path, and the write path raises by default.
-
-**We do not have it yet.** All three landed on their `development` (3.0.0); our pin resolves 2.3.0 from PyPI, which still auto-creates. So this entry is **fixed upstream and live here** until the bump — the same shape as C-73. Added to **Cluster M**; verify at the bump that a wrong coordinate now raises rather than creating an empty target.
-
-**Not this repo's code to fix.** The fix belongs in views-pipeline-core (make provisioning an explicit opt-in parameter defaulting to off, per D5), and D5's drill ordering is fixed verbatim by the verdict: amend → ship raise → drill the raise path → stand up a test project → drill provisioning. This repo's available mitigations are a post-upload target assertion in `_ContractStorePort`, or a read-back count check after the manifest commits.
-
-Cross-refs: C-57 (registry drift — the most likely way a coordinate goes wrong), C-25 (the sibling wrong-*source* selection risk, mitigated by identity assertion), C-13 (the same store calls, timeout dimension), C-40 (the inherited pipeline-core surface this arrives through — **Cluster G**), C-22 (no recall procedure if a mis-delivery is discovered late).
-
----
-
-### C-62: The pinned pipeline-core release still installs geopandas and torch into a repo that architecturally excised them
-
-| Field | Value |
-|-------|-------|
-| ID | C-62 |
-| Tier | 3 — no correctness or reliability impact: the packages are installed but never imported. The cost is **measured at 3.4 GB of virtualenv** for a repo that writes parquet files, plus an architectural excision that is **real in the source but incomplete in the environment**, landing on the first-ever release. |
-| Source | `manual` (2026-07-31) — maintainer challenge during the development→main sweep ("Is geopandas back? Is it still here?"), verified against `poetry.lock` and the sibling checkouts |
-| Trigger | **The first half FIRED on 2026-08-01** — `1.0.0` was tagged and this drag shipped with it. Remaining trigger: when taking the views-pipeline-core 3.0.0 bump (**C-44**), verify `geopandas` and `torch` have left the resolved dependency tree. Also re-check before any *PyPI* publish, which is the point at which the footprint reaches someone other than this team. |
-| Location | `poetry.lock` (`geopandas 1.0.1`, `optional = false`); `pyproject.toml:13` (`views-pipeline-core = ">=2.1.3,<3.0.0"`, which resolves to 2.3.0) |
-
-This repo declares exactly three dependencies — `views-pipeline-core`, `views-frames`, `pyarrow` — and imports **zero** geospatial libraries. Verified 2026-07-31: the only three mentions of `geopandas`/`shapely` in `.py`/`.toml` are assertions of its *absence* (`enrichment.py:9`, `build_gaul_lookup.py:11`) and a doc-accuracy test that **bans the word** (`tests/test_doc_accuracy.py:29`). C-39's deletion held completely at the source level.
-
-**The lockfile tells a different story, and the installed venv confirms it.** `poetry.lock` resolves `geopandas 1.0.1` with `optional = false`. The carrier is the pinned release: **views-pipeline-core 2.3.0** (PyPI) declares `geopandas >=1.0.1,<2.0.0`, `torch >=2.6.0,<3.0.0`, plus `scipy`, `seaborn`, `plotly` and `plotly-express`.
-
-**Measured in the live project virtualenv** (`views-postprocessing-8UwQDgw_-py3.13` — the only poetry venv on the machine; views-pipeline-core has none of its own, it is a *package inside this one*). **Corrected figures, 2026-07-31**: the first measurement was taken mid-install and understated it.
-
-| Installed, never imported | Size |
-|---|---|
-| `nvidia/` — CUDA runtime (`cu13`, `cudnn`, `cusparselt`, `nccl`, `nvshmem`) | **2.7 GB** |
-| `plotly` | 42 MB |
-| `matplotlib` | 25 MB |
-| `geopandas` | 1.6 MB |
-| **venv total** | **3.4 GB** |
-
-**And `torch` itself is not installed at all** — no `torch/` directory, no dist-info, with no install running. Only its five `nvidia-*` dependencies landed (they are marked `platform_system == "Linux"`, i.e. this machine). The repo is therefore carrying **2.7 GB of GPU support libraries for a package that is absent**. Cause unknown — a failed wheel, an interrupted install, or a marker torch carries that its dependencies do not; recorded as unexplained rather than guessed at.
-
-**⚠ Framing correction, recorded because it inverts the intuition that opened this investigation.** The audit began as "is geopandas back?" — and geopandas is the *architectural* violation (this repo spent PR #42 removing it). But it is **1.6 MB**. The *material* cost is **torch's NVIDIA CUDA stack at 2.5 GB — 89% of the entire virtualenv — in a delivery repo with no GPU code, no model training, and no tensor operations of any kind.** Optimising for the offensive dependency rather than the expensive one would have missed almost the whole bill.
-
-**Update 2026-08-01 — the drag now has a measured security surface.** GitHub raised **32 Dependabot alerts** when `main` was brought current. **31 of them are `poetry.lock` resolution, not declared dependencies** — and the shape matches this entry exactly: **Pillow ×13** and **GitPython ×9** (via `plotly`/`seaborn`/`wandb`), plus `geopandas`, `torch`, `pytest`, `paramiko`, `pywin32`, `diskcache`, `setuptools`, `python-dotenv` — one each. Every one of those roots is declared by **views-pipeline-core 2.3.0**, none by this repo, and none is imported by this repo's code.
-
-This does not make the entry more urgent; it makes it **measurable**. The 3.0.0 bump this entry is held on removes the roots, and with them most of this alert surface. Until then the alerts are real but unreachable, and closing them individually would be treating symptoms of a dependency this repo does not choose. The 32nd alert is `pyarrow`, which **is** declared here and is registered separately as **C-72**.
-
-**Dependency chain, traced 2026-07-31.** `views-pipeline-core` is the **sole** requirer: `torch = ">=2.6.0,<3.0.0"` in the 2.3.0 metadata; torch 2.12.1 then pulls the five `nvidia-*` wheels on Linux. Nothing else in the tree asks for torch, and this repo imports it zero times.
-
-**Removal path — there is no correct fix inside this repo.** views-pipeline-core `development` (already versioned **3.0.0**) declares **no torch, no geopandas, no scipy, no seaborn, no plotly**, and imports torch nowhere; their own test asserts the absence of `import torch`. The fix is complete upstream and purely a publishing gate. Their release runbook (#313) pins the order: **views-frames (done) → views-evaluation 0.5.0 → views-pipeline-core 3.0.0 → views-reporting 0.3.0 → models/postprocessing envs**, executing on the maintainer's platform-wide signal. So this entry closes when C-44's bump becomes takeable — not before, and not by local action.
-
-*A local workaround exists and is deliberately NOT recommended: declaring `torch` here against the PyTorch CPU wheel index would shed the `nvidia-*` tree immediately, but it makes this repo declare a dependency it never imports, and the whole change would be reverted at the 3.0.0 bump. Churn for a footprint that is already scheduled to vanish. Recorded so the option is not rediscovered and mistaken for free.*
-
-**This is not a live fight — it is a released-version lag.** views-pipeline-core's `development` branch already declares no geopandas and imports none, and its own falsification tests name the problem explicitly (*"geopandas, seaborn, plotly, matplotlib — ~2.5 GB) for 298 LOC of optional…"*, their `tests/test_falsification_extraction_docs_packaging.py:59`). The fix exists upstream and is gated purely on **publishing 3.0.0** (their #319 / #313).
-
-**Why it matters here specifically.** PR #42 deleted a 3,171-line geopandas mapper and a 774 MB shapefile bundle to get geopandas out of this repo (ADR-011 / C-39). That excision is currently source-only. And it lands on this repo's **first-ever release** (#125, no tags exist): publishing a delivery package that resolves 2.5 GB of CUDA libraries is a materially different artifact from one that does not — and the first release is where that expectation gets set.
-
-**⚠ This entry pulls in the OPPOSITE direction to C-44 — deliberately, and the tension should stay visible.** C-44 says *do not take the 3.0.0 bump* until the platform runs smoothly on `development` across all repos (a standing maintainer constraint, and the right call). C-62 records what *waiting* costs: every day on the 2.3.0 pin is a day this repo ships an environment contradicting its own architecture. Neither entry overrides the other; together they say "the bump is held on purpose, and here is the bill." Registered separately rather than folded into C-44 precisely so the bill is not hidden inside the entry arguing for the delay.
-
-Cross-refs: **C-44** (the held bump — same action, opposing rationale), **C-39** (RESOLVED — the source-level deletion this shows is environment-incomplete), **C-07** (the sibling dependency-declaration concern: undeclared *direct* imports, where this is unwanted *transitive* installs), **C-40** (Cluster G — the inherited pipeline-core surface this arrives through), #125 (the release this bites at), views-pipeline-core #319 / #313 (the publish that resolves it), views-datafactory#387 (the same audit's cross-repo finding). **Cluster G.**
-
----
-
 ### C-72: The pyarrow pin holds this repo inside a high-severity CVE, and the fix changes the wire bytes
 
 | Field | Value |
@@ -560,28 +416,6 @@ Cross-refs: **C-44** (the held bump — same action, opposing rationale), **C-39
 **Filed, so the relocation is complete rather than assumed** (the C-08 lesson): **views-postprocessing#174** (the coordinating issue), **views-faoapi#348** (heads-up + two questions only their seat can answer), and a comment on **views-pipeline-core#280** adding the security dimension and the non-uniform-ceiling finding.
 
 Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-46** (the datafactory version-state coupling), ADR-013 §10 (the byte-pinned fixture), views-pipeline-core **#280** (the platform pyarrow ceiling), views-faoapi **#348** (the reading half), **#174**.
-
----
-
-### C-73: The contract path selects the newest manifest over a broad filter — an unpaged upstream lookup can ship a stale run
-
-| Field | Value |
-|-------|-------|
-| ID | C-73 |
-| Tier | 2 — a delivery can **assemble and ship a stale run rather than failing**. Not Tier 1 because the run that ships is internally coherent: its manifest hashes verify, its shards match, per-shard declared identity is checked. The partner receives a *complete, valid, wrong-vintage* delivery, and nothing on either side reports a problem. |
-| Source | `falsify` (2026-08-01) — audit of "there is nothing more to do in this repo"; the hazard itself is views-pipeline-core's **C-241**, relayed to this seat in **#172** |
-| Trigger | Before the next delivery run, and again when bumping to the pipeline-core release carrying their **#341** — confirm the run actually selected is the run expected (compare the resolved `run_id` against the producer's newest published run, not merely that a manifest resolved) |
-| Location | `views_postprocessing/contract/wire/source_selection.py:40` (`HOP_A_MANIFEST_FILTERS`) and `:106` (`store.latest_file_id(dict(HOP_A_MANIFEST_FILTERS))`); reached through `views_postprocessing/unfao/managers/unfao.py:44` (`_ContractStorePort.latest_file_id`) → pipeline-core's `get_latest_file_id` → `search_files_by_metadata` |
-
-pipeline-core's `search_files_by_metadata` was **unpaged**: Appwrite returns 25 rows by default, and `get_latest_file_id` sorted *those* and called the result "latest". With more than 25 matching documents it returned **the newest of the oldest 25** — silently, and staler every run.
-
-**This reaches this repo because `HOP_A_MANIFEST_FILTERS` is broad by design**: `{"category": "forecast", "type": "sampled_forecast_manifest"}` matches **every manifest ever published**, and the store has no retention (C-25's own note: *"every historical upload remains a candidate forever"*). Shard lookups are name-scoped and unique (`:120`, `:144`), so they resolve correctly **for whichever run was selected** — which is precisely why the failure is quiet: everything downstream of the selection is self-consistent.
-
-**Not a defect in this repo's code, and the fix is not ours** — the upstream fix (pipeline-core #341) arrives with a pin bump because we import their `DatastoreModule` rather than keeping our own client. What *is* ours is that the register carried no record of it, and that the broad-filter-plus-newest-wins selection strategy is a choice this repo made and can revisit independently of the upstream fix.
-
-**⚠ This falsifies a claim made in C-25's resolution earlier the same day.** That entry was closed as *"superseded by mechanism"* on the reasoning that *"the contract path selects by run manifest … so recency-based selection is not an operation the code can perform any more."* **It is exactly what the code does** (`:106`). The half of C-25 that genuinely is solved is **producer identity** — the manifest carries a declared ensemble, verified per shard header (`:73-81`), so a *different producer's* run cannot be selected. The **recency** half was never solved; it moved from picking the newest payload file to picking the newest manifest. C-25's resolution has been corrected in place rather than rewritten, because the overclaim is more instructive than the conclusion.
-
-Cross-refs: **C-25** (whose resolution this corrects), **C-40** (the inherited pipeline-core surface this arrives through — **Cluster G**), **C-72** (the other pin-gated upstream item), **#172**, views-pipeline-core **#339** / **#341** / C-241, ADR-013 §4.3 (manifest selection).
 
 ---
 
@@ -693,6 +527,33 @@ Where each sibling stands, after trying them:
 The two compound: a suite that checks less than you think, and no requirement that even that much passes. Neither is caused by this sync — both are pre-existing — but this sync is the first time `main` receives an epic whose value is largely the guards themselves.
 
 Cross-refs: **C-46** and **C-57** (both RESOLVED; this is the residual each recorded as *"a CI-cost and cross-repo-coupling decision"* and *"worth deciding once for both"* — it now has a live home and a concrete answer per sibling), **C-80** (the other verification gap found in the same audit), #188.
+
+---
+
+### C-83: A queryset that fails to import is reported as a queryset that declares the wrong format
+
+| Field | Value |
+|-------|-------|
+| ID | C-83 |
+| Tier | 2 — no wrong data ships; the delivery refuses, which is correct. What is wrong is the reason it gives, and it gives it on the live FAO path, at the moment someone is trying to fix a failed run. It sends them to edit a file that is already right. |
+| Source | `code-review max` (2026-08-03) — the views-pipeline-core 3.0.0 bump review |
+| Trigger | The next time the FAO delivery refuses with *"the queryset declares data_format='dataframe'"*, check whether `config_queryset.py` actually imports before editing it. Most likely on a machine missing views-datafactory, or after any change to that file's own imports. |
+| Owner | Whoever next touches `_read_historical_frame`'s precondition. The fix is ours — distinguishing the two cases takes one branch. |
+| Location | `views_postprocessing/unfao/managers/unfao.py` and the same line in `crafd` — `declared_data_format(self._model_path.get_queryset())` feeding `launch_config.assert_frame_native_historical` |
+
+Three correct-in-isolation behaviours compose into a lie:
+
+1. pipeline-core's `ModelPathManager.get_queryset()` catches **any** exception from importing `config_queryset.py`, logs it, and returns `None`.
+2. `declared_data_format(None)` returns `'dataframe'` — the documented default for a non-dict.
+3. `assert_frame_native_historical('dataframe')` raises: *"the queryset declares `data_format='dataframe'` … **Set `data_format: 'feature_frame'` in the postprocessor's config_queryset**."*
+
+So a queryset that **failed to import** is indistinguishable from one that **declared the wrong format**, and the operator is told to fix a file that is already correct. Reproduced: in an environment without views-datafactory the real `un_fao` queryset reports `dataframe` while declaring `feature_frame`; in a complete environment the same file reports `feature_frame`.
+
+This is ADR-003's rule broken by composition rather than by anyone inferring anything: each layer declares faithfully, and the *absence* of an answer is silently given the shape of an answer. Cluster J's disease — *cannot distinguish "no" from "I could not tell"* — reached through a new door, because #126 made this repo depend on `declared_data_format` in the first place.
+
+**The fix is ours and it is small:** call `get_queryset()` once, and if it returns `None`, refuse with *that* — the queryset could not be imported — rather than passing `None` into a function whose contract is to default. Upstream could also raise instead of returning `None`, but we should not wait for that; we are the ones holding the ambiguous value.
+
+Cross-refs: **C-44** (the bump whose review found this), **C-40** (the inherited surface it arrives through), Cluster J (the *no* vs *could not tell* family), ADR-003, #126, #149.
 
 ---
 
@@ -842,6 +703,237 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-07: Undeclared direct runtime dependencies in pyproject.toml — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-07 |
+| Tier | 3 |
+| Source | `repo-assimilation` (2026-06-02) |
+| Trigger | When `views-pipeline-core` updates its dependency tree (e.g., drops `geopandas` or `joblib`), verify that this package's imports still resolve |
+| Location | `pyproject.toml` (the dependency block); the partner managers, which are the only modules importing `views_pipeline_core`. *(This row previously cited `unfao/enrichment.py` and `unfao/extraction.py` — both moved or deleted by #151/#153.)* |
+
+`mapping.py` directly imports `geopandas`, `shapely`, `numpy`, `pandas`, `joblib`, and `multiprocessing`. `unfao.py` directly imports `pandas`, `polars`, and `python-dotenv`. Only `views-pipeline-core` and `cachetools` are declared in `pyproject.toml`. The undeclared dependencies presumably arrive transitively via `views-pipeline-core`, but this coupling is implicit and fragile. If the upstream package refactors its dependency tree, this package will break with `ImportError` at install time.
+
+**Update 2026-06-24 (narrowed):** the `mapping.py` dimension is gone (C-39 — the `geopandas`/`shapely`/`joblib`/`multiprocessing` imports were deleted; `cachetools` dropped from `pyproject.toml`). Residual: `unfao.py` imports `pandas`/`polars`/`python-dotenv` undeclared, arriving transitively via `views-pipeline-core` (which *is* declared). Much smaller surface (Tier 4-ish); consider resolving outright if the transitive-via-pipeline-core guarantee is deemed sufficient.
+
+**Update 2026-08-01 (`falsify`) — a SECOND undeclared dependency, and this one's transitive path is about to disappear.** `appwrite` is used in this repo (`contract/launch_config.py`, `unfao/managers/unfao.py`) and declared in **no** manifest — it arrives transitively via `views-pipeline-core`, exactly as `pandas` does. What makes it different from the pandas residual: **views-pipeline-core is making `appwrite` an optional extra** (their **#345**, on CRP grounds — three repos that never mention Appwrite currently install its SDK). **When that lands, the transitive path disappears.**
+
+**⚠ Corrected 2026-08-03 — the trigger has FIRED and the stated failure mode was wrong.**
+pipeline-core **#345 is CLOSED**, and 3.0.0 does make `appwrite` an optional extra. But
+this repository contains **zero** direct Appwrite SDK imports (`grep -rn '^\s*\(from\|import\) appwrite' views_postprocessing/` → 0);
+`contract/launch_config.py` mentions the word once, in a docstring naming its sibling
+`appwrite_env`. So "this repo breaks at import" was never true of *our* imports.
+
+The real and still-live risk is one level out: **pipeline-core's own `DatastoreModule`
+imports the SDK unguarded**, so bumping to 3.0.0 without declaring the `appwrite` extra
+breaks the delivery at import — inside a dependency, which is harder to diagnose than a
+break in our own code. That is a precondition on the C-44 bump, and it belongs there as
+much as here.
+
+So this entry is no longer "Tier 4-ish, resolve if the transitive guarantee is deemed sufficient" — the guarantee is being **withdrawn upstream, deliberately**. Fix is one line: declare `appwrite` in `pyproject.toml`, or depend on `views-pipeline-core[appwrite]`. Relayed in **#172**; registered here rather than as a new entry because it is the same problem type at a new location. **New trigger: before views-pipeline-core#345 lands.**
+
+**Update 2026-07-31 (review-rr — narrative corrected against the tree):** the 2026-06-24 residual is now overstated. Verified: **`polars` has zero references repo-wide**; **`python-dotenv` is dead** (þing-01 #134 killed the implicit ensemble-dotenv borrow — see `unfao/appwrite_env.py`); `cachetools` is gone. Meanwhile `views-frames` and `pyarrow` became **declared** direct dependencies. **The residual is `pandas` alone**, imported directly at the three locations above and arriving transitively via `views-pipeline-core`. One undeclared package on a path that is itself being retired (epic #85) — genuinely Tier 4-ish now; resolve outright if the transitive guarantee is deemed sufficient, or declare `pandas` explicitly in the same PR that closes #89.
+
+**RESOLVED 2026-08-03 — declared, and the free-riding ended.** `pyproject.toml` now declares `views-pipeline-core = {version = ">=3.0.0,<4.0.0", extras = ["appwrite"]}` and a dev group carrying `pytest` and `ruff`.
+
+The extra is **not optional despite its name**, and that was proven rather than assumed: with the SDK uninstalled from an otherwise-complete environment, `from views_postprocessing.unfao.managers import UNFAOPostProcessorManager` raises `ImportError: views_pipeline_core.modules.appwrite requires the optional 'appwrite' extra`. The failure is at **import**, inside a dependency — which is why declaring it matters more than the word "extra" suggests.
+
+`pytest` was never declared here and arrived transitively through pipeline-core, which dropped it as a runtime dependency in 3.0.0. CI runs `poetry install` then `poetry run pytest`; without the dev group that job would have failed as *"pytest: command not found"*, which reads like a runner fault rather than a dependency one.
+
+**One correction to this entry's own residual.** It said *"the residual is `pandas` alone."* Wrong twice, and an AST sweep of the shipped package says so:
+
+- **`numpy` is a module-scope runtime import and is undeclared** — `delivery/draws.py`, `delivery/observed_range.py`, `contract/frames.py`, `contract/frame_extraction.py`, `contract/enrichment.py`. It arrives transitively (pyarrow requires `numpy>=1.16.6`; views-frames `numpy>=1.26,<3`), so nothing breaks — but it is exactly the free-riding this entry exists to end, and it is a **direct** import, not a transitive one.
+- **`pandas` is not a runtime dependency at all** — `contract/enrichment.py` imports it under `if TYPE_CHECKING`, which `tests/test_doc_accuracy.py` pins.
+
+So the honest residual is the reverse of what was written: pandas is already gone, and numpy should be declared. Small, and left as a follow-up rather than folded into a dependency bump whose point was to change one thing.
+
+Cross-refs: **C-44** (the bump that carried this), views-postprocessing#172, pipeline-core #345/#361.
+
+---
+
+### C-13: No timeout on Appwrite operations — pipeline can hang indefinitely — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-13 |
+| Tier | 2 |
+| Source | `expert-review` (2026-06-02) |
+| Trigger | When configuring Appwrite connection parameters — in `_ContractStorePort` (contract path) or `_save`/`_read_forecast_data` (legacy path) — verify that timeout parameters are set on the underlying HTTP client; currently no timeout exists and a hung endpoint blocks the pipeline indefinitely |
+| Location | `views_postprocessing/unfao/managers/unfao.py:37-64` (`_ContractStorePort` — all four contract-path store calls), `:247` (legacy selection), `:560`, `:571` (legacy uploads) |
+
+`prediction_store_manager.download_latest_file()` (line 131) and `dsm.upload_data()` (lines 262, 272) make network calls to Appwrite with no configured timeout. If the endpoint hangs (DNS resolution stalls, connection accepted but response never arrives, TLS handshake blocks), the pipeline blocks indefinitely. There is no watchdog timer, no circuit breaker, and no automated alert for a run that never completes. The only detection is manual observation that a scheduled run didn't finish.
+
+**RESOLVED 2026-08-03 by the pipeline-core 3.0.0 bump (C-44).** `modules/appwrite/transport.py` now defines `install_request_timeout()`, and `modules/appwrite/file.py:1382` **calls it** — so the timeout applies to this repo's Appwrite operations without any change on our side. Verified against the installed 3.0.0 wheel, not the changelog.
+
+---
+
+### C-58: A wrong Appwrite coordinate auto-provisions a new empty target instead of raising — both client lineages, on every write — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-58 |
+| Tier | 2 — a single wrong or drifted coordinate value silently redirects a delivery into a freshly created empty bucket/collection/database; the run reports success, FAO receives nothing, and no error is raised at the time of the mistake |
+| Source | `manual` (2026-07-31) — review-rr blind-spot analysis; the underlying code finding was verified from this seat during þing-01 (recorded in `orð_09.md`, and it revised the assembly's own sáttmál S8 and D8 trigger wording) |
+| Trigger | When any `APPWRITE_*_BUCKET_ID` / `_COLLECTION_ID` / `_DATABASE_ID` value changes — a registry amendment (C-57), a launcher reconfiguration, a second-store rollout (#97), or a typo — verify the delivery landed in the **intended** target rather than a newly created one: check the run's uploaded object count against the store's expected bucket, not just that the run exited 0 |
+| Location | views-pipeline-core `modules/datastore/datastore.py:350-370` (`upload_data` creates a missing bucket and retries; their ADR-046 §5); `modules/appwrite/file.py:2205/2351/2395` → `create_metadata_collection_if_not_exists` (`:1184`) → `create_database_if_not_exists` (`:905`) → `create_collection` (`:1250`) → `_create_dynamic_attributes` (`:1027`, failures logged only). Consumed at `views_postprocessing/unfao/managers/unfao.py:56` (`_ContractStorePort.upload`), `:560`, `:571` (legacy `_save`) |
+
+þing-01's **D5** ruled that a wrong coordinate **must RAISE**, that auto-provisioning must be **opt-in and default off**, and that a half-succeeded write must raise. The platform does not currently behave that way on the write path, and the assembly's own working document had this wrong until it was corrected from this seat: sáttmál S8 asserted "pipeline-core raises," which is true for reads and **false for writes**. Verified: **both** client lineages auto-provision. `DatastoreModule.upload_data` catches a missing bucket, creates it, and retries. `upload_file_with_metadata` traverses create-if-not-exists for the metadata collection, the database (the EXISTS short-circuit still exercises `databases.list`), the collection, and the dynamic attributes — on **every** metadata upload, with attribute-creation failures logged rather than raised. That correction is why the verdict's D8 trigger was widened to fire on a defect *common to* the client copies, not only on divergence between them.
+
+The practical exposure here is bounded but real. Coordinates are validated for **presence** (`appwrite_env.assert_env_declared`, D6) — never for **correctness**, which is unobservable from this seat by design: this repo has no console access and no introspection, and none should be added, because scopes and coordinates are *declared, not discovered*. Run-0 delivered to the correct bucket, which proves the currently-configured coordinates are right; it does **not** prove the guard exists, because a correct coordinate never exercises the auto-create branch. The nearest thing to a detector today is the `_ContractStorePort.upload` orphan check (`unfao.py:56-64`) and the manifest-last commit marker, neither of which catches "wrote successfully to the wrong place."
+
+Tier 2 rather than 1: no *value* is corrupted — the payload is exactly right, it lands in the wrong container — and the consequence is visible downstream (FAO serves nothing) rather than being wrong-but-plausible data. The precedent is already on record: six stranded `orange_ensemble` forecast documents sat invisible in `unfao_bucket` for months (ADR-013 Post-adoption, 2026-07-15) because a *name* filter mismatched — the same class of silent mis-addressing, discovered only by a deliberate read-only audit.
+
+**Update 2026-08-01 — the upstream fix has LANDED, and this entry now rides the 3.0.0 bump (Cluster M).** views-pipeline-core **#322** (*"[þing-01] ADR-046 §5 + write-path raise-by-default"*) is **CLOSED**, as are **#331** (relocate the four `create_*` sites into a dedicated provisioning module) and **#332** (assert the delivery path does not import provisioning). That is D5's ruling implemented: provisioning moved out of the ordinary write path, and the write path raises by default.
+
+**We do not have it yet.** All three landed on their `development` (3.0.0); our pin resolves 2.3.0 from PyPI, which still auto-creates. So this entry is **fixed upstream and live here** until the bump — the same shape as C-73. Added to **Cluster M**; verify at the bump that a wrong coordinate now raises rather than creating an empty target.
+
+**Not this repo's code to fix.** The fix belongs in views-pipeline-core (make provisioning an explicit opt-in parameter defaulting to off, per D5), and D5's drill ordering is fixed verbatim by the verdict: amend → ship raise → drill the raise path → stand up a test project → drill provisioning. This repo's available mitigations are a post-upload target assertion in `_ContractStorePort`, or a read-back count check after the manifest commits.
+
+Cross-refs: C-57 (registry drift — the most likely way a coordinate goes wrong), C-25 (the sibling wrong-*source* selection risk, mitigated by identity assertion), C-13 (the same store calls, timeout dimension), C-40 (the inherited pipeline-core surface this arrives through — **Cluster G**), C-22 (no recall procedure if a mis-delivery is discovered late).
+
+**RESOLVED 2026-08-03 by the pipeline-core 3.0.0 bump (C-44).** The auto-create-and-retry is gone: `create_bucket` appears **zero** times in `modules/appwrite/file.py`, and `:1406` now carries an explicit *"Fail loud, BEFORE any write, if a target container does not exist"* guard. A wrong or stale coordinate now fails instead of silently provisioning new production storage. Upstream views-pipeline-core C-228; verified in the installed wheel.
+
+---
+
+### C-62: The pinned pipeline-core release still installs geopandas and torch into a repo that architecturally excised them — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-62 |
+| Tier | 3 — no correctness or reliability impact: the packages are installed but never imported. The cost is **measured at 3.4 GB of virtualenv** for a repo that writes parquet files, plus an architectural excision that is **real in the source but incomplete in the environment**, landing on the first-ever release. |
+| Source | `manual` (2026-07-31) — maintainer challenge during the development→main sweep ("Is geopandas back? Is it still here?"), verified against `poetry.lock` and the sibling checkouts |
+| Trigger | **The first half FIRED on 2026-08-01** — `1.0.0` was tagged and this drag shipped with it. Remaining trigger: when taking the views-pipeline-core 3.0.0 bump (**C-44**), verify `geopandas` and `torch` have left the resolved dependency tree. Also re-check before any *PyPI* publish, which is the point at which the footprint reaches someone other than this team. |
+| Location | `poetry.lock` (`geopandas 1.0.1`, `optional = false`); `pyproject.toml:13` (`views-pipeline-core = ">=2.1.3,<3.0.0"`, which resolves to 2.3.0) |
+
+This repo declares exactly three dependencies — `views-pipeline-core`, `views-frames`, `pyarrow` — and imports **zero** geospatial libraries. Verified 2026-07-31: the only three mentions of `geopandas`/`shapely` in `.py`/`.toml` are assertions of its *absence* (`enrichment.py:9`, `build_gaul_lookup.py:11`) and a doc-accuracy test that **bans the word** (`tests/test_doc_accuracy.py:29`). C-39's deletion held completely at the source level.
+
+**The lockfile tells a different story, and the installed venv confirms it.** `poetry.lock` resolves `geopandas 1.0.1` with `optional = false`. The carrier is the pinned release: **views-pipeline-core 2.3.0** (PyPI) declares `geopandas >=1.0.1,<2.0.0`, `torch >=2.6.0,<3.0.0`, plus `scipy`, `seaborn`, `plotly` and `plotly-express`.
+
+**Measured in the live project virtualenv** (`views-postprocessing-8UwQDgw_-py3.13` — the only poetry venv on the machine; views-pipeline-core has none of its own, it is a *package inside this one*). **Corrected figures, 2026-07-31**: the first measurement was taken mid-install and understated it.
+
+| Installed, never imported | Size |
+|---|---|
+| `nvidia/` — CUDA runtime (`cu13`, `cudnn`, `cusparselt`, `nccl`, `nvshmem`) | **2.7 GB** |
+| `plotly` | 42 MB |
+| `matplotlib` | 25 MB |
+| `geopandas` | 1.6 MB |
+| **venv total** | **3.4 GB** |
+
+**And `torch` itself is not installed at all** — no `torch/` directory, no dist-info, with no install running. Only its five `nvidia-*` dependencies landed (they are marked `platform_system == "Linux"`, i.e. this machine). The repo is therefore carrying **2.7 GB of GPU support libraries for a package that is absent**. Cause unknown — a failed wheel, an interrupted install, or a marker torch carries that its dependencies do not; recorded as unexplained rather than guessed at.
+
+**⚠ Framing correction, recorded because it inverts the intuition that opened this investigation.** The audit began as "is geopandas back?" — and geopandas is the *architectural* violation (this repo spent PR #42 removing it). But it is **1.6 MB**. The *material* cost is **torch's NVIDIA CUDA stack at 2.5 GB — 89% of the entire virtualenv — in a delivery repo with no GPU code, no model training, and no tensor operations of any kind.** Optimising for the offensive dependency rather than the expensive one would have missed almost the whole bill.
+
+**Update 2026-08-01 — the drag now has a measured security surface.** GitHub raised **32 Dependabot alerts** when `main` was brought current. **31 of them are `poetry.lock` resolution, not declared dependencies** — and the shape matches this entry exactly: **Pillow ×13** and **GitPython ×9** (via `plotly`/`seaborn`/`wandb`), plus `geopandas`, `torch`, `pytest`, `paramiko`, `pywin32`, `diskcache`, `setuptools`, `python-dotenv` — one each. Every one of those roots is declared by **views-pipeline-core 2.3.0**, none by this repo, and none is imported by this repo's code.
+
+This does not make the entry more urgent; it makes it **measurable**. The 3.0.0 bump this entry is held on removes the roots, and with them most of this alert surface. Until then the alerts are real but unreachable, and closing them individually would be treating symptoms of a dependency this repo does not choose. The 32nd alert is `pyarrow`, which **is** declared here and is registered separately as **C-72**.
+
+**Dependency chain, traced 2026-07-31.** `views-pipeline-core` is the **sole** requirer: `torch = ">=2.6.0,<3.0.0"` in the 2.3.0 metadata; torch 2.12.1 then pulls the five `nvidia-*` wheels on Linux. Nothing else in the tree asks for torch, and this repo imports it zero times.
+
+**Removal path — there is no correct fix inside this repo.** views-pipeline-core `development` (already versioned **3.0.0**) declares **no torch, no geopandas, no scipy, no seaborn, no plotly**, and imports torch nowhere; their own test asserts the absence of `import torch`. The fix is complete upstream and purely a publishing gate. Their release runbook (#313) pins the order: **views-frames (done) → views-evaluation 0.5.0 → views-pipeline-core 3.0.0 → views-reporting 0.3.0 → models/postprocessing envs**, executing on the maintainer's platform-wide signal. So this entry closes when C-44's bump becomes takeable — not before, and not by local action.
+
+*A local workaround exists and is deliberately NOT recommended: declaring `torch` here against the PyTorch CPU wheel index would shed the `nvidia-*` tree immediately, but it makes this repo declare a dependency it never imports, and the whole change would be reverted at the 3.0.0 bump. Churn for a footprint that is already scheduled to vanish. Recorded so the option is not rediscovered and mistaken for free.*
+
+**This is not a live fight — it is a released-version lag.** views-pipeline-core's `development` branch already declares no geopandas and imports none, and its own falsification tests name the problem explicitly (*"geopandas, seaborn, plotly, matplotlib — ~2.5 GB) for 298 LOC of optional…"*, their `tests/test_falsification_extraction_docs_packaging.py:59`). The fix exists upstream and is gated purely on **publishing 3.0.0** (their #319 / #313).
+
+**Why it matters here specifically.** PR #42 deleted a 3,171-line geopandas mapper and a 774 MB shapefile bundle to get geopandas out of this repo (ADR-011 / C-39). That excision is currently source-only. And it lands on this repo's **first-ever release** (#125, no tags exist): publishing a delivery package that resolves 2.5 GB of CUDA libraries is a materially different artifact from one that does not — and the first release is where that expectation gets set.
+
+**⚠ This entry pulls in the OPPOSITE direction to C-44 — deliberately, and the tension should stay visible.** C-44 says *do not take the 3.0.0 bump* until the platform runs smoothly on `development` across all repos (a standing maintainer constraint, and the right call). C-62 records what *waiting* costs: every day on the 2.3.0 pin is a day this repo ships an environment contradicting its own architecture. Neither entry overrides the other; together they say "the bump is held on purpose, and here is the bill." Registered separately rather than folded into C-44 precisely so the bill is not hidden inside the entry arguing for the delay.
+
+Cross-refs: **C-44** (the held bump — same action, opposing rationale), **C-39** (RESOLVED — the source-level deletion this shows is environment-incomplete), **C-07** (the sibling dependency-declaration concern: undeclared *direct* imports, where this is unwanted *transitive* installs), **C-40** (Cluster G — the inherited pipeline-core surface this arrives through), #125 (the release this bites at), views-pipeline-core #319 / #313 (the publish that resolves it), views-datafactory#387 (the same audit's cross-repo finding). **Cluster G.**
+
+**RESOLVED 2026-08-03 by the pipeline-core 3.0.0 bump (C-44).** Measured against the lock file, before and after:
+
+| package | before | after |
+|---|---|---|
+| geopandas, torch, shapely, pyogrio, seaborn, statsmodels, plotly | present | **gone** |
+| total locked packages | 155 | **118** |
+
+The CRP argument this entry made — that a repo which architecturally excised geospatial and ML stacks should not install them — was made upstream too, and 3.0.0 acted on it. Nothing was needed here beyond the pin.
+
+**⚠ But the alert-surface half of this entry did NOT resolve, and saying otherwise would be the more comfortable error.** This entry itemised 31 Dependabot alerts. **Twenty-nine survive at unchanged versions.** Verified against both lock files:
+
+| package | before | after |
+|---|---|---|
+| Pillow (13 alerts) | 12.2.0 | **12.2.0** — now via `matplotlib ← pyod` |
+| GitPython (9 alerts) | 3.1.50 | **3.1.50** — now via `wandb`, still a pipeline-core dependency |
+| matplotlib, scipy, paramiko, setuptools, python-dotenv, wandb | — | **all identical** |
+
+Only geopandas and torch lost their root. The dependency **tree** got much smaller; the **vulnerability** surface barely moved. The entry is resolved on its stated subject — the transitive drag — and explicitly **not** on the alert count, which was never in its title but was in its body.
+
+---
+
+### C-73: The contract path selects the newest manifest over a broad filter — an unpaged upstream lookup can ship a stale run — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-73 |
+| Tier | 2 — a delivery can **assemble and ship a stale run rather than failing**. Not Tier 1 because the run that ships is internally coherent: its manifest hashes verify, its shards match, per-shard declared identity is checked. The partner receives a *complete, valid, wrong-vintage* delivery, and nothing on either side reports a problem. |
+| Source | `falsify` (2026-08-01) — audit of "there is nothing more to do in this repo"; the hazard itself is views-pipeline-core's **C-241**, relayed to this seat in **#172** |
+| Trigger | Before the next delivery run, and again when bumping to the pipeline-core release carrying their **#341** — confirm the run actually selected is the run expected (compare the resolved `run_id` against the producer's newest published run, not merely that a manifest resolved) |
+| Location | `views_postprocessing/contract/wire/source_selection.py:40` (`HOP_A_MANIFEST_FILTERS`) and `:106` (`store.latest_file_id(dict(HOP_A_MANIFEST_FILTERS))`); reached through `views_postprocessing/unfao/managers/unfao.py:44` (`_ContractStorePort.latest_file_id`) → pipeline-core's `get_latest_file_id` → `search_files_by_metadata` |
+
+pipeline-core's `search_files_by_metadata` was **unpaged**: Appwrite returns 25 rows by default, and `get_latest_file_id` sorted *those* and called the result "latest". With more than 25 matching documents it returned **the newest of the oldest 25** — silently, and staler every run.
+
+**This reaches this repo because `HOP_A_MANIFEST_FILTERS` is broad by design**: `{"category": "forecast", "type": "sampled_forecast_manifest"}` matches **every manifest ever published**, and the store has no retention (C-25's own note: *"every historical upload remains a candidate forever"*). Shard lookups are name-scoped and unique (`:120`, `:144`), so they resolve correctly **for whichever run was selected** — which is precisely why the failure is quiet: everything downstream of the selection is self-consistent.
+
+**Not a defect in this repo's code, and the fix is not ours** — the upstream fix (pipeline-core #341) arrives with a pin bump because we import their `DatastoreModule` rather than keeping our own client. What *is* ours is that the register carried no record of it, and that the broad-filter-plus-newest-wins selection strategy is a choice this repo made and can revisit independently of the upstream fix.
+
+**⚠ This falsifies a claim made in C-25's resolution earlier the same day.** That entry was closed as *"superseded by mechanism"* on the reasoning that *"the contract path selects by run manifest … so recency-based selection is not an operation the code can perform any more."* **It is exactly what the code does** (`:106`). The half of C-25 that genuinely is solved is **producer identity** — the manifest carries a declared ensemble, verified per shard header (`:73-81`), so a *different producer's* run cannot be selected. The **recency** half was never solved; it moved from picking the newest payload file to picking the newest manifest. C-25's resolution has been corrected in place rather than rewritten, because the overclaim is more instructive than the conclusion.
+
+Cross-refs: **C-25** (whose resolution this corrects), **C-40** (the inherited pipeline-core surface this arrives through — **Cluster G**), **C-72** (the other pin-gated upstream item), **#172**, views-pipeline-core **#339** / **#341** / C-241, ADR-013 §4.3 (manifest selection).
+
+**RESOLVED 2026-08-03 by the pipeline-core 3.0.0 bump (C-44).** This entry's cause was upstream and is fixed at the source. `search_files_by_metadata` now pages: `file.py:1023-1045` carries the views-pipeline-core C-241 remediation with `DEFAULT_PAGE_LIMIT = 100`, `Query.limit(...) + Query.offset(offset)`, and a `MAX_METADATA_PAGES = 1000` bound. Its own comment states the defect precisely — *"returned the newest of the OLDEST 25, which does not fail: it delivers a stale run."*
+
+The second half matters as much: `get_predictions_by_metadata` used to return `[]` when the **search itself failed**, which `get_latest_file_id` turned into `None`. It now raises `MetadataSearchIncomplete`. Without that, paging would have traded a false-*stale* answer for a false-*absent* one.
+
+**We did not find this ourselves** — it came from views-pipeline-core via views-postprocessing#172, reaching us because `_ContractStorePort.latest_file_id` feeds ADR-013 `resolve_run`, whose manifest lookup uses the deliberately broad `HOP_A_MANIFEST_FILTERS`. Every manifest ever published matched, and the store has no retention. Worth recording that the reach-out, not our own review, is what closed a Tier-2 delivery-correctness risk.
+
+Cross-refs: **C-44**, **C-15** (retention), upstream views-pipeline-core C-241/C-231/C-232, #172.
+
+---
+
+### C-44: views-pipeline-core 3.0.0 dependency bump is pending and must not land until the platform runs on development across all repos — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-44 |
+| Tier | 3 |
+| Source | `manual` (2026-06-26) — surfaced while consolidating a stranded local commit after the input-integrity sprint merge |
+| Trigger | When views-pipeline-core 3.0.0 is published to PyPI **and** the platform is confirmed running smoothly on `development` across all consumer repos — then bump `pyproject.toml` to a reproducible version pin (`views-pipeline-core = ">=3.0.0,<4.0.0"`), re-lock, and PR. Do **not** land the bump before both conditions hold, and do **not** source it from a moving git branch. |
+| Location | `pyproject.toml:13` (currently `views-pipeline-core = ">=2.1.3,<3.0.0"`); `poetry.lock` (pins `views-pipeline-core 2.3.0`, a reproducible PyPI wheel); the deferred change preserved on local branch `backup/pipeline-core-3.0.0-git-source` (commit `78d238e`) |
+
+`development` currently pins `views-pipeline-core = ">=2.1.3,<3.0.0"` and the committed `poetry.lock` resolves it to **2.3.0** from PyPI — reproducible, and the merged input-integrity sprint (#64) was CI-proven green against it. **3.0.0 is not yet on PyPI (political hold).** A local-only commit (`78d238e`, authored 2026-06-25 in a separate session, never pushed) repoints the dependency to pipeline-core's **git `development` branch** to track the unreleased 3.x "in tandem with other consumers."
+
+That change was deliberately **not** landed on `development` (2026-06-26), for three reasons: (a) sourcing from a **moving git branch** makes builds **non-reproducible** (the branch advances under us); (b) it is a **major-version switch** (2.x→3.x) whose breaking changes were never exercised against the just-merged sprint code; (c) it would require a **full re-lock** resolving 3.x + its transitive tree, rippling through `poetry.lock`. The maintainer's standing constraint: **the platform must run smoothly on `development` across all repos before taking the major dependency bump.** Until then the bump is premature.
+
+No silent corruption and no current breakage (development is green on 2.3.0) → **Tier 3** (coordination / release-sequencing / reproducibility).
+
+**GATE RE-ASSESSED 2026-07-31 — the second condition now has substantial evidence behind it; the first does not, and the difference matters.**
+
+This entry's trigger holds the bump on **two** conditions. Their status has diverged:
+
+**Condition 2 — "the platform is confirmed running smoothly on `development` across all consumer repos."** The strongest available evidence arrived on **2026-07-27**: run-0 delivered the first FAO global-land forecast end to end, every hop on `development` — views-models config (`region: land_gaul`, `data_format: feature_frame`) → pipeline-core's frame-native fetch and Track A publish → this repo's contract delivery (108 shards + sidecar + manifest, 64,742 cells, 28,356,996 rows, 5.6 GB peak, no OOM) → views-faoapi ingest. Confirmed serving live on **2026-07-31** (`scripts/smoke.py`, ALL PASS at v1.3.11; `IDN` present on both surfaces, a cell outside the old Africa-only region, so global serving is proven).
+
+**Scoped honestly:** that exercises the **FAO delivery chain** across five repos on `development`. It is *not* evidence about consumers outside that chain (views-reporting's report path, views-baseline, other model families). Whether "across all consumer repos" means the delivery chain or literally every consumer is a maintainer judgement this entry cannot make. What has changed is that the condition moved from *unevidenced* to *substantially evidenced for the path that matters most*.
+
+**Condition 1 — "views-pipeline-core 3.0.0 is published to PyPI."** Still **unmet**, and it is not blocked on engineering. Verified 2026-07-31: pipeline-core's `development` already carries `version = "3.0.0"` with the heavy dependency set removed; views-evaluation's `to_metric_frame` (the one real release-train edge in their runbook #313) **exists in code**, 8 commits past its `v0.4.0` tag, needing only a version bump and a publish. The chain their runbook fixes is: views-frames ✅ → **views-evaluation 0.5.0** → **views-pipeline-core 3.0.0** → views-reporting 0.3.0 → models/postprocessing envs — and it states plainly that it *"executes only on Simon's platform-wide signal."*
+
+**Net:** this entry is no longer waiting on two open questions. It is waiting on **one release signal**, with all the underlying code already written. That does **not** authorise the bump — the signal is the maintainer's alone, and the scoping caveat above is a real reason it might still be withheld. It is recorded so the next reader sees a gate that has *moved*, rather than assuming both conditions are still closed. **C-62 records what continuing to wait costs** (3.4 GB of unused dependencies, 2.7 GB of it CUDA libraries for an absent package).
+ The deferred work is preserved (backup branch) and becomes a trivial, reproducible one-line pin once 3.0.0 ships and the cross-repo gate clears. Cross-refs C-40 (the underlying pipeline-core inheritance coupling that makes major bumps high-blast-radius), C-07 (the transitive-via-pipeline-core dependency surface), C-09 (publish-workflow version handling).
+
+**RESOLVED 2026-08-03 — the bump landed, and the gate it named was the operator's to open.** This entry said the bump *"must not land until the platform runs on development across all repos."* views-pipeline-core 3.0.0 reached PyPI on 2026-08-03; the operator took the decision with the trade-off stated.
+
+**What it closed, each verified in the installed wheel rather than from the changelog:** C-73 (upstream views-pipeline-core C-241 — the unpaged lookup that could ship a stale run), C-58 (views-pipeline-core C-228 — silent provisioning of new production storage), C-13 (a request timeout that now installs itself), C-62 (geopandas and torch out of the tree; 155 → 118 packages), and C-07 (appwrite and pytest now declared here rather than free-ridden).
+
+**What it cost:** less than the release notes implied. Of the three breaking changes flagged as likely to touch us, one was already satisfied — this repo imports `PredictionFrame` from `views_frames`, constructs it positionally, and never reads `.y_pred`, so the leaf-class migration was already done. The other two were the two declarations above.
+
+**Verification:** an isolated Python 3.11 venv built from PyPI with the exact resolved set — **362 passed, 40 xfailed, 0 failed**; both partner managers import; the ADR-013 §10 golden fixtures still verify byte-for-byte (`sha256sum -c SHA256SUMS`, all OK) because `pyarrow` and `views-frames` were deliberately left untouched.
+
+**Not closed by this:** **C-72**. The pyarrow CVE fix still changes delivered wire bytes and still needs a coordinated three-repo re-vendor of the §10 fixture. That is a separate, harder job and the pin is unchanged at `>=16.1.0,<17.0.0`.
+
+---
 
 ### C-78: A partner package without an `__init__.py` is invisible to the guard that inventories them — RESOLVED same day
 

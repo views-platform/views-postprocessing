@@ -10,9 +10,50 @@ license = "MIT"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.15"
-views-pipeline-core = ">=2.1.3,<3.0.0"
+# The `appwrite` EXTRA is not optional for this repository, despite the name.
+# 3.0.0 made the SDK an optional extra (pipeline-core #361/#345) on CRP grounds — three
+# repos that never mention Appwrite were installing it. But the partner managers import
+# `views_pipeline_core.modules.appwrite.file` and `.modules.datastore`, and those modules
+# import the SDK unguarded. Without the extra the FAO delivery fails **at import**, not
+# at runtime, and inside a dependency rather than in our own code. Register C-07.
+views-pipeline-core = {version = ">=3.0.0,<4.0.0", extras = ["appwrite"]}
 views-frames = ">=1.10.2,<2"
 pyarrow = ">=16.1.0,<17.0.0"
+
+# pytest was never declared here; it arrived transitively through pipeline-core, which
+# dropped it as a runtime dependency in 3.0.0. CI runs `poetry install` then
+# `poetry run pytest`, so without this the test job stops being able to run at all —
+# and it would fail as "pytest: command not found", which reads like a runner problem
+# rather than a dependency one.
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0,<10.0"   # the suite runs on 9.x today; 8.x still works
+ruff = ">=0.6,<1.0"
+
+# Ruff's default rule selection is NOT stable across ruff versions, and inheriting a
+# moving default is the inference ADR-003 forbids applied to tooling. Measured
+# 2026-08-03: ruff 0.14.13 reported 0 findings on this tree; 0.16.1 reported **815**,
+# because the newer release widened its defaults. CI installed 0.16.1 from the dev
+# group's `>=0.6,<1.0` and went red on a codebase nothing had changed.
+#
+# So the rule set is declared here. These are the classic defaults this repository has
+# in fact been linted against throughout, which is why it is green on them. Widening is
+# a deliberate, separate piece of work — 815 findings is a backlog, not a gate, and a
+# gate that starts red gets switched off (ADR-014 §3).
+[tool.ruff]
+target-version = "py311"
+
+# CI checks sibling repositories out into `_siblings/` so the cross-repo assertions can
+# run (see .github/workflows/run_pytest.yml). Anything invoked from the repo root then
+# walks them, and someone else's code is not ours to lint — the first run of this step
+# reported 745 findings in views-crafdapi's test suite.
+#
+# This is the THIRD tool to fall into that hole: the coordinate-value scan and the
+# partner-contact scan both did, and both were fixed by scoping to `git ls-files`.
+# A repo-root walk is no longer a safe default in this repository.
+extend-exclude = ["_siblings"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
