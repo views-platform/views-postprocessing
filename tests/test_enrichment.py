@@ -8,6 +8,7 @@ that swapping it in for the runtime mapper (Stage 3) is invisible downstream.
 import pandas as pd
 import logging
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -260,6 +261,80 @@ class TestUnusableCellIds:
         good = lookup.index[:2].tolist()
         out = self._out(enricher, pd.array([good[0], pd.NA, good[1]], dtype="Int64"))
         assert len(out) == 3 and out["country_iso_a3"].isna().sum() == 1
+
+    def test_an_unusable_id_cannot_match_the_cell_it_was_substituted_with(self, tmp_path):
+        """The `& usable` term in `_gather`, proven load-bearing (ADR-014 §2).
+
+        It survived removal against the committed artifact: an unusable id converts to
+        `0`, and `0` is not a real gid, so the key comparison already failed. That made
+        it look like decoration. It is not — it is the only thing standing between an
+        unusable id and the row it was substituted onto, and the substitute is a real
+        key the moment a lookup contains gid `0`.
+
+        Without the mask, the NaN row below silently receives cell 0's geography. That
+        is the fabricated value this module's docstring forbids, produced from an input
+        the caller never wrote.
+        """
+        cols = {"priogrid_gid": pa.array([0, 5, 9], pa.int64())}
+        for c in METADATA_COLS:
+            numeric = c in ("pg_xcoord", "pg_ycoord") or c.endswith("_code")
+            cols[c] = pa.array(
+                [0.0] * 3 if numeric else ["ZERO", "FIVE", "NINE"],
+                pa.float64() if numeric else pa.string(),
+            )
+        path = tmp_path / "withzero.parquet"
+        pq.write_table(
+            pa.table(cols).replace_schema_metadata({b"lookup_version": b"t@00000000"}), path
+        )
+
+        out = GaulLookupEnricher(path).enrich_dataframe_with_pg_info(
+            pd.DataFrame({"priogrid_gid": [5.0, float("nan"), 9.0], "month_id": [1, 1, 1]}),
+            pg_id_col="priogrid_gid", time_id_col="month_id",
+        )
+        assert out["country_iso_a3"].tolist() == ["FIVE", None, "NINE"], (
+            "an unusable id matched the cell it was substituted with — `& usable` is "
+            "what prevents that, and this is the input that proves it"
+        )
+
+    def test_a_string_gid_column_is_refused_rather_than_parsed(self, enricher, lookup):
+        """A string gid is a declaration error, and the merge this replaced said so.
+
+        `pandas` raised *"You are trying to merge on object and int64 column"*. An
+        earlier draft of `_as_cell_ids` used `float(value)`, which happily parsed
+        `"54220"` and matched — inference where the old path declared (ADR-003).
+        """
+        gid = str(int(lookup.index[0]))
+        out = self._out(enricher, [gid])
+        assert out["country_iso_a3"].isna().all(), (
+            f"the string {gid!r} was parsed into a cell id; a string column is a "
+            "declaration error, not a gid to be guessed at"
+        )
+
+    @pytest.mark.parametrize(
+        "label,array",
+        [
+            # Each case must enter the branch it is testing. An earlier draft built
+            # them all with dtype=object, which routed every one through the
+            # element-wise branch — so the int and float bounds it claimed to test
+            # were never executed, and removing them left the suite green.
+            ("uint64 max (int branch)", np.array([np.iinfo(np.uint64).max], dtype=np.uint64)),
+            ("1e30 (float branch)", np.array([1e30], dtype=np.float64)),
+            ("inf (float branch)", np.array([np.inf], dtype=np.float64)),
+            ("-inf (float branch)", np.array([-np.inf], dtype=np.float64)),
+            ("string (object branch)", np.array(["123"], dtype=object)),
+            ("bool (object branch)", np.array([True], dtype=object)),
+        ],
+    )
+    def test_out_of_range_and_non_numeric_values_are_unusable_not_wrapped(self, label, array):
+        """Outside int64 the cast WRAPS rather than raising, and a wrapped id flagged
+        valid is exactly the fabricated value this conversion exists to prevent.
+
+        `uint64` max becomes `-1`; `1e30` becomes `INT64_MIN`. Both pass a naive
+        finite-and-integral test, so the bound is a separate condition, not a
+        consequence of the others.
+        """
+        ids, usable = GaulLookupEnricher._as_cell_ids(array)
+        assert not usable[0], f"{label} was marked usable as id {ids[0]}"
 
     def test_the_warning_names_unknown_cells_but_invents_no_id_for_unusable_ones(
         self, enricher, lookup, caplog

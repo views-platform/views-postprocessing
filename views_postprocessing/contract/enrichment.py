@@ -50,6 +50,12 @@ logger = logging.getLogger(__name__)
 # enricher's own default working without re-deriving the path.
 _DEFAULT_LOOKUP = gaul_lookup.LOOKUP_PATH
 
+#: int64 bounds, named because they are a correctness condition rather than trivia:
+#: a value outside them does not raise on cast, it WRAPS, and a wrapped id that is
+#: flagged valid is the fabricated value this module forbids.
+_INT64_MIN = int(np.iinfo(np.int64).min)
+_INT64_MAX = int(np.iinfo(np.int64).max)
+
 #: The lookup's key column. Named once — the artifact calls it `priogrid_gid`, the
 #: wire calls it `priogrid_id` (§5.1), and confusing the two is a silent join failure.
 _KEY = "priogrid_gid"
@@ -146,21 +152,47 @@ class GaulLookupEnricher:
           contract-shaped error, unlike every other guard in this file.
         """
         arr = np.asarray(gids)
+
         if arr.dtype.kind in ("i", "u"):
-            return arr.astype(np.int64), np.ones(arr.shape, dtype=bool)
-        if arr.dtype.kind == "f":
-            usable = np.isfinite(arr) & (arr == np.rint(arr))
+            # In range, or it is not the id the caller wrote. uint64 max silently
+            # wraps to -1 under `astype(np.int64)` and would be flagged VALID.
+            usable = (arr >= _INT64_MIN) & (arr <= _INT64_MAX)
             return np.where(usable, arr, 0).astype(np.int64), usable
-        # object / pandas-nullable: convert element-wise, marking failures unusable.
+
+        if arr.dtype.kind == "f":
+            # Finite, integral, AND representable. `1e30` passes the first two and
+            # then overflows the cast to INT64_MIN — an id nobody asked for, marked
+            # valid. Same silent-coercion class this method exists to remove.
+            # `isfinite` is kept for intent and is currently SUBSUMED, which is worth
+            # saying rather than leaving for someone to rediscover: `inf` fails the
+            # upper bound and `NaN` fails `arr == rint(arr)` (NaN equals nothing). It
+            # is the one condition here that survives its own removal — mutation-tested
+            # — so it is defensive, not load-bearing. The other three each fail the
+            # suite when dropped.
+            usable = (
+                np.isfinite(arr)
+                & (arr == np.rint(arr))
+                & (arr >= _INT64_MIN)
+                & (arr <= _INT64_MAX)
+            )
+            return np.where(usable, arr, 0).astype(np.int64), usable
+
+        # object / pandas-nullable. Accept only values that ALREADY ARE integers.
+        #
+        # An earlier draft used `float(value)`, which parses. That accepted the string
+        # `"54220"` as a cell id — where the pandas merge this replaced raised
+        # `ValueError: You are trying to merge on object and int64 column`. A string
+        # gid column is a declaration error and the old path said so; parsing it is
+        # inference (ADR-003) and it is the same defect as the drifted float, just
+        # pointing the other way. `bool` is excluded for the same reason: `True` is
+        # not cell 1.
         ids = np.zeros(len(arr), dtype=np.int64)
         usable = np.zeros(len(arr), dtype=bool)
         for i, value in enumerate(arr):
-            try:
-                as_float = float(value)
-            except (TypeError, ValueError):
+            if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
                 continue
-            if np.isfinite(as_float) and as_float == int(as_float):
-                ids[i], usable[i] = int(as_float), True
+            if _INT64_MIN <= int(value) <= _INT64_MAX:
+                ids[i], usable[i] = int(value), True
         return ids, usable
 
     def _gather(self, gids) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
