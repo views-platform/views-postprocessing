@@ -237,3 +237,6 @@ appwrite_cache/
 # there first — tracking a copy here would make this repo a second source of truth
 # for a document that has one.
 CLAUDE.md
+
+# CI checks sibling repositories out here (run_pytest.yml); never ours to commit.
+_siblings/

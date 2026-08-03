@@ -42,6 +42,16 @@ ruff = ">=0.6,<1.0"
 [tool.ruff]
 target-version = "py311"
 
+# CI checks sibling repositories out into `_siblings/` so the cross-repo assertions can
+# run (see .github/workflows/run_pytest.yml). Anything invoked from the repo root then
+# walks them, and someone else's code is not ours to lint — the first run of this step
+# reported 745 findings in views-crafdapi's test suite.
+#
+# This is the THIRD tool to fall into that hole: the coordinate-value scan and the
+# partner-contact scan both did, and both were fixed by scoping to `git ls-files`.
+# A repo-root walk is no longer a safe default in this repository.
+extend-exclude = ["_siblings"]
+
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
 
