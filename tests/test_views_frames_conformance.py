@@ -1,4 +1,4 @@
-"""Conformance + parity tests for the views-frames constructors (`unfao/frames.py`).
+"""Conformance + parity tests for the views-frames constructors (`contract/frames.py`).
 
 `build_prediction_frame` / `build_target_frame` take **declared primitives** — a 2-D
 `(N, S)` value array + `(time, unit)` arrays — and build a views-frames value object. These

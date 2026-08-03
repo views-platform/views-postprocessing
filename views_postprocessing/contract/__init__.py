@@ -4,7 +4,10 @@ The repository has three top-level packages and they answer three different ques
 
     delivery/    what makes a delivery VALID   — representation-free invariants
     contract/    how a delivery is BUILT       — this package
-    unfao/       who a delivery is FOR         — one partner's product and manager
+    unfao/       who a delivery is FOR         — the FAO product and its manager
+    crafd/       who a delivery is FOR         — the CRAF'd product and its manager
+
+There is one package per partner and this package must import none of them.
 
 **Why this package exists (register C-69, #153).** Until now ~800 of `unfao/`'s
 1,001 lines were partner-neutral: the whole ADR-013 wire, the frame seam, the GAUL
@@ -17,9 +20,10 @@ reused together forced together) and it was the last structural blocker to cloni
 coming UN-agency deliveries reuse these"* and nothing in it names FAO. This package
 extends that property to the machinery.
 
-**Nothing here may import `unfao`.** That is the whole point, and it is enforced
-mechanically rather than by convention — see `tests/test_clone_readiness.py` (#155).
+**Nothing here may import a partner package.** That is the whole point, and it is
+enforced mechanically rather than by convention — see `tests/test_clone_readiness.py`
+(#155), which since #211 checks every declared partner rather than only `unfao`.
 
-What a clone supplies for itself: its product declarations, its store coordinates,
+What a partner supplies for itself: its product declarations, its store coordinates,
 and its manager. See `docs/CLONING.md`.
 """

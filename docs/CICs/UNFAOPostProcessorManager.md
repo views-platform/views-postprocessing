@@ -105,7 +105,7 @@ The following **must never** fail silently:
 - PRIO-GRID geometry details
 - The internals of how the lookup table was built
 
-This anchors the class within ADR-002 (topology): `unfao/` → `contract/` → `delivery/`, one way only. It is **the repository's only importer of `views_pipeline_core`** (mechanically pinned by `tests/test_doc_accuracy.py`), which is what makes C-40's blast radius one file wide. 406 lines as of epic #148, down from 636 — not yet *thin*, and held under a 450-line budget by the same test.
+This anchors the class within ADR-002 (topology): `unfao/` → `contract/` → `delivery/`, one way only — and since #211 the same holds for `crafd/`, the second partner package. It is one of **the repository's only two importers of `views_pipeline_core`** (both mechanically pinned to an allowlist by `tests/test_doc_accuracy.py`), which keeps C-40's blast radius at one file per partner. Not yet *thin*: it came down from 636 lines at epic #148 and now sits just under a **450-line budget**, which `tests/test_doc_accuracy.py` applies to the whole `managers/` directory of each partner rather than to this file alone — a seam that holds its line count by moving 800 lines into a sibling module has not held anything. The exact figure is deliberately not repeated here; the test carries it.
 
 ---
 

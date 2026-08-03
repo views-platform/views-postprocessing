@@ -135,17 +135,24 @@ views-postprocessing/
     │   ├── source_metadata.py       # producer (datafactory) facts
     │   ├── store_metadata.py        # prediction-store facts
     │   └── launch_config.py         # the delivery mode the launcher must declare
-    ├── unfao/                    # WHO A DELIVERY IS FOR — the only FAO-specific code
+    ├── unfao/                    # WHO A DELIVERY IS FOR — the FAO-specific code
     │   ├── product.py               # targets, consumer name, S_MIN, upload interlock
     │   ├── appwrite_env.py          # the declared store coordinates
     │   └── managers/unfao.py        # UNFAOPostProcessorManager
+    ├── crafd/                    # WHO A DELIVERY IS FOR — the CRAF'd-specific code
+    │   ├── product.py               # same three files, same shape (register C-33 on
+    │   ├── appwrite_env.py          #   why the manager is a copy, and what would
+    │   └── managers/crafd.py        #   make it time to stop copying)
     └── data/gaul_lookup.parquet  # the precomputed GAUL lookup (ADR-011)
 ```
 
-**Dependencies point one way only:** `unfao/` → `contract/` → `delivery/`. Nothing in
-`contract/` may import `unfao/` — that is what lets a new partner reuse the machinery
-without inheriting FAO, and it is enforced by `tests/test_clone_readiness.py`, not by
-convention. See [`docs/CLONING.md`](docs/CLONING.md).
+**Dependencies point one way only:** `<partner>/` → `contract/` → `delivery/`. Nothing
+in `contract/` may import a partner package — that is what lets a new partner reuse the
+machinery without inheriting another partner's product, and it is enforced by
+`tests/test_clone_readiness.py`, not by convention. The partner list lives in one place
+(`tests/conftest.py`) and is itself checked against the filesystem, so a package added
+without being declared fails rather than passing quietly.
+See [`docs/CLONING.md`](docs/CLONING.md).
 
 ---
 

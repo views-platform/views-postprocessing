@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-02                           |
-| Total Concerns    | 76                                   |
-| Open Concerns     | 17                                   |
-| Resolved Concerns | 59                                   |
+| Last Updated      | 2026-08-03                           |
+| Total Concerns    | 79                                   |
+| Open Concerns     | 19                                   |
+| Resolved Concerns | 60                                   |
 
 ---
 
@@ -32,6 +32,7 @@ covered a single open entry (see Historical clusters below).
 ### Cluster G: Inherited pipeline-core surface
 **Root cause:** this repo *is-a* pipeline-core postprocessor by double inheritance, so it inherits that project's data loader, container, store I/O, and dependency tree — defects in that surface land in FAO delivery without this repo owning the fix.
 **Entries:** C-40 (root), C-07, C-13, C-26, C-27, C-28, C-29, C-44, C-58, C-62
+**Amended 2026-08-03:** the root's defining measurement — pipeline-core imported by exactly one module — became **two** when `crafd/managers/crafd.py` landed (PR #211). The count is still pinned by an explicit allowlist, so the cluster's boundary holds; what changed is that every fix in it now has two landing sites. See C-33 for why the second copy is deliberate and what triggers its removal.
 **Highest tier:** 1 (C-26)
 **Fix strategy:** the thin-shell de-inheritance C-40 prescribes — and which is **half-built**: the sink side landed (`_ContractStorePort`, `unfao.py:37-78`) and the invariants are already pipeline-core-free modules the manager calls (`delivery/*`, `unfao/historical.py`, `unfao/wire/`). The remaining half is the **input** side (loader + `PGMDataset`), gated on pipeline-core Epic #186/#207.
 **Resolution scope:** Partial — C-26/C-27/C-28 are upstream-owned; de-inheritance makes them visible and testable, not fixed.
@@ -316,8 +317,9 @@ See also D-10 (handling decision), C-43 (the *value*-correctness sibling — run
 | ID | C-33 |
 | Tier | 2 — two to three additional Appwrite stores are planned imminently; the current design forces copy-pasting a 273-line manager per store |
 | Source | `expert-code-review` (2026-06-12) |
-| Trigger | When the second Appwrite prediction store is configured (issue #97 scoping), verify store identity comes from configuration — the env **names** are now centrally declared, but the three `AppwriteConfig` constructions, the targets list, and the category strings are still inline per-store |
-| Location | `views_postprocessing/unfao/managers/unfao.py:148-204` (`_prod_forecasts_datastore`), `:495-517` (`_unfao_datastore`/`_unfao_appwrite_config`), `:528-534` (legacy `_save`); declared names in `views_postprocessing/unfao/appwrite_env.py` |
+| Trigger | **Fired 2026-08-03 — see the update below.** The remaining trigger is the *extraction* one, and it is now named: a **third** in-repo partner package, **or** the first bug that must be hand-patched identically in both manager files — whichever comes first. |
+| Owner | Whoever adds the third partner package, or hits the first double-patch. Until one of those happens the duplication is the deliberate WET position, not a task anyone is behind on. |
+| Location | `views_postprocessing/<partner>/managers/<partner>.py` — `_prod_forecasts_datastore`, `_<partner>_datastore`, `_<partner>_appwrite_config`, and the four hardcoded `os.getenv("APPWRITE_<PARTNER>_*")` literals inside the last of those; declared names in each partner's `appwrite_env.py`. **Symbols, not line numbers** — see the note under the measurement below. |
 
 Mitigation: a small `DeliveryProfile` (bucket/collection/database ids, category, targets) passed to the manager — one manager class, N store configs. Scheduled **after** the FAO global delivery ships (D-09); the only immediate action is deleting the commented-out config blocks at lines 80-107, which are a mis-uncomment hazard during deadline work.
 
@@ -327,7 +329,38 @@ Mitigation: a small `DeliveryProfile` (bucket/collection/database ids, category,
 3. **Partially mitigated by þing-01 #134.** `unfao/appwrite_env.py` now declares the env **names** centrally (`CONNECTION_ENV`, `PROD_FORECASTS_ENV`, `UNFAO_ENV`) and validates them fail-loud before every `AppwriteConfig` construction, following the PLATFORM-001 coordinate registry. Names are no longer scattered string literals. **What is still hardcoded is store *identity*** — which names apply to which store, the targets list, and the category strings — so the `DeliveryProfile` case stands. Tier held at 2.
 4. **The deferral condition has expired**: D-09 scheduled this "after the FAO global delivery ships." It shipped 2026-07-27. Ready for the "calm 1-day job" whenever #97 scoping lands.
 
-See also C-24 (schema contract per store), D-09 (the deferral, now expired), #97 (second-store scoping).
+**Update 2026-08-03 (PR #211) — the thing this entry warned about has happened, and it is being kept on purpose.**
+
+This entry's own Tier-2 rationale was that the design *"forces copy-pasting a 273-line manager per store."* PR #211 added `views_postprocessing/crafd/` — a second partner package whose `managers/crafd.py` is a **line-for-line copy** of `unfao/managers/unfao.py`. Measured with
+
+    diff views_postprocessing/unfao/managers/unfao.py \
+         views_postprocessing/crafd/managers/crafd.py | grep -c '^[<>]'
+
+**32** — sixteen differing lines on each side. Substitute every form of the partner name (case-insensitively, including `un_fao`/`un_crafd` and `faoapi`) and it falls to **2**: one line per side.
+
+The sixteen are, by category: one import, one class name, two partner-named method definitions, their two call sites, one refusal-message string, one line that is *both* the `*_ENV` tuple reference and the store label, the four env-name literals, and four lines of prose.
+
+**None of the difference is behaviour, but "byte-identical" is too strong for one method.** `_read`, `_transform`, `_validate`, `_check_coverage` and `_build_historical_artifact` are byte-identical. `_save_contract` is not: five of the sixteen fall inside it — the datastore call, two comments, and the refusal string. All five are partner-name substitutions; none changes what the method does.
+
+*(**This paragraph was wrong five times, and how it was wrong is the entry's most useful content.** (1) "roughly ten lines", carried from the review that found it and never measured. (2) A normalised count of 4 and a claim that `_save_contract` was byte-identical, neither checked. (3) A story that #211 "fixed two divergences that already existed" — false: at `9799e87` the second line was **byte-identical in both files**, an inherited inaccuracy rather than a divergence, and rewording CRAF'd's copy is what *created* a divergence there. Only the `:222` pair was real. (4) and (5) An exact list of sixteen line numbers and a line count, invalidated twice within the hour by comment corrections elsewhere in the same file.*
+
+*The fix was not a sixth careful re-count. **Neither this measurement nor any `Location` field in C-33, C-40, C-77 or C-79 states a line number any more** — they name symbols, which grep can find and which survive an edit above them. There was a sixth failure, and it is why: a draft of this very paragraph announced that the entry "no longer states line numbers" while its own `Location` row still carried six, every one of them shifted by four lines by a comment correction made in the same commit. `tests/test_doc_accuracy.py` had already written the rule down — "The FILE is the claim; the line number is not." A count a reader relies on is a claim under ADR-014 §1, and each of these six was written by someone who believed it.)*
+
+**The duplication is the right call today, and this is the record that says why.** CLAUDE.md's WET rule asks for a *second incident* before extracting, and this is genuinely it: one implementation showed nothing, two show that the seam is trivial — a partner-config object, not a behavioural one. The two candidate abstractions are both worse than the copy. A shared base class would stack a second, repo-owned Template Method under pipeline-core's imposed one, producing a three-tier inheritance chain to deduplicate ~10 lines; it would also have to live somewhere, and `contract/` is pinned pipeline-core-free by `tests/test_clone_readiness.py`. A factory solves a dispatch problem this system does not have — each partner is wired explicitly by its own launcher config, and nothing selects a manager class at runtime.
+
+**What was missing was the trigger, and ADR-014 §4 says a deferral without one is not a deferral.** It is now in the Trigger field above. Both halves matter: a *third* package is the point at which "two copies you can hold in your head" becomes sprawl, and the *first double-patched bug* is the point at which the copies start costing correctness rather than bytes.
+
+**Drift is the live risk, and both directions of it showed up immediately.**
+
+*A real divergence the copy created.* At `9799e87`, `unfao/managers/unfao.py:222` named the artifact builder as `unfao/historical.py` — a path retired by #153 — while the fresh copy said `contract/historical.py` and was correct. **The clone silently fixed a stale reference in the original and the fix never propagated back.** #211 fixed the original too.
+
+*An inherited inaccuracy that was not a divergence — until fixing it made one.* Both files carried *"same artifact shape faoapi already ingests"*. Identical, so no diff flagged it; wrong for CRAF'd, whose consumer is not faoapi. #211 reworded CRAF'd's copy, which is correct for both files and **puts that line into the raw diff for the first time**. A copy can therefore drift by being corrected, and a rising count is not by itself evidence of anything going wrong.
+
+Both were prose, both were harmless, and together they are how a 16-line diff becomes a 40-line one — in under a day, with no contributor doing anything careless. #211 also extended the line-budget guard (`tests/test_doc_accuracy.py`) to cover **both** managers rather than only `unfao.py`, which had left the second copy of the file epic #148 shrank from 636 lines with no regrowth protection at all.
+
+**What this does not license.** The four env-name literals in `_<partner>_appwrite_config` duplicate names that `appwrite_env.py` already declares as data, in both files. Removing that is not an abstraction and does not wait for the trigger — it is not encoding the partner's identity twice in the same package. Left as a follow-up rather than folded into #211, which is a partner-addition PR.
+
+See also C-24 (schema contract per store), C-77 (the fourth home for partner identity, in the duplicated `name=` argument of the historical upload), D-09 (the deferral, now expired), ADR-014 §4 (a deferral needs a trigger and an owner), #97 (second-store scoping), #211.
 
 ---
 
@@ -339,7 +372,7 @@ See also C-24 (schema contract per store), D-09 (the deferral, now expired), #97
 | Tier | 2 |
 | Source | `expert-code-review` (2026-06-24) |
 | Trigger | **(a) Upstream change:** when pipeline-core changes `PGMDataset` / the data loader / the postprocessor base (mid-migration: their #186/#188/#161), verify the inherited surface this repo depends on still holds. **(b) Standing work item:** the input-side de-inheritance (the sink side landed — see the 2026-07-31 update) — schedule it, don't wait for a trigger. |
-| Location | `views_postprocessing/unfao/managers/unfao.py:80` (double inheritance); `:148-204`, `:495-534` (inline env/AppwriteConfig/DatastoreModule); `:276-287` (`_append_metadata`), `:300-349` (`_validate`); DIP sink adapter at `:37-78` (`_ContractStorePort`) |
+| Location | `views_postprocessing/<partner>/managers/<partner>.py` — the `class <PARTNER>PostProcessorManager(PostprocessorManager, ForecastingModelManager)` statement (double inheritance); `_prod_forecasts_datastore`, `_<partner>_datastore`, `_<partner>_appwrite_config` (inline env/AppwriteConfig/DatastoreModule); `_validate` and `_check_coverage`; the DIP sink adapter `_ContractStorePort`. **Since 2026-08-03 all of it exists twice** — `unfao` and `crafd` are the same file with the partner name changed (C-33). Symbols rather than lines, deliberately: an earlier version of this row was invalidated by a comment edit four lines long. |
 
 `UNFAOPostProcessorManager` subclasses **two concrete** pipeline-core base classes (`PostprocessorManager`, `ForecastingModelManager`) and **interleaves infrastructure** (env reading, `AppwriteConfig` construction, `DatastoreModule`, path resolution) with the FAO **business logic** (GAUL enrichment, the 9-column null gate) inside the lifecycle hooks. Consequences: (a) the FAO logic cannot be instantiated or unit-tested without the full framework + Appwrite env + viewser; (b) **pandas cannot leave the delivery path** because the inherited data loader and `PGMDataset` are pandas — gated on pipeline-core's own DataFrame retirement; (c) **SDP exposure** — heavy *inheritance* coupling to a pipeline-core that is itself unstable (mid-migration), so upstream changes break far from their cause (cf. C-27, C-29); (d) it's the repo's only composition-over-inheritance violation. The dependency itself is correct (`unfao.py` genuinely *is* a pipeline-core postprocessor) — the issue is its **blast radius**. Mitigation (does **not** fight the Template-Method framework): keep the subclass as a **thin shell** but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager *calls*, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP). This makes the FAO logic testable standalone and insulates it from pipeline-core churn.
 
@@ -369,7 +402,15 @@ See also C-24 (schema contract per store), D-09 (the deferral, now expired), #97
 
 *Did:* the surrounding surface shrank sharply. The manager is **406 lines** (from 636); it imports neither pandas nor `PGMDataset`; the partner-neutral machinery moved out to `contract/` (#153); and **`views_pipeline_core` is still imported by exactly one module — this one — now pinned mechanically** by `tests/test_doc_accuracy.py` and `tests/test_clone_readiness.py`. That property is what keeps this entry's blast radius one file wide, and it is no longer a claim anyone has to re-check by hand.
 
-*Did not:* the double inheritance at `unfao.py:80` stands, and so do consequences (a) — the FAO logic still cannot be instantiated without the framework — and (c)/(d). **This entry remains open on exactly that scope.** Its remaining fix is gated on views-pipeline-core's 3.0.0 (C-44/C-62), which is a release signal rather than engineering work.
+**⚠ Superseded 2026-08-03 (PR #211): "exactly one module" is now exactly TWO.** `views_postprocessing/crafd/managers/crafd.py` is the second, and it imports the same `views_pipeline_core.modules.{appwrite,datastore}` surface at the same lines. The claim above was true when written and is left visible rather than edited away, per ADR-014 §5.
+
+**What actually changed, and what did not.** The blast radius is no longer *one file wide* — it is **one file, twice**, which is a different and slightly worse property: an upstream change now has two identical landing sites and no mechanism guarantees they are patched together (C-33). What did **not** change is the more important half: the count is still **bounded and pinned**. `test_views_pipeline_core_is_confined_to_the_partner_managers` (renamed in #211 — it had asserted *two* under a name that said *one*) was widened to an explicit allowlist, not deleted, so a *third* importer still fails CI. Every other module in the repository remains pipeline-core-free, including the whole of `contract/` and `delivery/`, and `tests/test_clone_readiness.py` still proves the machinery imports in a subprocess without it.
+
+**On þing-02 S24(5).** `docs/CLONING.md` cited that verdict as forbidding these imports outright. Reading it directly (`þingit/02_credential_identity_key_ownership/sáttmál.md:240-242` — precondition (5) itself; the section opens at `:232` under the heading *"§5 — The clone (`un-crafdapi`)"* — and `orð_dómr.md:418-441`), it binds *"the clone"* — `un-crafdapi` and `views-productionapi`, repositories **git-cloned from views-faoapi** — and does not reach an in-repo partner package of the producer. CLONING.md over-claimed; PR #211 corrects the citation rather than weakening the rule. This entry's own scope is unaffected: the coupling is a design concern here regardless of what the verdict binds, and issue **#146**'s deferred unwind now covers two files instead of one.
+
+Tier held at 2. The residual scope — the double inheritance and the framework-bound instantiation — is unchanged, and is still gated on views-pipeline-core 3.0.0 (C-44/C-62).
+
+*Did not:* the double inheritance (the `class UNFAOPostProcessorManager(...)` statement — this row cited `unfao.py:80` when written, and that number has moved twice since) stands, and so do consequences (a) — the FAO logic still cannot be instantiated without the framework — and (c)/(d). **This entry remains open on exactly that scope.** Its remaining fix is gated on views-pipeline-core's 3.0.0 (C-44/C-62), which is a release signal rather than engineering work.
 
 See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper cleanup that precedes any unfao restructuring), **#45** (the delivery-side draw carrier — ship `(N, S)` uncollapsed as a native frame, the producer half of this same problem), and **epic #85** (the migration backlog).
 
@@ -578,6 +619,62 @@ Cross-refs: **C-59** and **C-61** (RESOLVED — the invariant block this sits be
 
 ---
 
+
+
+---
+
+### C-79: `_ContractStorePort.upload`'s result check is called "the whole mechanism" and has no test, and it fails open
+
+| Field | Value |
+|-------|-------|
+| ID | C-79 |
+| Tier | 3 — the check works today and is correct for what the store actually returns, so nothing is shipping wrong. What is missing is any assertion that it keeps working, plus a polarity that would swallow an unrecognised result rather than refuse it. |
+| Source | `code-review max` (2026-08-03) — PR #211 fourth pass, while verifying the corrected comment beside it |
+| Trigger | When views-pipeline-core changes what `DatastoreModule.upload_data` returns — a different result type, a renamed field, or a raise where it used to report — check this port still refuses a partial upload. The 3.0.0 bump (C-44) is the next occasion. |
+| Owner | Whoever takes the pipeline-core 3.0.0 bump; it is the same reading of the same return contract. |
+| Location | `_ContractStorePort.upload` in `views_postprocessing/unfao/managers/unfao.py` and `views_postprocessing/crafd/managers/crafd.py` (byte-identical in both) |
+
+The port exists because the store **reports** a metadata failure without raising: after the file is uploaded it logs, then returns `OperationResult(success=False, code="PARTIAL_SUCCESS")`. A caller that discards the result ships a file with no metadata document — invisible to the consumer, which is what happened to run-0's historical artifact on 2026-07-27. This check is what converts that into a refusal.
+
+**Two things are wrong with how it is held.**
+
+*It is untested.* `grep -rn _ContractStorePort tests/` returns exactly one hit, in a docstring in `tests/test_selection_guard.py` noting that the port is **not** asserted. So the code the comment beside it calls *"the whole mechanism"* is carried by no check at all — ADR-014 §1, in the file that this change edited to say so.
+
+*It fails open.* The refusal is `if success is False`, and `success` is resolved by `getattr(result, "success", None)` with a `to_dict()` fallback. A result object that is neither shape yields `None`, which is not `False`, so the upload is accepted. That is the wrong polarity for a repository whose ADR-003 forbids inferring what should be declared: an unrecognised result is exactly the case where refusing is cheap and guessing is not. The `to_dict()` branch is also dead on the real path — `OperationResult` has a `success` attribute — so it is untested code guarding an untested case.
+
+Neither is urgent, because `OperationResult.success` is typed `bool` and is never `None` today. Both become live the moment the return contract moves, which is precisely when nobody will be looking at this file.
+
+Cross-refs: **C-40** (the pipeline-core surface this port wraps), **C-44** (the 3.0.0 bump that is the named trigger), **C-77** (the other unguarded thing on the same delivery leg), ADR-014 §1, #211, #146.
+
+---
+
+### C-77: The historical leg names its document from the model path, not from the declared consumer name — and nothing checks the two agree
+
+| Field | Value |
+|-------|-------|
+| ID | C-77 |
+| Tier | 2 — structural fragility with a clear trigger, affecting **both** partners. Not Tier 1: the failure is a document the consumer cannot find, not a wrong value inside one. But it is the **F1 invisibility shape** — ADR-013 §4.1a, the defect that left six `orange_ensemble` forecast documents stranded in `unfao_bucket` while forecast serving read empty for months. Nobody notices a delivery that simply is not there. |
+| Source | `code-review max` (2026-08-03) — PR #211, cross-checking the crafd producer against the views-crafdapi consumer |
+| Trigger | When a postprocessor's directory is renamed in views-models, or a new partner package is added whose directory name differs from its `CONSUMER_DOCUMENT_NAME` — check that the historical artifact is still retrievable by the consumer's filter. The forecast leg will keep working, so a green delivery run is not evidence. |
+| Owner | Whoever takes the guard. It is a one-line assertion plus a test, not a design decision — but it must be taken deliberately, because the current agreement is a coincidence nobody has written down. |
+| Location | The historical-artifact upload in `views_postprocessing/<partner>/managers/<partner>.py` — the call passing `name=self._model_path.model_name`, in `_save_contract`. For contrast, the correct leg is the `consumer_name=product.CONSUMER_DOCUMENT_NAME` argument a few lines above, which reaches the wire as `common["name"]` in `contract/wire/sink.py::deliver_run`. |
+
+The forecast leg is right. It threads the declared constant through: the manager passes `consumer_name=product.CONSUMER_DOCUMENT_NAME` into `deliver_run`, which sets `common = {"name": consumer_name, ...}`. One declaration, carried to the wire as a parameter — the shape C-69 credited as already correct.
+
+**The historical-actuals leg does not use that constant at all.** It passes `name=self._model_path.model_name` — a value that comes from the postprocessor's *directory name* in views-models, not from any declaration in this repository. The consumer filters on exactly the string this repo declares: `filters["name"] = self.model_path.model_name`, where the path manager is constructed as `APIPathManager("un_crafd")`.
+
+**For FAO the two agree; for CRAF'd nobody can yet say.** `views-models/postprocessors/` contains `un_fao` and nothing else — there is **no `un_crafd` postprocessor directory**, so CRAF'd's historical `name=` has never been resolved, let alone compared against its consumer's filter. That makes this worse rather than better: for the live partner the agreement is a coincidence nobody wrote down, and for the new one it is an assumption that will first be tested by a production run. Whoever creates that directory decides, without knowing it, whether CRAF'd's actuals are retrievable.
+
+**Nothing in this repository asserts they agree.** `tests/test_product.py` asserts `CONSUMER_DOCUMENT_NAME` for the forecast leg; `tests/test_hop_b_sink_e2e.py` checks `consumer_name` on the forecast leg. Neither touches the historical leg's `name=`. A rename of the views-models directory — an ordinary, plausible act, done in a different repository by someone who has never read this file — silently detaches the historical artifact from the consumer's filter while every test here stays green and every delivery run reports success.
+
+This is ADR-003's rule broken in the quiet direction: the delivery **infers** its consumer identity from a path instead of reading the declaration that exists three lines away. It is also the fourth home for partner identity, where C-69's 2026-07-31 note counted three and recommended consolidation rather than relocation. Consolidation did not reach this line.
+
+**Scope note:** the crafd package inherited this unchanged from `unfao`; PR #211 did not introduce it, it doubled it. Registering it against both partners rather than against the PR.
+
+Cross-refs: **C-01** (RESOLVED — the metadata-completeness gate; same partner, same delivery, different field), **C-69** (RESOLVED — "partner identity has THREE homes"; this is the fourth and the note's consolidation recommendation is the fix), **C-33** (the duplication that turned one instance into two), ADR-013 §4.1a (F1 invisibility), ADR-003 (declarations over inference), #211.
+
+---
+
 ## Disagreements
 
 ### D-12: Post-Run-0 infrastructure & naming intents — repo rename, internal-store transport, compute co-location
@@ -645,6 +742,29 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-78: A partner package without an `__init__.py` is invisible to the guard that inventories them — RESOLVED same day
+
+| Field | Value |
+|-------|-------|
+| ID | C-78 |
+| Tier | 4 — FIXED in the same change that found it; recorded because the *reasoning* is what future guards need, not because work is outstanding. No delivery was ever affected. |
+| Source | `code-review max` (2026-08-03) — PR #211 second pass, attacking the new scope guard |
+| Trigger | When a future guard inventories the package tree, check what it uses as its "is this a package" test. If it asks for `__init__.py`, it disagrees with every other scan in this suite and with the repository's own root. |
+| Owner | Discharged. |
+| Location | `tests/test_clone_readiness.py` (the criterion); `views_postprocessing/` (which has no `__init__.py` of its own) |
+
+`test_the_declared_partner_list_is_the_real_one` was written to stop a partner package going unguarded — the defect that let `crafd/` land exempt from at least seven checks — the four `tests/conftest.py` enumerates, plus the three product pins (`TARGETS`, `S_MIN`, `UPLOAD_ENABLED`) that `tests/test_product.py` held for FAO alone. Its first draft asked for a directory containing `__init__.py`.
+
+**`views_postprocessing/` has no `__init__.py`.** The distribution root is already a PEP 420 namespace package, so the guard applied to its children a test its own parent fails. Verified by building a partner package without one, carrying three real defects — `UPLOAD_ENABLED = True` (ADR-013 §11.4), a wrong `CONSUMER_DOCUMENT_NAME` (§4.1a), and a live `load_dotenv` (þing-01 #134) — and running the full suite: **green**. Adding one empty `__init__.py` to the identical tree made the guard fire. It imported and ran fine at runtime throughout.
+
+The criterion is now "contains at least one `.py`, and is not `__pycache__`", which is what the suite's eight other tree scans effectively use (`rglob("*.py")`). The same review found `MACHINERY_PACKAGES` was validated against nothing — a stale name there **pre-classifies** any future package that takes it, and `reconciliation` (C-47's phantom) is exactly such a name. Both lists are now checked against disk.
+
+**One correction to C-47 while here.** That entry's Tier-4 rationale says the phantom directory was *"not importable (no `__init__.py`, no sources)"*. Under PEP 420 that reasoning is wrong: a directory with no `__init__.py` and no sources still imports as a **namespace package** whose `__path__` points at it — only its submodules fail. Reproduced on a copy of the tree. The directory itself was deleted by #177 on 2026-08-01, so nothing is importable today and the tier stands; what does not stand is the reason given for it. The harm C-47 actually recorded — *"misleading tools that inventory the tree"* — is precisely what this entry is about.
+
+Cross-refs: **C-47** (the phantom directory, and the corrected rationale above), **C-57** (a guard scoped by name missing the second subject — the same disease, one file over), **C-74** (a guard whose declared roots stopped existing), ADR-014 §2, #211.
+
+---
 
 ### C-22: No post-delivery correction process for wrong assignments — RESOLVED (procedure written; the partner-facing step is an open OPERATOR decision)
 
@@ -833,7 +953,7 @@ A second, smaller instance of the same shape: these checks parse TOML with `toml
 | Tier | 3 |
 | Source | `manual` (2026-07-31) — review-rr blind-spot analysis, following the þing-01 verdict (`orð_dómr.md`, ratified as amended 2026-07-28) |
 | Trigger | When views-appwrite amends `coordinate_registry.toml` — renames a coordinate, retires the legacy secret slot in favour of `APPWRITE_{READ,WRITE,PROVISION}_API_KEY`, or adds a target — verify `views_postprocessing/unfao/appwrite_env.py` still matches. Nothing mechanical will tell you: the registry is deliberately **referenced, never copied**, and the two live in different repositories |
-| Location | `views_postprocessing/unfao/appwrite_env.py` (`CONNECTION_ENV`, `PROD_FORECASTS_ENV`, `UNFAO_ENV`); views-appwrite `docs/ADRs/platform/coordinate_registry.toml` (the authority); `tests/test_env_declaration.py` (guards this repo's half only); `docs/ADRs/013_sampled_forecast_wire_contract.md` §7(d) (the URL reference) |
+| Location | `views_postprocessing/unfao/appwrite_env.py` (`CONNECTION_ENV`, `PROD_FORECASTS_ENV`, `UNFAO_ENV`) and `views_postprocessing/crafd/appwrite_env.py` (`CRAFD_ENV`) — see the 2026-08-03 amendment; views-appwrite `docs/ADRs/platform/coordinate_registry.toml` (the authority); `tests/test_env_declaration.py` (guards this repo's half only); `docs/ADRs/013_sampled_forecast_wire_contract.md` §7(d) (the URL reference) |
 
 The þing-01 assembly (D1) settled that the PLATFORM-001 contract is **homed in views-appwrite and referenced by URL, never by copy** — a deliberate and correct choice: copies were the platform's original disease (sáttmál S6, the copy-chain this repo's own `load_dotenv` borrow was the runtime edge of, killed in #134/PR #137). But referencing-not-copying moves the failure mode rather than removing it: **the registry can now change without this repo noticing.**
 
@@ -844,6 +964,15 @@ Two named changes are already anticipated and will fire this trigger: the **reti
 **Deliberately out of scope here:** the þing-01 redaction clause is mechanically enforced (`tests/test_redaction_guard.py` — the delivery modules stay credential-blind and the provenance description is a closed keyset), and D2's ruling that **integration tests against the production Appwrite project are FORBIDDEN** (no non-production project exists) is a standing prohibition, not a drift risk.
 
 **⚠ CORRECTED 2026-08-02, then restored the same day.** The word *already* above overclaimed at the time: **C-74** showed that guard scanning one of its five declared roots, four having pointed at paths #153 moved. **C-74 closed later that day (S10 / #192)** — the roots are re-pointed, the scan covers 17 files, and a declared root that does not exist now fails rather than emptying the scan silently. The sentence above is true again, and the episode is left visible because a claim that was false for two days is worth more as a record than as a correction quietly reverted.
+
+**⚠ AMENDED 2026-08-03 (PR #211) — the detector was built for one partner, and the second partner proved it.** Two corrections to the resolution above, and one of them is the same disease in the cure.
+
+1. **The pin quoted above is stale.** `SEAM_CONTRACT_VERSION = "1.3.0"` / `SEAM_CONTRACT_COMMIT = "47172af"` was accurate when written on 2026-08-02; the registry then moved twice in under twelve hours — to v1.4.0 (`4a5ab1b`, reaching `main` as `20dfd0f`, 2026-08-02 18:45) and to v1.4.1 (`0da2682`, reaching `main` as `5266b90`, 2026-08-03 02:52) — and `unfao/appwrite_env.py` was re-pinned each time. This repo's current pin, `90fc105`, is **neither** of those commits: it is a later views-appwrite merge that does not touch the registry at all. That is correct and intended — a pin names *an edition of `main` that was read*, not the commit that changed the file — but the two must not be written as though they were the same thing. The values are left above as the worked example they were written to be, but they are no longer what the file says.
+2. **The detector was scoped to `unfao` by name and did not follow the second partner.** `tests/test_env_declaration.py` imported only `views_postprocessing.unfao.appwrite_env`; a grep for `crafd` in it returned zero. So when PR #211 added `views_postprocessing/crafd/appwrite_env.py` pinned at **`1.3.0` / `47172af`** — an edition at which all four `APPWRITE_CRAFD_*` coordinates were declared with **no value**, and which predates the very views-appwrite PR #38 that the file's own docstring cites as its justification — **nothing failed.** Had this entry's own **version** check covered crafd, that pin would have failed **locally** the moment it was written. Not CI: the check opens with `require_sibling("views-appwrite")` and skips without a checkout, and the workflow checks out only this repository — which is this entry's own standing Residual, below. Note which half does the work: the *reachability* check would have passed, because `47172af` is a perfectly good ancestor of views-appwrite's `main`. Existence and reachability were both satisfied by a pin that was nonetheless two editions out of date — which is precisely why the version check exists alongside them rather than instead of them.
+
+This is ADR-014 §2 in its narrow form: a guard's *scope* is part of what has to be mutation-proven, not just its matching. The four checks were each proven to fail on the defect they were written for, against `unfao` — and stayed silent on an identical defect one package over. Same shape as **C-74**, one layer up: there the declared scan roots stopped existing; here the declared scope never grew.
+
+PR #211 re-pins crafd to `1.4.1` / `90fc105` and parameterises **three** of the four checks over both partner declarations — names-and-class, pinned edition, commit reachability. The fourth, the value-copy scan, was never partner-scoped: it walks `_PKG.rglob("*.py")` and so covered `crafd/` from the day it landed. A third partner is now a one-line addition, and an unguarded one is a failure. This entry stays RESOLVED — the mechanism was right, its reach was not — but the residual below now has a companion: a detector that names its subject is a detector that will miss the next subject.
 
 Cross-refs: C-74 (the guard this paragraph vouched for), C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
 

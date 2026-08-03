@@ -32,6 +32,34 @@ import pytest
 
 _REPO = Path(__file__).resolve().parent.parent
 
+#: The partner packages under ``views_postprocessing/``, DECLARED (ADR-003) — and
+#: declared **once**, because the alternative is what #211 exposed.
+#:
+#: **Eight** separate guards named ``"unfao"``, and when ``crafd/`` landed all eight
+#: went on passing over a package they did not cover:
+#:
+#:   the import-purity subprocess · the ADR-002 direction check · the manager line
+#:   budget · the coordinate-drift check · the þing-01 dotenv guard · and the three
+#:   product pins (``TARGETS``, ``S_MIN``, ``UPLOAD_ENABLED``)
+#:
+#: So ``contract/`` could import ``crafd``; the second manager had no budget; a registry
+#: pin two editions stale failed nothing; the retired ``load_dotenv`` borrow could be
+#: reintroduced in the new manager; and nothing asserted the new partner's consumer
+#: document name — the one field whose failure mode is a delivery nobody can find.
+#:
+#: A partner list per guard is eight places to forget the next partner; this is one.
+#: (An earlier version of this comment said four. It was written by counting the guards
+#: that had already been fixed.)
+#:
+#: ``tests/test_clone_readiness.py::test_the_declared_partner_list_is_the_real_one``
+#: checks this against the filesystem, so the declaration cannot quietly go stale
+#: either — ADR-014 §2: where a guard's inputs are declared, assert they are real.
+PARTNER_PACKAGES = ("unfao", "crafd")
+
+#: The partner-neutral packages. The split is two-sided: a new top-level package is
+#: either a partner or machinery, and the same test refuses to let it be neither.
+MACHINERY_PACKAGES = ("contract", "delivery")
+
 #: repo name -> the environment variable that overrides its location.
 #: Declared, never derived from the name: ``views-datafactory`` → ``VIEWS_DATAFACTORY``
 #: happens to be mechanical, but a future sibling need not follow the pattern and
@@ -39,6 +67,24 @@ _REPO = Path(__file__).resolve().parent.parent
 SIBLING_ENV = {
     "views-datafactory": "VIEWS_DATAFACTORY",
     "views-appwrite": "VIEWS_APPWRITE",
+    "views-faoapi": "VIEWS_FAOAPI",
+    "views-crafdapi": "VIEWS_CRAFDAPI",
+}
+
+#: partner package -> the repository that CONSUMES its delivery.
+#:
+#: Declared, never derived. ``unfao`` → ``views-faoapi`` and ``crafd`` →
+#: ``views-crafdapi`` are not a pattern a rule could produce, and the þing records call
+#: the second one ``un-crafdapi`` while the repository on disk is ``views-crafdapi`` —
+#: exactly the kind of near-miss that makes guessing expensive.
+#:
+#: This exists so the consumer-document-name pin can be checked **across the seam**
+#: rather than asserted locally. A name this repo declares and the consumer filters on
+#: is a fact this repo does not own; declaring it here is right, but only the sibling
+#: checkout can confirm it still matches (ADR-014 §1 — the guarantee needs a check).
+CONSUMER_REPO = {
+    "unfao": "views-faoapi",
+    "crafd": "views-crafdapi",
 }
 
 
@@ -59,6 +105,30 @@ def sibling_repo(name: str) -> Path | None:
     override = os.environ.get(SIBLING_ENV[name])
     candidate = Path(override) if override else _REPO.parent / name
     return candidate if candidate.exists() else None
+
+
+def broken_sibling_overrides() -> dict[str, str]:
+    """Declared sibling variables that are SET but point at nothing.
+
+    A typo'd override is an operator error, not a normal absence: someone set the
+    variable because they meant to run those checks, and returning ``None`` turns the
+    typo into permanent, invisible non-coverage of every cross-repo assertion this repo
+    has. ``test_no_sibling_override_points_at_a_missing_path`` fails on it.
+
+    **This is deliberately not a raise inside ``sibling_repo``.** It was, for about an
+    hour. Three modules resolve a sibling at import time (``test_delivery_coverage``,
+    ``test_datafactory_deploy_readiness``, ``test_gaul_lookup_fidelity``), so raising
+    there turned a one-character typo in ``VIEWS_DATAFACTORY`` into
+    ``Interrupted: 3 errors during collection`` and **zero tests run** — trading silent
+    under-coverage for total loss of the suite. One clean failure says the same thing
+    and lets the other 360 tests report.
+    """
+    return {
+        var: value
+        for var in SIBLING_ENV.values()
+        for value in [os.environ.get(var)]
+        if value and not Path(value).exists()
+    }
 
 
 def require_sibling(name: str) -> Path:

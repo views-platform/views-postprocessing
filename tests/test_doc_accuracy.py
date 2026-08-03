@@ -20,6 +20,10 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
+from tests.conftest import PARTNER_PACKAGES as _PARTNER_PACKAGES
+
 _REPO = Path(__file__).resolve().parent.parent
 _PKG = _REPO / "views_postprocessing"
 
@@ -136,8 +140,19 @@ def test_internal_doc_links_resolve():
 # module" while pandas lived in three. Both drifted the same way and neither was
 # caught by reading. These make the claims fail CI instead.
 
-_MANAGER = _PKG / "unfao" / "managers" / "unfao.py"
-_MANAGER_LINE_BUDGET = 450  # epic #148's bound; 406 at close, 636 before #149
+#: Every partner's manager directory, derived from the one declared partner list.
+#:
+#: **This was a hardcoded 2-tuple until 2026-08-03 and it was the last such list in the
+#: suite.** Fifteen guards parametrise over ``PARTNER_PACKAGES``; this one did not, so a
+#: third partner with a **906-line** manager passed the budget while failing everything
+#: else — and nothing in those failures named the list it was missing from. That is
+#: register C-57's shape surviving inside the file that documents C-57's fix.
+_MANAGER_DIRS = tuple((_PKG / p / "managers") for p in _PARTNER_PACKAGES)
+
+#: epic #148's bound; 406 at close, 636 before #149. Applied to the manager *directory*,
+#: not the manager file: an 800-line helper module beside a 406-line manager was
+#: previously unbudgeted, which is the same regrowth wearing a different filename.
+_MANAGER_LINE_BUDGET = 450
 
 
 def _is_type_checking(test: ast.expr) -> bool:
@@ -217,7 +232,7 @@ def test_pandas_is_not_imported_at_runtime_anywhere_in_the_package():
     )
 
 
-def test_views_pipeline_core_has_exactly_one_importer():
+def test_views_pipeline_core_is_confined_to_the_partner_managers():
     """ADR-012's 'Pipeline Manager' row, and C-40's blast-radius claim.
 
     This property is what makes the C-40 de-inheritance a bounded job rather than an
@@ -228,36 +243,129 @@ def test_views_pipeline_core_has_exactly_one_importer():
         for f in _PKG.rglob("*.py")
         if "views_pipeline_core" in f.read_text()
     )
-    assert importers == ["unfao/managers/unfao.py"], (
-        f"views_pipeline_core is imported by {importers}. ADR-012 and register C-40 both "
-        "state it is one file wide; a second importer widens C-40's blast radius."
+    assert importers == ["crafd/managers/crafd.py", "unfao/managers/unfao.py"], (
+        f"views_pipeline_core is imported by {importers}. ADR-012 and register C-40 state it "
+        "is confined to the per-partner manager seam — one file per delivery (unfao, crafd). "
+        "An importer OUTSIDE those managers widens C-40's blast radius; a new partner manager "
+        "is expected and joins this list."
     )
 
 
-def test_the_manager_stays_within_its_line_budget():
-    """ADR-012 no longer calls the manager 'thin' — it states a number. Hold it."""
-    lines = len(_MANAGER.read_text().splitlines())
+@pytest.mark.parametrize("managers_dir", _MANAGER_DIRS, ids=lambda p: p.parent.name)
+def test_the_manager_stays_within_its_line_budget(managers_dir):
+    """ADR-012 no longer calls the manager 'thin' — it states a number. Hold it.
+
+    Counts every ``.py`` under the partner's ``managers/`` directory. The bound is on
+    the *seam*, and a seam that stays at 406 lines by moving 800 into a sibling module
+    has not stayed anywhere.
+    """
+    assert managers_dir.is_dir(), (
+        f"no managers/ directory at {managers_dir.relative_to(_PKG.parent)}. A budget "
+        "over a path that stopped existing counts nothing and reports success."
+    )
+    sources = sorted(managers_dir.rglob("*.py"))
+    lines = sum(len(f.read_text().splitlines()) for f in sources)
     assert lines <= _MANAGER_LINE_BUDGET, (
-        f"the manager is {lines} lines, over epic #148's {_MANAGER_LINE_BUDGET} bound. "
+        f"{managers_dir.parent.name}'s managers/ is {lines} lines across "
+        f"{[f.name for f in sources]}, over epic #148's {_MANAGER_LINE_BUDGET} bound. "
         "It was 636 before #149 and is the repo's one known dumping ground — growth "
         "here is the regression that epic existed to reverse."
     )
 
 
-def test_contract_package_does_not_import_the_partner():
-    """The dependency direction ADR-002 declares: unfao/ -> contract/ -> delivery/."""
+def _imported_subpackages(source: str, module_path: Path) -> set[str]:
+    """Every ``views_postprocessing.<X>`` this module imports — all four spellings.
+
+    **Regexes were tried twice here and escaped twice.** A pattern that matched
+    ``from views_postprocessing.contract import x`` missed ``from ..contract import x``;
+    widened for that, it still missed ``from views_postprocessing import contract``,
+    because the optional ``views_postprocessing.`` group requires the dot. Both are
+    ordinary module-level imports. A third spelling, ``import views_postprocessing.x``,
+    needed its own alternative. Meanwhile the pattern fired on a docstring that merely
+    *spelled* a forbidden import — cry-wolf on prose while missing real code, which is
+    the worst of both (ADR-014 §2, §3).
+
+    The AST knows what an import is. It resolves relative levels, sees the bare
+    ``from package import subpackage`` form as what it is, and cannot see prose at all.
+    This module already had the pattern twice (``_classify_pandas_imports``,
+    and ``_dotenv_use`` in ``test_env_declaration.py``); the import guards simply had
+    not caught up.
+    """
+    parts = module_path.relative_to(_PKG).with_suffix("").as_posix().split("/")
+    package = ["views_postprocessing"] + parts[:-1]  # the module's own package
+
+    found: set[str] = set()
+
+    def record(dotted: str) -> None:
+        bits = dotted.split(".")
+        if len(bits) >= 2 and bits[0] == "views_postprocessing":
+            found.add(bits[1])
+
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                record(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package[: len(package) - (node.level - 1)]
+                resolved = ".".join(base + ([node.module] if node.module else []))
+            else:
+                resolved = node.module or ""
+            record(resolved)
+            # `from <pkg> import <subpackage>` — the imported NAME is the subpackage.
+            for alias in node.names:
+                record(f"{resolved}.{alias.name}")
+    return found
+
+
+def test_the_invariants_do_not_import_the_machinery():
+    """The lower leg of ADR-002's chain: ``<partner>/ -> contract/ -> delivery/``.
+
+    ``delivery/`` is the bottom of the stack and must stay usable on its own — that is
+    what makes the invariants *representation-free* rather than merely
+    representation-light. Its module-level counterpart is
+    ``test_clone_readiness.py::test_the_invariants_import_without_the_machinery``, which
+    proves the same thing in a fresh interpreter; this one also sees imports hidden
+    inside function bodies, which a subprocess never executes.
+
+    **Written 2026-08-03 because the claim existed without it.** ADR-012 said the
+    one-way dependency was "enforced by test, not convention"; only the
+    partner-to-machinery leg was.
+    """
+    forbidden = {"contract", *_PARTNER_PACKAGES}
     offenders = [
-        f.relative_to(_PKG).as_posix()
-        for f in (_PKG / "contract").rglob("*.py")
-        if re.search(r"^\s*(?:from|import)\s+views_postprocessing\.unfao", f.read_text(), re.M)
+        f"{f.relative_to(_PKG).as_posix()} -> views_postprocessing.{name}"
+        for f in (_PKG / "delivery").rglob("*.py")
+        for name in sorted(_imported_subpackages(f.read_text(), f) & forbidden)
     ]
     assert not offenders, (
-        f"contract/ imports the partner package: {offenders}. The machinery must be "
-        "reusable by views-crafdapi / views-productionapi without taking FAO (C-69)."
+        f"delivery/ imports upward: {offenders}. The invariants sit below the machinery "
+        "and must stay usable without it — that is what makes them representation-free "
+        "rather than merely representation-light (ADR-002, ADR-012)."
     )
 
 
-# --- 3. retired cross-repo contract name (S3 / #184, finishing #158) --------------------
+def test_contract_package_does_not_import_any_partner():
+    """The upper leg of ADR-002's chain, and register C-69's fix made permanent.
+
+    Scoped to the declared partner list rather than to ``unfao`` by name: the
+    single-name version passed while ``contract/`` was free to import ``crafd``, proven
+    by adding that import and watching the suite stay green.
+
+    Uses the same AST walk as its sibling above, for the same reason — the regex here
+    was absolute-only, so ``from ..unfao import product`` inside a function body was
+    invisible to it *and* to the subprocess check, which never executes a function body.
+    """
+    offenders = [
+        f"{f.relative_to(_PKG).as_posix()} -> views_postprocessing.{name}"
+        for f in (_PKG / "contract").rglob("*.py")
+        for name in sorted(_imported_subpackages(f.read_text(), f) & set(_PARTNER_PACKAGES))
+    ]
+    assert not offenders, (
+        f"contract/ imports a partner package: {offenders}. The machinery must be "
+        "reusable by the next partner without taking this one's product (C-69)."
+    )
+
 
 #: Retired 2026-07-31. The registry itself records the retirement:
 #: ``former_contract_name = "PLATFORM-001"   # retired 2026-07-31``.
