@@ -49,8 +49,10 @@ Requires **Python 3.11–3.14**.
 
 | Package | Version | Why |
 |---------|---------|-----|
-| `views-pipeline-core` | `>=2.1.3,<3.0.0` | The framework: lifecycle base classes, data loader, dataset container, Appwrite/datastore tools |
+| `views-pipeline-core` | `>=3.0.0,<4.0.0` (with the `appwrite` extra) | The framework: lifecycle base classes, data loader, dataset container, Appwrite/datastore tools |
 | `views-frames` | `>=1.10.2,<2` | The frame data contract — **the live delivery representation** since #126. pandas survives only in `contract/enrichment.py` (the build/verification path) |
+| `pyarrow` | `>=16.1.0,<17.0.0` | The wire's serialisation. **Pinned deliberately** — the CVE fix past 17 changes delivered bytes (register C-72) |
+| *dev group* | `pytest`, `ruff` | Not installed by `pip install views-postprocessing`; `poetry install` includes them |
 
 ---
 
