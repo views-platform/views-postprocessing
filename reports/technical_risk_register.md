@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-03                           |
-| Total Concerns    | 79                                   |
-| Open Concerns     | 19                                   |
+| Total Concerns    | 82                                   |
+| Open Concerns     | 22                                   |
 | Resolved Concerns | 60                                   |
 
 ---
@@ -41,7 +41,7 @@ covered a single open entry (see Historical clusters below).
 **Root cause:** a family of entries whose entire risk statement was "unverified until the first global run" — all keyed to one event, which occurred **2026-07-27**.
 **Entries:** C-43 (the survivor), C-30 + C-34 (merged, discharged), C-32 (discharged), C-25 (residual), D-12 and D-09 (deferral conditions)
 **Highest tier:** 2 (C-43)
-**Fix strategy:** one post-run-0 verification pass against producer run `rusty_bucket_forecasting_20260727_095355` — issue **#131 q1**.
+**Fix strategy:** one post-run-0 verification pass against producer run `rusty_bucket_forecasting_20260727_095355` — issue **#131 q1**, **CLOSED 2026-07-31**. C-43 resolved 2026-08-02; this cluster is discharged.
 **Resolution scope:** Full for C-30/C-32/C-34. **Partial for C-43 — the finding that matters.** Run-0 discharged the *availability* half of this cluster (the path runs, memory is bounded at 5.6 GB, coverage is proven at 64,742 cells). It discharged **none of the correctness half**, because proving the path *runs* at scale was never what C-43 asked for. **C-43 now stands alone and un-gated, with delivered data in the partner store.**
 
 ### Cluster I: Governance-artifact drift
@@ -160,13 +160,25 @@ that indexes only deleted code is noise.
 | Tier | 3 |
 | Source | `repo-assimilation` (2026-06-02) |
 | Trigger | When `views-pipeline-core` updates its dependency tree (e.g., drops `geopandas` or `joblib`), verify that this package's imports still resolve |
-| Location | `pyproject.toml:11-15`; `views_postprocessing/unfao/managers/unfao.py:14`, `unfao/enrichment.py:26`, `unfao/extraction.py:26` |
+| Location | `pyproject.toml` (the dependency block); the partner managers, which are the only modules importing `views_pipeline_core`. *(This row previously cited `unfao/enrichment.py` and `unfao/extraction.py` — both moved or deleted by #151/#153.)* |
 
 `mapping.py` directly imports `geopandas`, `shapely`, `numpy`, `pandas`, `joblib`, and `multiprocessing`. `unfao.py` directly imports `pandas`, `polars`, and `python-dotenv`. Only `views-pipeline-core` and `cachetools` are declared in `pyproject.toml`. The undeclared dependencies presumably arrive transitively via `views-pipeline-core`, but this coupling is implicit and fragile. If the upstream package refactors its dependency tree, this package will break with `ImportError` at install time.
 
 **Update 2026-06-24 (narrowed):** the `mapping.py` dimension is gone (C-39 — the `geopandas`/`shapely`/`joblib`/`multiprocessing` imports were deleted; `cachetools` dropped from `pyproject.toml`). Residual: `unfao.py` imports `pandas`/`polars`/`python-dotenv` undeclared, arriving transitively via `views-pipeline-core` (which *is* declared). Much smaller surface (Tier 4-ish); consider resolving outright if the transitive-via-pipeline-core guarantee is deemed sufficient.
 
-**Update 2026-08-01 (`falsify`) — a SECOND undeclared dependency, and this one's transitive path is about to disappear.** `appwrite` is used in this repo (`contract/launch_config.py`, `unfao/managers/unfao.py`) and declared in **no** manifest — it arrives transitively via `views-pipeline-core`, exactly as `pandas` does. What makes it different from the pandas residual: **views-pipeline-core is making `appwrite` an optional extra** (their **#345**, on CRP grounds — three repos that never mention Appwrite currently install its SDK). **When that lands, the transitive path disappears and this repo breaks at import.**
+**Update 2026-08-01 (`falsify`) — a SECOND undeclared dependency, and this one's transitive path is about to disappear.** `appwrite` is used in this repo (`contract/launch_config.py`, `unfao/managers/unfao.py`) and declared in **no** manifest — it arrives transitively via `views-pipeline-core`, exactly as `pandas` does. What makes it different from the pandas residual: **views-pipeline-core is making `appwrite` an optional extra** (their **#345**, on CRP grounds — three repos that never mention Appwrite currently install its SDK). **When that lands, the transitive path disappears.**
+
+**⚠ Corrected 2026-08-03 — the trigger has FIRED and the stated failure mode was wrong.**
+pipeline-core **#345 is CLOSED**, and 3.0.0 does make `appwrite` an optional extra. But
+this repository contains **zero** direct Appwrite SDK imports (`grep -rn '^\s*\(from\|import\) appwrite' views_postprocessing/` → 0);
+`contract/launch_config.py` mentions the word once, in a docstring naming its sibling
+`appwrite_env`. So "this repo breaks at import" was never true of *our* imports.
+
+The real and still-live risk is one level out: **pipeline-core's own `DatastoreModule`
+imports the SDK unguarded**, so bumping to 3.0.0 without declaring the `appwrite` extra
+breaks the delivery at import — inside a dependency, which is harder to diagnose than a
+break in our own code. That is a precondition on the C-44 bump, and it belongs there as
+much as here.
 
 So this entry is no longer "Tier 4-ish, resolve if the transitive guarantee is deemed sufficient" — the guarantee is being **withdrawn upstream, deliberately**. Fix is one line: declare `appwrite` in `pyproject.toml`, or depend on `views-pipeline-core[appwrite]`. Relayed in **#172**; registered here rather than as a new entry because it is the same problem type at a new location. **New trigger: before views-pipeline-core#345 lands.**
 
@@ -196,13 +208,13 @@ So this entry is no longer "Tier 4-ish, resolve if the transitive guarantee is d
 | Tier | 3 |
 | Source | `expert-review` (2026-06-02), `falsification-audit` (2026-06-02) |
 | Trigger | When wiring pipeline-core #245's structured metadata field, or when adding/removing a provenance key — verify the closed keyset in `delivery/provenance.py` and the `DESCRIPTION_MAX` bound still hold, and that the carrier is no longer free-text `description` |
-| Location | `views_postprocessing/delivery/provenance.py`; `views_postprocessing/unfao/managers/unfao.py:559-578` (legacy `_save` uploads), `:593-604` (`_historical_frame_description`), `:619` (`_delivery_description`) |
+| Location | `views_postprocessing/delivery/provenance.py` (`build_provenance`); `_historical_frame_description` in each partner's manager (the only caller); `contract/wire/sink.py` (the forecast leg, which attaches none). Symbols rather than line numbers — the earlier row's three line ranges were all past end-of-file. |
 
 Both `dsm.upload_data()` calls in `_save()` carry metadata: `name`, `loa`, `type`, `targets`, `description`, `category`. The `description` field was updated from a hardcoded test string to an enrichment timestamp (`"Enriched with geographic metadata on {timestamp}"`). However, broader enrichment provenance is still missing: no shapefile version/hash, no enrichment error count, no unmapped cell count. The consumer cannot verify which shapefile version produced their data or whether any errors occurred during enrichment.
 
 Tier recalibrated from 4 to 3 during falsification audit (2026-06-02): the missing provenance affects the partner's ability to audit data quality.
 
-**Mitigation landed (S5, 2026-06-26, `sprint/fao-input-integrity`):** a representation-free `delivery/provenance.py` (`build_provenance`) assembles structured provenance — `lookup_version`, `region`, `expected_cell_count`, `actual_cell_count`, `unmapped_count` — sourced from the enricher + S1 coverage + a new `extraction.unmapped_cell_count` seam (nothing hardcoded). Both `_save` uploads now carry it via `_delivery_description`. **Carrier constraint:** pipeline-core's `upload_data` exposes **no structured field** — only free-text `description` — so the dict is JSON-encoded into `description` behind a human prefix for now. A dedicated metadata field is requested upstream (**pipeline-core #245**); when it lands, only the manager's attach step changes (the provenance shape is already representation-free). `fill_count` is omitted until a fabricated-value count is available (cf. C-26). Residual is now just the carrier abuse, tracked by #245.
+**Mitigation landed (S5, 2026-06-26, `sprint/fao-input-integrity`):** a representation-free `delivery/provenance.py` (`build_provenance`) assembles structured provenance — `lookup_version`, `region`, `expected_cell_count`, `actual_cell_count`, `unmapped_count` — sourced from the enricher + S1 coverage + a new `extraction.unmapped_cell_count` seam (nothing hardcoded). The historical upload carries it via `_historical_frame_description`. *(This sentence said "Both `_save` uploads now carry it via `_delivery_description`" — that method was deleted with the legacy path in #149, and there is now only one provenance-carrying upload: the forecast leg's shards carry `{name, category, loa}` and no `description` at all, which is the residual below.)* **Carrier constraint:** pipeline-core's `upload_data` exposes **no structured field** — only free-text `description` — so the dict is JSON-encoded into `description` behind a human prefix for now. A dedicated metadata field is requested upstream (**pipeline-core #245**); when it lands, only the manager's attach step changes (the provenance shape is already representation-free). `fill_count` is omitted until a fabricated-value count is available (cf. C-26). Residual is now just the carrier abuse, tracked by #245.
 
 See also C-14 (stale cache without version tracking), C-22 (no post-delivery correction process), C-26 (fabricated zeros — the eventual `fill_count` source).
 
@@ -216,7 +228,7 @@ See also C-14 (stale cache without version tracking), C-22 (no post-delivery cor
 | Tier | 3 |
 | Source | `falsification-audit` (2026-06-02) |
 | Trigger | When views-faoapi implements the Release-Note-01 Topic-C renaming layer — verify this repo's column names stay **unchanged** (faoapi's `_METADATA_COLS` validation depends on them) and that the rename lands consumer-side only. Take no action here otherwise. |
-| Location | `views_postprocessing/unfao/managers/unfao.py:277` (`filter_cols`), `unfao/gaul_schema.py` (`METADATA_COLS`), FAO Release Note 01 `topic_c.tex` |
+| Location | `contract/gaul_schema.py` (`METADATA_COLS`, the declared 9-column contract); `contract/historical.py` and `contract/wire/sidecar.py` (which project it); FAO Release Note 01 `topic_c.tex`. *(This row previously cited `unfao.py:277 (filter_cols)` — no such symbol exists anywhere in the package, and `unfao/gaul_schema.py` moved to `contract/` in #153.)* |
 
 The FAO API contract (Release Note 01, Topic C, confirmed and locked) specifies: UN M49 country codes, `ADM1_CODE`/`ADM1_NAME`/`ADM2_CODE`/`ADM2_NAME` for admin fields, and `lat`/`lon` for coordinates. The postprocessor's `filter_cols` uses: `country_iso_a3` (ISO Alpha-3), `admin1_gaul1_code`/`admin1_gaul1_name`/`admin2_gaul2_code`/`admin2_gaul2_name`, and `pg_xcoord`/`pg_ycoord`. Three of four data categories (country ID, admin fields, coordinates) use different naming conventions from the locked contract.
 
@@ -623,6 +635,94 @@ Cross-refs: **C-59** and **C-61** (RESOLVED — the invariant block this sits be
 
 ---
 
+### C-80: The doc-accuracy scan exempts ADRs and CICs — the two artifact classes that define the contracts
+
+| Field | Value |
+|-------|-------|
+| ID | C-80 |
+| Tier | 2 — structural, with a demonstrated failure. A CIC is what a contributor reads before changing a class; an ADR is what a consumer reads before building against the wire. Both were free to describe deleted code indefinitely, and did. |
+| Source | `code-review max` (2026-08-03) — development→main sync audit |
+| Trigger | When the next module is moved or deleted, check whether any ADR or CIC names it. The deleted-symbol regex will not tell you. #153 moved seven modules out of `unfao/` and the ADRs still cite the old paths. |
+| Owner | Whoever next extends `tests/test_doc_accuracy.py`. It is a scope change plus a decision about how to exempt genuine history. |
+| Location | `tests/test_doc_accuracy.py` — `_living_docs()` and `_link_checked_docs()` |
+
+`_living_docs()` returns `README.md`, `docs/architecture/*.md`, and package `README.md`s. **`docs/ADRs/` and `docs/CICs/` are outside it**, deliberately — an ADR legitimately records superseded designs, and a scan that fires on history gets deleted (§3). The exemption is right in principle and far too wide in practice.
+
+**What it cost, measured in this sync.** `docs/CICs/UNFAOPostProcessorManager.md` named `GaulLookupEnricher` as the manager's enrichment collaborator in **six** places, one of them a specific call — while the manager contains zero references and `tests/test_gaul_lookup_access.py` actively asserts its absence. The sibling CIC said the opposite in plain words. Two contract documents contradicted each other about the same call, and nothing could see it. Five further claims in the same file described a `dotenv` load that does not happen, an env-validation "known gap" that C-19 closed, an upload count wrong in three ways, and two "incorrect usage" examples for code deleted in #149/#152. ADR-013 still cites `unfao/wire/`, `unfao/product.py` and `unfao/launch_config.py`, all moved in #153.
+
+**The exemption is not understood by the people writing under it.** `docs/CICs/UNFAOPostProcessorManager.md` carries a `legacy-ok` marker — the line-scoped opt-out from a scan that never reaches that file. Its author believed they were suppressing a guard that was not looking.
+
+**A second, narrower hole in the same file.** `test_internal_doc_links_resolve` follows only markdown `](...)` links. Every path written as prose in backticks — which is how this repository writes paths almost everywhere — is unchecked. That is why the stale `unfao/...` references survived a dedicated sweep (S11) and were still being found two epics later.
+
+*Not proposed as a fix here:* pointing the existing regex at ADRs would fire on every historical passage and be reverted within a day. The shape that works is what §3 already recommends — check the **claim**, not the vocabulary: for CICs, that every collaborator named is actually referenced by the class (the negative form already exists at `test_gaul_lookup_access.py:156`); for backticked paths, that a path-shaped token which looks like a repo path resolves, with an opt-out for history.
+
+Cross-refs: **C-74** (a guard narrower than its declared surface), **C-78** (a guard whose declared scope missed a package), **C-67** (ADR-012 drift, which *is* covered and was caught), ADR-014 §1–§3, #211.
+
+---
+
+### C-81: What actually gates `main` is weaker than it looks — CI verifies 17 fewer tests than local, and nothing requires it to pass
+
+| Field | Value |
+|-------|-------|
+| ID | C-81 |
+| Tier | 2 — the guards this arc built to catch cross-repo drift do not run where drift happens, and the branch they protect has no required check. Both halves are structural and both have fired-in-practice evidence. |
+| Source | `code-review max` (2026-08-03) — development→main sync audit |
+| Trigger | **Coverage half:** when the Appwrite Seam Contract registry next moves — it moved twice on 2026-08-03 alone — nothing in CI will notice; only a maintainer running the suite locally will. **Enforcement half:** the first time someone merges a red PR to `main`. |
+| Owner | Simon — both halves need operator action. The coverage half needs a token for two private repositories; the enforcement half is a GitHub console/ruleset change. Neither is engineering work. |
+| Location | `.github/workflows/run_pytest.yml`; the `protect_main` ruleset; `tests/conftest.py::sibling_repo` |
+
+**Coverage.** Measured in an isolated clone, not estimated — **402 collected in every run**, so the whole delta is skips:
+
+| environment | result |
+|---|---|
+| local, all siblings present | 362 passed / 40 xfailed / **0 skipped** |
+| CI as it was | 347 passed / **17 skipped** / 38 xfailed |
+| CI with the views-crafdapi checkout added | 348 passed / **16 skipped** / 38 xfailed |
+
+*(**This table was wrong twice, and the second time it refuted itself.** Draft one said 361/40 and "same 401" — measured before the same change added a test. Draft two fixed the collected figure to 402 and did not re-derive the rows, so both rows summed to 401 beside an assertion that 402 was collected. The cause of the second error is worth recording: the measurement was taken on a `git clone` of the branch, and a clone carries **committed** state — the new tests were still uncommitted in the working tree. Measuring a claim about your own change requires applying your own change. This is the entry about miscounted tests.)* `sibling_repo` resolves `$VIEWS_<NAME>` else `../<name>`; in a one-repo checkout neither exists and the tests skip. Skipping is correct behaviour — a missing sibling *is* normal — but the consequence is that **CI verifies strictly less than a developer's laptop, precisely on the assertions that cross a repository boundary.**
+
+Nine of the seventeen are **new in this arc**, including both registry-drift detectors (pinned edition, commit-reachable-from-`main`) for both partners. Those detectors have a demonstrated drift rate: they fired **twice on 2026-08-03**, hours apart. A detector for a fault that recurs twice in a day, running only on one machine, is most of the way to not existing.
+
+Where each sibling stands, after trying them:
+- **views-crafdapi** — public, its check reads source text. **Now checked out in CI**, recovering **one** test: the cross-seam consumer-document-name pin for CRAF'd.
+- **views-datafactory** — public, but its eight tests need the producer's raw GAUL parquets, which are **not in its git repository**. Checking it out converts an honest skip into a `FileNotFoundError`; tried and reverted.
+- **views-appwrite**, **views-faoapi** — **private**. The most valuable checks live here. Closing this needs a token in CI.
+
+**Enforcement.** `main` is **not branch-protected**: `gh api .../branches/main/protection` returns `404 Branch not protected`, and `gh api .../rules/branches/main` returns `[]`. The `protect_main` ruleset exists and is `active`, but its `ref_name` include-list is **empty**, so it matches nothing — and it declares no `required_status_checks` rule in any case. **A red `Run Pytest` would not block a merge to `main`.** This repository's own `tests/test_falsification_campaign_4_1.py` carries the question as an unverifiable xfail probe; it is verifiable through the API, and the answer is no.
+
+The two compound: a suite that checks less than you think, and no requirement that even that much passes. Neither is caused by this sync — both are pre-existing — but this sync is the first time `main` receives an epic whose value is largely the guards themselves.
+
+Cross-refs: **C-46** and **C-57** (both RESOLVED; this is the residual each recorded as *"a CI-cost and cross-repo-coupling decision"* and *"worth deciding once for both"* — it now has a live home and a concrete answer per sibling), **C-80** (the other verification gap found in the same audit), #188.
+
+---
+
+### C-82: Governance-artifact prose carries numbers and statuses that nothing checks
+
+| Field | Value |
+|-------|-------|
+| ID | C-82 |
+| Tier | 3 — no delivery is affected, but these are the artifacts people plan from. One instance materially under-scopes a planned dependency bump. |
+| Source | `code-review max` (2026-08-03) — development→main sync audit |
+| Trigger | When the pipeline-core 3.0.0 bump (C-44) is scoped from Cluster M's summary rather than from C-72's body, or when anyone counts on a test-count or issue-state stated in the register. |
+| Owner | Whoever runs the next `review-rr` pass; this is curation, not engineering. |
+| Location | `reports/technical_risk_register.md` (Clusters I, J, M; D-09, D-11); `docs/CICs/*.md` front matter |
+
+`tests/test_register_integrity.py` checks structure — header counts, section placement, reference resolution — and **no prose at all**. Roughly twenty-five statements drift beneath it.
+
+**The one that would change a decision.** Cluster M declares resolution *"Full for … C-72 …"* at the pipeline-core 3.0.0 bump, while C-72's own body says its fix is gated on pipeline-core **#280** (open), **changes delivered wire bytes**, and requires a coordinated three-repo re-vendor of the ADR-013 §10 golden fixture. Someone planning that bump from the cluster summary under-scopes it badly. Cluster M's heading also says six entries where its body says five.
+
+**Self-contradiction elsewhere.** Cluster I still argues that *"there is no equivalent for the register — a small `tests/test_register_integrity.py` … would make this class self-detecting"*; that file exists, has ten green tests, and is cited elsewhere in the same document. Cluster J names issue **#15** as its fix strategy; #15 is closed and superseded by `docs/operations/correction_procedure.md`. D-11 says a branch *"currently has no scheduled deletion PR"* two paragraphs after recording that it was deleted. D-09's `Status` row reads *"Open … after delivery"* directly above prose recording the deferral expired on 2026-07-31.
+
+**Numbers.** The `test_gaul_lookup_fidelity.py` count appears as **26** twice in the register and as **18** twice more including `test_register_integrity.py`'s own docstring; the actual is **24**, and 26 was never true — it was written when the file held 24. Also *"40 ADR-013 guard tests"* (39) and *"`test_enrichment.py`, 16"* (39).
+
+**CIC front matter.** `GaulLookupEnricher.md` says *Last reviewed 2026-06-18* and `UNFAOPostProcessorManager.md` *2026-06-02*, while both bodies carry 2026-08 content. A reader calibrating trust from the header calibrates it wrong in the safe direction, which is lucky rather than designed.
+
+*The general fix is C-80's, not a re-count:* prose that states a number is a claim, and a claim needs a check. Where a number cannot be checked, the honest move is to state the command that produces it — which is what C-33 was forced into after its measurement was wrong five times.
+
+Cross-refs: **C-80** (the same disease in ADRs and CICs, and the mechanism that would catch both), **C-72** and **C-44** (the bump this mis-scopes), **C-33** (the worked example of publishing the command instead of the result), ADR-014 §1.
+
+---
+
 ### C-79: `_ContractStorePort.upload`'s result check is called "the whole mechanism" and has no test, and it fails open
 
 | Field | Value |
@@ -693,7 +793,7 @@ Three maintainer-raised intents, assessed and **deliberately deferred** — all 
 
 **Re-open trigger:** Run 0 verified AND retention owner named — then sequence 2→3 (or 2 alone) as an infrastructure epic, and 1 whenever wire churn is calm. See also C-40 (the migration this rides on), ADR-013 §8.
 
-**Status 2026-07-31 (review-rr — trigger HALF fired):** **Run 0 delivered** on 2026-07-27 (first FAO global-land forecast, frame-native, no OOM) — but it is **delivered, not yet verified**: issue #131 q1 (manifest integrity, sidecar/parity, 3 targets × 36 months, coverage gate on both frames) is still open, and #131 also surfaced a liveness dialect gap on the `unfao_delivery` forecast surface. **The retention owner is still unnamed** (ADR-013 §3.5 records the duty as OPEN). Both halves must hold before this re-opens, so it stays deferred — but it is now one open verification away, not one delivery away. Note that intent 2 (move `production_forecasts` off Appwrite) and the unnamed retention owner compound: run-0 added ~110 objects in a single run to a store with no retention policy.
+**Status 2026-08-03 (both halves re-checked): #131 is CLOSED (2026-07-31), so the verification half of this trigger HAS fired.** The text below was written the day it closed and was already stale; it is corrected rather than deleted because the deferral it holds shut is a live decision. **Run 0 delivered** on 2026-07-27 (first FAO global-land forecast, frame-native, no OOM) and its integrity verification is closed — and #131 also surfaced a liveness dialect gap on the `unfao_delivery` forecast surface. **The retention owner is still unnamed** (ADR-013 §3.5 records the duty as OPEN), and that is now the *only* thing holding this deferral shut. Both halves must hold before it re-opens; one of the two now does. **Naming a retention owner re-opens D-12** — that is an operator decision, not engineering work. Note that intent 2 (move `production_forecasts` off Appwrite) and the unnamed retention owner compound: run-0 added ~110 objects in a single run to a store with no retention policy.
 
 ---
 
@@ -800,14 +900,16 @@ The document states both verbatim and instructs the reader to stop and ask rathe
 `docs/CLONING.md` carries the same warning forward: a clone should answer its partner's correction questions **before** first delivery. This repo shipped run-0 on 2026-07-27 with that step undecided, and it still is. |
 | Tier | 3 |
 | Source | `falsification-audit` (2026-06-02) |
-| Trigger | When the run-0 integrity verification (#131 q1) or any FAO/faoapi query surfaces a suspect delivered value — follow the correction procedure; **issue #15 must produce one first.** Re-check at every subsequent delivery until it exists. |
+| Trigger | When any FAO/faoapi query surfaces a suspect delivered value — follow `docs/operations/correction_procedure.md`, **withdrawing first** via views-faoapi's quarantine before diagnosing. *(This row previously said "issue #15 must produce one first" and named #131 q1 as a precondition. #15 is CLOSED and superseded by the procedure; #131 closed 2026-07-31. The procedure exists — the trigger is now the incident, not the paperwork.)* |
 | Location | `views_postprocessing/unfao/managers/unfao.py:442-494` (`_save_contract`), `:518-578` (legacy `_save`); issue #15 (the undocumented procedure) |
 
 The delivery chain has four stages beyond the code: Appwrite bucket → UN FAO download → FAO systems → operational decisions. When an error is discovered post-delivery, correction requires clearing cache, re-running, re-uploading, notifying FAO, and FAO retracting old data. Steps 3-5 have no documented procedure.
 
 Part of Cluster B (operational impact dimension). See also C-14 (RESOLVED — mapper-era cache), C-15.
 
-**Update 2026-07-31 (review-rr — the conditional is spent):** this entry was written conditionally — "*if* wrong data ever reaches FAO." **Run-0 delivered on 2026-07-27** (108 arrow shards + sidecar + manifest to `unfao_bucket`, plus 28,356,996 historical rows at 64,742 cells), and its integrity verification is still open (#131 q1). There is now delivered, unverified data in the partner's store and still no documented correction/recall procedure. Tier held at 3 (process gap, no code defect), but this is the acute member of Cluster J — **issue #15 is now the blocking artifact, not a nice-to-have.**
+**Update 2026-07-31 (review-rr — the conditional is spent):** this entry was written conditionally — "*if* wrong data ever reaches FAO." **Run-0 delivered on 2026-07-27** (108 arrow shards + sidecar + manifest to `unfao_bucket`, plus 28,356,996 historical rows at 64,742 cells). There is delivered data in the partner's store.
+
+**Corrected 2026-08-03.** The paragraph above ended *"its integrity verification is still open (#131 q1) … still no documented correction/recall procedure … issue #15 is now the blocking artifact."* All three are spent: **#131 closed 2026-07-31**, the procedure landed as `docs/operations/correction_procedure.md`, and **#15 is closed and superseded by it**. What remains genuinely open is narrower and is in the procedure's §4: FAO has not yet answered who else to notify, in what period, and whether they want withdrawal or supersession (Pre-Release Note 07, Topic B).
 
 ---
 
@@ -947,7 +1049,7 @@ The right axis was **exact equality on string constants**, not statement shape. 
 
 **Gated, and honestly so.** The checks need a views-appwrite checkout and skip without one, naming `VIEWS_APPWRITE` and the conventional sibling path so a contributor can run them rather than merely watch them skip. The would-catch-a-rename proof runs in CI with no checkout at all. Resolution helper shared with **C-46** (S7) in `tests/conftest.py` — the second incident, which is this repo's named trigger for extracting.
 
-**Residual:** the gated half does not run in CI, which needs a views-appwrite checkout in the workflow — a CI-cost and cross-repo-coupling decision, not a code fix. Same shape as **C-46**'s residual and worth deciding once for both (S7 / #188).
+**Residual — now tracked as C-81.** The gated half does not run in CI, which needs a views-appwrite checkout in the workflow. That was recorded here and in **C-46** as *"a CI-cost and cross-repo-coupling decision, not a code fix … worth deciding once for both"*, and it sat as a residual on two RESOLVED entries, which is where residuals go to be forgotten. It now has a live entry with a measured cost (17 tests, 9 of them new in this arc), a per-sibling answer, and an owner: **C-81**. views-appwrite is private, so it needs a token — an operator decision.
 
 A second, smaller instance of the same shape: these checks parse TOML with `tomllib`, stdlib from Python 3.11, and `pyproject` declares `>=3.11`. CI runs 3.11 and executes them. The maintainer's box runs **3.10**, below the declared floor, so they skip there — the local suite is quietly weaker than a green `pytest -q` suggests. Not a repo defect and not worth its own entry; recorded because "a gate that does not run" is exactly what C-46 is open for, and the CI decision should cover both. |
 | Tier | 3 |

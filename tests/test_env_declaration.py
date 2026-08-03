@@ -26,6 +26,7 @@ filesystem, so the next partner cannot be silently exempt (register C-57).
 import ast
 import logging
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -42,7 +43,8 @@ from views_postprocessing.contract import launch_config
 from views_postprocessing.crafd import appwrite_env as crafd_env
 from views_postprocessing.unfao import appwrite_env
 
-_PKG = Path(__file__).resolve().parent.parent / "views_postprocessing"
+_REPO = Path(__file__).resolve().parent.parent
+_PKG = _REPO / "views_postprocessing"
 
 
 def _manager_source(partner: str) -> Path:
@@ -109,6 +111,10 @@ _PARTNER_ENV = {
 }
 
 _PARTNERS = tuple(_PARTNER_ENV)
+
+#: Every coordinate name any partner declares — the left-hand sides a document could
+#: assign a registry value to.
+_EXPECTED_NAMES = {name for _, _, expected in _PARTNER_ENV.values() for name in expected}
 
 
 #: Function names that belong to python-dotenv and to essentially nothing else.
@@ -603,8 +609,55 @@ def test_no_coordinate_value_is_copied_into_this_repo():
                 and id(node) not in docstrings
             ):
                 copied.append(f"{source.relative_to(_PKG)}:{node.lineno} = {node.value!r}")
+    # Markdown too — the AST half cannot see a fenced ``bash`` block, and that is exactly
+    # where four production-forecasts values sat: in README.md's Configuration section,
+    # two lines below the sentence promising they are never copied, in a PUBLIC
+    # repository. A guard scoped to `.py` while the rule is about the repository is
+    # register C-74's shape (2026-08-03).
+    #
+    # **What counts as a copy, and what does not.** A first draft flagged any line
+    # containing a registry value and immediately fired on a dozen documents that merely
+    # *name* a store in prose — "six stranded documents in unfao_bucket". That is not a
+    # copy; it is a sentence. C-57 recorded the identical false-positive class over `.py`
+    # and the identical lesson: when a guard cries wolf, the matching is wrong before the
+    # scope is (ADR-014 §3).
+    #
+    # The copy is a value **assigned to its own coordinate name** — `APPWRITE_X=value` —
+    # which is a reader's instruction to configure with that literal. That is precise
+    # enough to have caught README.md and to ignore every legitimate mention.
+    assignment = re.compile(
+        r"^\s*(?:export\s+)?(" + "|".join(sorted(_EXPECTED_NAMES)) + r")\s*=\s*(.+?)\s*$"
+    )
+    # This repository's OWN tracked markdown — `git ls-files`, not `rglob`. CI checks
+    # sibling repositories out into the workspace, and their documents are not this
+    # repo's to police; an rglob would scan them and fail on someone else's prose.
+    #
+    # **This half cannot run in CI**, and that is worth stating rather than discovering.
+    # The registry values come from the views-appwrite checkout, which is private and
+    # deliberately not checked out — so the whole test skips there. It guards a
+    # maintainer's commit, not the merge. Closing that is C-81's token decision.
+    tracked = subprocess.run(
+        ["git", "-C", str(_REPO), "ls-files", "-z", "*.md"],
+        capture_output=True, text=True, check=False, timeout=30,
+    ).stdout.split("\0")
+    scanned = [_REPO / name for name in tracked if name and (_REPO / name).exists()]
+    assert scanned, (
+        "git ls-files returned no markdown — the scan would pass over an empty set and "
+        "report success (register C-74's shape). If this is not a git checkout, the "
+        "guard cannot run and must say so rather than pass."
+    )
+    for doc in sorted(scanned):
+        for number, line in enumerate(doc.read_text().splitlines(), 1):
+            match = assignment.match(line)
+            if match and match.group(2).strip('"\'') in values:
+                copied.append(
+                    f"{doc.relative_to(_REPO)}:{number} = {match.group(2)!r} "
+                    f"(assigned to {match.group(1)})"
+                )
+
     assert not copied, (
-        f"coordinate value(s) from the registry are copied into code: {copied}. The "
+        f"coordinate value(s) from the registry are copied into this repo: {copied}. The "
         "registry is referenced, never copied — values reach this package through the "
-        "environment the launcher assembles, validated by assert_env_declared."
+        "environment the launcher assembles, validated by assert_env_declared. In a "
+        "document, write the NAME and leave the value to the launcher."
     )

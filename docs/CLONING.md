@@ -157,12 +157,19 @@ used to select a retired code path silently (register C-63).
 
 **Answer your partner's correction questions before you ship to them, not after a bad
 delivery.** `docs/operations/correction_procedure.md` is FAO's, and its steps 1–3 and 5
-transfer unchanged — they are contract mechanics, not partner specifics. **Step 4 does
-not:** who contacts your partner, through what channel, how fast, and whether they
-expect a retraction or a supersession are answers only your partner can give.
+transfer as *mechanics* — but **§3's environment variable names do not.** The quarantine
+that withdraws a bad run is read by **your consumer**, from a name of its own:
+`APPWRITE_UNFAO_QUARANTINED_FILE_IDS` for FAO,
+`APPWRITE_CRAFD_QUARANTINED_FILE_IDS` for CRAF'd. Setting the wrong partner's name is a
+**silent no-op** — nothing errors and the data keeps serving. Substitute yours before you
+need it, not during an incident.
+
+**Step 4 does not transfer at all:** through what channel, how fast, and whether they
+expect a withdrawal or a supersession are answers only your partner can give.
 
 This repo shipped run-0 to the UN FAO on 2026-07-27 with that step undecided (register
-C-22), and it is still undecided. Do not inherit that.
+C-22). It is now half-decided — a named person makes contact, by direct email — and the
+rest is with FAO. Settle yours *before* your first delivery, not after.
 
 ## Where the reasoning lives
 

@@ -19,6 +19,46 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    # ── sibling checkouts: what CI can verify that a bare checkout cannot ────────
+    #
+    # `tests/conftest.sibling_repo` resolves $VIEWS_<NAME>, else the conventional
+    # `../<name>` directory. In a one-repo CI checkout neither exists, so every
+    # cross-repo assertion skips — silently and by design, because a missing sibling
+    # is normal. The consequence was that CI verified strictly LESS than a developer's
+    # laptop, and precisely on the guards that matter most across a repo boundary.
+    #
+    # Measured 2026-08-03 (402 collected in all three runs, so the delta is entirely
+    # skips):
+    #   local, all siblings present   362 passed / 40 xfailed /  0 skipped
+    #   CI, bare checkout             347 passed / 38 xfailed / 17 skipped
+    #   CI, with the checkout below   348 passed / 38 xfailed / 16 skipped
+    #
+    # So this recovers exactly ONE test — the cross-seam consumer-name check for CRAF'd.
+    # That is worth having (it is the §4.1a pin, whose failure mode is a delivery nobody
+    # can find) but it is one, not seventeen. The other sixteen are below.
+    #
+    # Only views-crafdapi is checked out, and the choice is deliberate:
+    #
+    #   views-crafdapi   PUBLIC, and its check reads source text -> enabled here.
+    #   views-datafactory  PUBLIC, but its 8 tests need the producer's raw GAUL
+    #                    parquets (`data/raw/gaul_admin/*.parquet`), which are NOT in
+    #                    its git repository. Checking it out converts an honest skip
+    #                    into a FileNotFoundError. Measured, not assumed — it was tried.
+    #   views-appwrite   PRIVATE. The registry-drift detectors live here and are the
+    #   views-faoapi     most valuable of the lot; enabling them needs a token, which
+    #                    is an operator decision. Register C-46 and C-57 both carry
+    #                    that as their standing residual, and it is still open.
+    # `actions/checkout` refuses a path outside $GITHUB_WORKSPACE, so the siblings go
+    # inside it and are pointed at by the declared env vars instead of the conventional
+    # `../<name>` location. `sibling_repo` checks $VIEWS_<NAME> first, precisely so the
+    # location can be declared rather than assumed.
+    - name: Checkout views-crafdapi (sibling)
+      uses: actions/checkout@v3
+      with:
+        repository: views-platform/views-crafdapi
+        path: _siblings/views-crafdapi
+        fetch-depth: 0
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -33,6 +73,8 @@ jobs:
         poetry install 
 
     - name: Run tests
+      env:
+        VIEWS_CRAFDAPI: ${{ github.workspace }}/_siblings/views-crafdapi
       run: |
         set -e
         poetry run pytest tests/
