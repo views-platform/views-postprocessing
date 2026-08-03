@@ -299,7 +299,8 @@ class TestUnusableCellIds:
     def test_a_string_gid_column_is_refused_rather_than_parsed(self, enricher, lookup):
         """A string gid is a declaration error, and the merge this replaced said so.
 
-        `pandas` raised *"You are trying to merge on object and int64 column"*. An
+        `pandas` raised *"You are trying to merge on object and int64 columns. If you
+        wish to proceed you should use pd.concat"*. An
         earlier draft of `_as_cell_ids` used `float(value)`, which happily parsed
         `"54220"` and matched — inference where the old path declared (ADR-003).
         """
@@ -323,18 +324,46 @@ class TestUnusableCellIds:
             ("-inf (float branch)", np.array([-np.inf], dtype=np.float64)),
             ("string (object branch)", np.array(["123"], dtype=object)),
             ("bool (object branch)", np.array([True], dtype=object)),
+            ("float exactly 2**63", np.array([2.0**63], dtype=np.float64)),
+            ("timedelta64", np.array([1], dtype="timedelta64[ns]")),
         ],
     )
-    def test_out_of_range_and_non_numeric_values_are_unusable_not_wrapped(self, label, array):
+    def test_out_of_range_and_non_numeric_values_are_unusable_not_wrapped(
+        self, enricher, label, array
+    ):
         """Outside int64 the cast WRAPS rather than raising, and a wrapped id flagged
         valid is exactly the fabricated value this conversion exists to prevent.
 
-        `uint64` max becomes `-1`; `1e30` becomes `INT64_MIN`. Both pass a naive
-        finite-and-integral test, so the bound is a separate condition, not a
-        consequence of the others.
+        `uint64` max becomes `-1`; `1e30` and `float(2**63)` become `INT64_MIN`. Each
+        passes a naive finite-and-integral test, so the bounds are separate conditions
+        rather than consequences of the others.
+
+        Asserted through the PUBLIC method. An earlier draft called the private
+        `_as_cell_ids` and checked its mask — pinning an implementation detail rather
+        than the guarantee a caller relies on, and skipping `_gather`'s use of that
+        mask entirely. Every dtype below is reachable through a DataFrame column, so
+        there was never a reason to reach inside.
         """
-        ids, usable = GaulLookupEnricher._as_cell_ids(array)
-        assert not usable[0], f"{label} was marked usable as id {ids[0]}"
+        out = enricher.enrich_dataframe_with_pg_info(
+            pd.DataFrame({"priogrid_gid": array, "month_id": [1] * len(array)}),
+            pg_id_col="priogrid_gid", time_id_col="month_id",
+        )
+        assert out["country_iso_a3"].isna().all(), (
+            f"{label} produced a match — an id the caller never wrote was treated as "
+            "a cell and that cell's geography was fabricated onto the row"
+        )
+
+        # AND at the mask, because the public assertion above cannot tell "refused"
+        # from "accepted but wrapped to an id that happens to be absent" — both give
+        # null. Reverting the float bound or re-admitting timedelta64 left the public
+        # assertion green while the value was silently accepted; only this sees it.
+        # The public check is the caller's guarantee; this one is the mutation proof.
+        _, usable = GaulLookupEnricher._as_cell_ids(array)
+        assert not usable.any(), (
+            f"{label} was ACCEPTED as a cell id (it only looked refused because the "
+            f"wrapped id is absent from this lookup — against a lookup that contains "
+            f"it, this row would receive that cell's geography)"
+        )
 
     def test_the_warning_names_unknown_cells_but_invents_no_id_for_unusable_ones(
         self, enricher, lookup, caplog

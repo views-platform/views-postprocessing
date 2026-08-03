@@ -17,7 +17,7 @@ and held as numpy arrays plus a sorted key index; attaching metadata to a frame 
 a **keyed gather**, not frame algebra, and it never needed a pandas merge. The
 input frame is still whatever the caller passes — this class is the *build and
 verification* path's object, and its callers hand it DataFrames. What changed is
-that the 888 KB artifact is no longer materialised as a pandas frame, and the
+that the ~880 KiB artifact is no longer materialised as a pandas frame, and the
 join no longer depends on the artifact carrying pandas index metadata — which is
 what unblocks S5 (#90) making the builder pyarrow-native.
 
@@ -40,7 +40,7 @@ from views_postprocessing.contract import gaul_lookup
 if TYPE_CHECKING:  # pragma: no cover — pandas is in this module's INTERFACE, not its
     import pandas as pd  # implementation. Callers hand it DataFrames; nothing here
     # constructs, reads or joins one. Removing the runtime import is the point of
-    # S4 (#89): the 888 KB lookup is no longer materialised as a pandas frame, and the
+    # S4 (#89): the ~880 KiB lookup is no longer materialised as a pandas frame, and the
     # join no longer needs the artifact to carry pandas index metadata.
 from views_postprocessing.contract.gaul_schema import METADATA_COLS
 
@@ -55,6 +55,13 @@ _DEFAULT_LOOKUP = gaul_lookup.LOOKUP_PATH
 #: flagged valid is the fabricated value this module forbids.
 _INT64_MIN = int(np.iinfo(np.int64).min)
 _INT64_MAX = int(np.iinfo(np.int64).max)
+
+#: Float-comparison bounds. Deliberately NOT the int bounds above: 2**63-1 is odd and
+#: unrepresentable in float64, so comparing a float against it rounds up to 2**63 and
+#: lets through the very values the bound excludes. 2**63 and -2**63 are both powers
+#: of two and exact, so the float check is `>= -2**63` and `< 2**63`.
+_INT64_MIN_F = -(2.0**63)
+_INT64_MAX_EXCLUSIVE_F = 2.0**63
 
 #: The lookup's key column. Named once — the artifact calls it `priogrid_gid`, the
 #: wire calls it `priogrid_id` (§5.1), and confusing the two is a silent join failure.
@@ -86,7 +93,11 @@ class GaulLookupEnricher:
                 "null key cannot identify a cell, and coercing it would make it "
                 "collide with any unusable id on the query side — the row would then "
                 "be reported as FOUND and receive another cell's metadata. Rebuild "
-                "with scripts/build_gaul_lookup.py, which refuses to write nulls."
+                "with scripts/build_gaul_lookup.py. (That script does not check the "
+                "key column either — its null check runs after the key becomes the "
+                "index, and DataFrame.isna() does not inspect an index. A null key is "
+                "unreachable there only because the earlier astype('int64') raises. "
+                "See register C-76.)"
             )
             logger.error(err_msg)  # ADR-008: logged persistently AND raised
             raise ValueError(err_msg)
@@ -163,17 +174,22 @@ class GaulLookupEnricher:
             # Finite, integral, AND representable. `1e30` passes the first two and
             # then overflows the cast to INT64_MIN — an id nobody asked for, marked
             # valid. Same silent-coercion class this method exists to remove.
-            # `isfinite` is kept for intent and is currently SUBSUMED, which is worth
-            # saying rather than leaving for someone to rediscover: `inf` fails the
-            # upper bound and `NaN` fails `arr == rint(arr)` (NaN equals nothing). It
-            # is the one condition here that survives its own removal — mutation-tested
-            # — so it is defensive, not load-bearing. The other three each fail the
-            # suite when dropped.
+            # STRICTLY below 2**63, not `<= _INT64_MAX`. `_INT64_MAX` is 2**63-1,
+            # which is odd and NOT representable in float64 — comparing against it
+            # promotes to float and rounds UP to 2**63, so the bound admitted exactly
+            # the values it was added to exclude. `float(2**63)` passed every check
+            # and then wrapped to INT64_MIN, flagged valid. `_INT64_MIN` has no
+            # equivalent hole: -2**63 is a power of two and exactly representable.
+            #
+            # `isfinite` is kept for intent and is SUBSUMED — `inf` fails the upper
+            # bound, `NaN` fails `arr == rint(arr)` (NaN equals nothing). It is the
+            # one condition here that survives its own removal, so it is defensive
+            # rather than load-bearing; the other three each fail the suite.
             usable = (
                 np.isfinite(arr)
                 & (arr == np.rint(arr))
-                & (arr >= _INT64_MIN)
-                & (arr <= _INT64_MAX)
+                & (arr >= _INT64_MIN_F)
+                & (arr < _INT64_MAX_EXCLUSIVE_F)
             )
             return np.where(usable, arr, 0).astype(np.int64), usable
 
@@ -181,7 +197,7 @@ class GaulLookupEnricher:
         #
         # An earlier draft used `float(value)`, which parses. That accepted the string
         # `"54220"` as a cell id — where the pandas merge this replaced raised
-        # `ValueError: You are trying to merge on object and int64 column`. A string
+        # `ValueError: You are trying to merge on object and int64 columns`. A string
         # gid column is a declaration error and the old path said so; parsing it is
         # inference (ADR-003) and it is the same defect as the drifted float, just
         # pointing the other way. `bool` is excluded for the same reason: `True` is
@@ -189,14 +205,19 @@ class GaulLookupEnricher:
         ids = np.zeros(len(arr), dtype=np.int64)
         usable = np.zeros(len(arr), dtype=bool)
         for i, value in enumerate(arr):
-            if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+            # `np.timedelta64` IS an `np.integer` instance — a numpy quirk, and
+            # `np.datetime64` is not, so the hole was specific to that one type. A
+            # duration is not a cell id any more than `True` is cell 1.
+            if isinstance(value, (bool, np.timedelta64)):
+                continue
+            if not isinstance(value, (int, np.integer)):
                 continue
             if _INT64_MIN <= int(value) <= _INT64_MAX:
                 ids[i], usable[i] = int(value), True
         return ids, usable
 
-    def _gather(self, gids) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
-        """``(metadata, absent mask, converted ids, usable mask)``.
+    def _gather(self, gids) -> dict:
+        """The metadata for each gid, warning about the ones that got none.
 
         A sorted-key ``searchsorted`` rather than a hash map: the lookup is 64,742
         rows read once per process, and the gather is over the delivery's row count.
@@ -211,12 +232,35 @@ class GaulLookupEnricher:
         # empty lookup raised IndexError from inside the gather rather than ValueError
         # from the constructor. Guard where the condition is knowable, not where it bites.
         idx = np.clip(np.searchsorted(self._keys, wanted), 0, len(self._keys) - 1)
+        # `& usable` is NOT belt-and-braces, and no substitute value would make it so.
+        # Unusable ids substitute to 0, but int64 reserves nothing — the lookup is
+        # arbitrary data and may legally contain 0, or -1, or INT64_MIN, or whatever
+        # else one might pick instead. The mask is what carries correctness; the
+        # substitute is only a placeholder. Pinned by
+        # `test_an_unusable_id_cannot_match_the_cell_it_was_substituted_with`.
         found = (self._keys[idx] == wanted) & usable
         out = {
             col: [vals[i] if hit else None for i, hit in zip(idx, found)]
             for col, vals in self._values.items()
         }
-        return out, ~found, wanted, usable
+
+        # Warn HERE rather than handing the caller three arrays to reassemble one
+        # message. `__init__` already co-locates detection and logging at every guard
+        # (ADR-008); this is the same shape. An earlier draft returned four values,
+        # three of which existed only to build the string below.
+        absent = ~found
+        n_unmapped = int(absent.sum())
+        if n_unmapped:
+            unknown = sorted({int(i) for i, miss, ok in zip(wanted, absent, usable) if miss and ok})
+            n_unusable = int((absent & ~usable).sum())
+            detail = f"unknown cells {unknown[:20]}" if unknown else "no unknown cells"
+            if n_unusable:
+                detail += f"; {n_unusable} row(s) carried no usable cell id"
+            logger.warning(
+                "%d/%d rows have no lookup match (will fail validation): %s",
+                n_unmapped, len(wanted), detail,
+            )
+        return out
 
     @staticmethod
     def _read_version(path: Path) -> str:
@@ -262,30 +306,11 @@ class GaulLookupEnricher:
             base = df.copy()
 
         gids = base[pg_id_col].to_numpy()
-        gathered, absent, wanted, usable = self._gather(gids)
+        gathered = self._gather(gids)
 
         merged = base.copy()
         for col in METADATA_COLS:
             merged[col] = gathered[col]
-
-        n_unmapped = int(absent.sum())
-        if n_unmapped:
-            # Two distinct reasons, reported distinctly. An earlier draft did
-            # `int(g) for g in gids` over the caller's RAW column and raised
-            # `ValueError: cannot convert float NaN to integer` — from inside the very
-            # line whose job is to report the problem gracefully. Reporting the
-            # CONVERTED ids instead fixed the crash but named cell `0` for an
-            # unusable input, sending a reader after a cell that was never asked for.
-            # An id that is not a cell id has no id to report; say how many, not which.
-            unknown = sorted({int(i) for i, miss, ok in zip(wanted, absent, usable) if miss and ok})
-            n_unusable = int((absent & ~usable).sum())
-            detail = f"unknown cells {unknown[:20]}" if unknown else "no unknown cells"
-            if n_unusable:
-                detail += f"; {n_unusable} row(s) carried no usable cell id"
-            logger.warning(
-                "%d/%d rows have no lookup match (will fail validation): %s",
-                n_unmapped, len(merged), detail,
-            )
         return merged
 
     # Convenience alias for new call sites that don't need the legacy name.

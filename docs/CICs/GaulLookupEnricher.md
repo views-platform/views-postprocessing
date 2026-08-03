@@ -53,9 +53,13 @@ views-datafactory area-majority join), so this class does only a table join.
 - A cell id present in the lookup is enriched with that cell's metadata.
 - A cell id **absent** from the lookup yields **null** metadata for that row —
   never a sentinel, never a fabricated value (fail-loud downstream).
-- Row count, row order **and index** of the input are preserved. Verified against the
-  previous implementation across eight input shapes, including a non-default index,
-  duplicated gids, unknown gids and empty input.
+- Row count, row order **and index** of the input are preserved. Pinned by
+  `tests/test_enrichment.py::TestFramePropertiesPreserved` across six shapes —
+  ordered, reversed, duplicated, single, empty, and a non-default index.
+  (An earlier draft of this line claimed *eight* shapes "including unknown gids",
+  counting a throwaway development script rather than the committed suite, and naming
+  a shape that class does not exercise. Unknown gids are covered, for null-value
+  correctness, by `TestFailLoud` — a different guarantee.)
   On **empty** input this is now *more* true than before: the pandas merge replaced the
   input's `RangeIndex` with an object-dtype `Index`, where the gather leaves it
   untouched. The only behavioural difference found, and it is in the direction the

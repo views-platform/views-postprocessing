@@ -117,7 +117,7 @@ looking for deleted code.
 **The rule is not weaker — it is enforced from better evidence.** The retired
 `assert_forecast_identity` compared one selected store document's `name`/`loa` against the
 configured ensemble. Since the ADR-013 contract path became the only path (#149), the same
-guarantee is enforced in `unfao/wire/source_selection.py:73-81`: `TargetLease.load()`
+guarantee is enforced in `contract/wire/source_selection.py:73-81`: `TargetLease.load()`
 checks **every shard header's declared `provenance.ensemble`** against the launched
 ensemble, and refuses the run on a mismatch. Identity now comes from the artifact's own
 declared content rather than from a metadata field on a single document, and it is checked
