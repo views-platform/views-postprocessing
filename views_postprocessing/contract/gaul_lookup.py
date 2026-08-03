@@ -3,7 +3,7 @@
 One concept — *the precomputed geography asset* — which until #152 was scattered:
 its path was a private name in ``enrichment.py`` imported across module boundaries
 (register C-68), its version stamp was a ``@staticmethod`` on ``GaulLookupEnricher``
-that never touched the instance, and the delivery read the 888 KB parquet **three
+that never touched the instance, and the delivery read the ~880 KiB parquet **three
 times per run** (C-66) — once eagerly into a pandas enricher it never used, then
 twice more through pyarrow.
 

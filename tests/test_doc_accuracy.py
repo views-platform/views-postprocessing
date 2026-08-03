@@ -16,6 +16,7 @@ intentional historical mention in a living doc can be whitelisted with an inline
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -139,16 +140,80 @@ _MANAGER = _PKG / "unfao" / "managers" / "unfao.py"
 _MANAGER_LINE_BUDGET = 450  # epic #148's bound; 406 at close, 636 before #149
 
 
-def test_pandas_has_exactly_one_importer():
-    """ADR-012's 'Representation Seam' row says pandas is isolated to one module."""
-    importers = sorted(
-        f.relative_to(_PKG).as_posix()
-        for f in _PKG.rglob("*.py")
-        if re.search(r"^\s*(?:import pandas|from pandas\b)", f.read_text(), re.M)
+def _is_type_checking(test: ast.expr) -> bool:
+    """`TYPE_CHECKING` or `typing.TYPE_CHECKING`, and nothing else.
+
+    Substring-matching `ast.dump(test)` also matched `not TYPE_CHECKING`, which means
+    the opposite. Polarity is the whole point of a guard.
+    """
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+
+
+def _classify_pandas_imports(source: str) -> list[tuple[str, ast.AST]]:
+    """``[("runtime" | "type-only", node)]`` for every pandas import in ``source``.
+
+    **Module-level on purpose.** Both the guard and the test that proves the guard
+    bites call THIS function. An earlier draft had the meta-test define its own copy
+    of this logic — so it asserted against a replica, and when the polarity bug was
+    reintroduced into the real guard, all 16 tests still passed. That is the exact
+    defect S4 of epic #181 retired from ``test_validation.py`` (43 tests against a
+    function the file defined itself), committed again in the pull request whose
+    message boasts about catching its cousin. One implementation, two callers.
+    """
+    tree = ast.parse(source)
+    # BODY only, never `orelse`. Walking the whole `If` node classified a real runtime
+    # `import pandas` sitting in the `else:` branch as type-only — the guard passed on
+    # the exact thing it exists to catch. Reproduced before fixing.
+    guarded = {
+        id(n)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If) and _is_type_checking(node.test)
+        for stmt in node.body
+        for n in ast.walk(stmt)
+    }
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        names = [getattr(node, "module", None) or a.name for a in node.names]
+        if any((n or "").split(".")[0] == "pandas" for n in names):
+            out.append(("type-only" if id(node) in guarded else "runtime", node))
+    return out
+
+
+def test_pandas_is_not_imported_at_runtime_anywhere_in_the_package():
+    """ADR-012's 'Representation Seam' row — now a stronger claim than it was.
+
+    It used to be *one* pandas-aware module (``contract/enrichment.py``). After S4
+    (#89) that module's lookup side is numpy + pyarrow and its pandas import is
+    **type-only**, under ``if TYPE_CHECKING``: pandas is in the enricher's interface
+    (callers hand it DataFrames) but no longer in its implementation.
+
+    So the assertion is now *zero runtime importers*, and it is checked by **AST**
+    rather than by regex — a regex matching an indented ``import pandas`` cannot tell a
+    real import from one inside a ``TYPE_CHECKING`` guard, and would have passed
+    unchanged while the meaningful property changed underneath it.
+    """
+    runtime, type_only = [], []
+    for source in sorted(_PKG.rglob("*.py")):
+        for kind, node in _classify_pandas_imports(source.read_text()):
+            # The FILE is the claim; the line number is not. Pinning a line means any
+            # edit above it fails a test about imports, which is how a guard earns a
+            # reputation for crying wolf (ADR-014 §3).
+            where = source.relative_to(_PKG).as_posix()
+            (type_only if kind == "type-only" else runtime).append(where)
+
+    assert not runtime, (
+        f"pandas is imported at RUNTIME in the package: {runtime}. The delivery path "
+        "is numpy/pyarrow end to end (epic #85); a runtime pandas import re-materialises "
+        "the representation the migration removed. If it is genuinely needed, put it "
+        "behind `if TYPE_CHECKING` or say in ADR-012 why it is not."
     )
-    assert importers == ["contract/enrichment.py"], (
-        f"ADR-012 claims one pandas-aware module; found {importers}. Either the claim "
-        "or the code moved — fix whichever is wrong, do not leave the ADR lying."
+    assert type_only == ["contract/enrichment.py"], (
+        f"the type-only pandas imports moved: {type_only}. Not necessarily wrong — but "
+        "ADR-012 names the seam, so update it rather than letting the claim drift."
     )
 
 
@@ -410,3 +475,35 @@ def test_no_partner_contact_details_are_published_in_this_repository():
         f"partner contact addresses appear in this public repository: {offenders}. "
         "Keep them in the project materials; reference the decision, not the address."
     )
+
+
+def test_the_runtime_import_guard_catches_both_ways_of_evading_it():
+    """A guard that cannot fail is decoration (ADR-014 §2) — and this one could not.
+
+    Its first draft walked the whole ``if TYPE_CHECKING`` node and substring-matched
+    ``ast.dump(test)``. Two evasions passed it, both reproduced before the fix:
+
+    - a real runtime ``import pandas`` in the ``else:`` branch (walked as if guarded);
+    - ``if not TYPE_CHECKING:`` (substring match ignores polarity, which is the entire
+      point of a guard).
+
+    **And the first draft of THIS test could not have caught either**, because it
+    defined its own copy of the classifier and asserted against that. Reintroducing
+    the polarity bug into the real guard left all 16 tests green. It now calls
+    ``_classify_pandas_imports`` — the same function the guard calls — so a regression
+    there fails both.
+    """
+    def kinds(src: str) -> list[str]:
+        return [kind for kind, _ in _classify_pandas_imports(src)]
+
+    assert kinds(
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    pass\nelse:\n    import pandas\n"
+    ) == ["runtime"], "an import in the else: branch was classified type-only"
+
+    assert kinds(
+        "from typing import TYPE_CHECKING\nif not TYPE_CHECKING:\n    import pandas\n"
+    ) == ["runtime"], "`not TYPE_CHECKING` was treated as a type-checking guard"
+
+    assert kinds(
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import pandas\n"
+    ) == ["type-only"], "a legitimate type-only import was flagged — the guard cries wolf"

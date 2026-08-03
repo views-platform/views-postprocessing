@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-02                           |
-| Total Concerns    | 74                                   |
-| Open Concerns     | 15                                   |
+| Total Concerns    | 76                                   |
+| Open Concerns     | 17                                   |
 | Resolved Concerns | 59                                   |
 
 ---
@@ -529,6 +529,52 @@ pipeline-core's `search_files_by_metadata` was **unpaged**: Appwrite returns 25 
 **⚠ This falsifies a claim made in C-25's resolution earlier the same day.** That entry was closed as *"superseded by mechanism"* on the reasoning that *"the contract path selects by run manifest … so recency-based selection is not an operation the code can perform any more."* **It is exactly what the code does** (`:106`). The half of C-25 that genuinely is solved is **producer identity** — the manifest carries a declared ensemble, verified per shard header (`:73-81`), so a *different producer's* run cannot be selected. The **recency** half was never solved; it moved from picking the newest payload file to picking the newest manifest. C-25's resolution has been corrected in place rather than rewritten, because the overclaim is more instructive than the conclusion.
 
 Cross-refs: **C-25** (whose resolution this corrects), **C-40** (the inherited pipeline-core surface this arrives through — **Cluster G**), **C-72** (the other pin-gated upstream item), **#172**, views-pipeline-core **#339** / **#341** / C-241, ADR-013 §4.3 (manifest selection).
+
+---
+
+### C-75: `GaulLookupEnricher` has no production caller, and now implements a second copy of the delivery path's keyed gather
+
+| Field | Value |
+|-------|-------|
+| ID | C-75 |
+| Tier | 3 — no correctness impact today: the class is off the delivery path, so a defect in it cannot reach the UN FAO. The cost is that **the verification path and the delivery path now implement the same algorithm twice**, and the tests that check the artifact run through the copy that does *not* ship. A fix applied to one and not the other makes the verification stop verifying what ships — quietly, because both would still pass their own tests. |
+| Source | `code-review max` (2026-08-02) — PR #210, five parallel reviewers; two reached this independently |
+| Trigger | When a bug is fixed in `contract/historical.py`'s gather (the one that ships), check whether `contract/enrichment.py`'s copy needs the same fix — nothing links them. Also fires at **S5 (#90)**: once the builder is pyarrow-native, the enricher's pandas interface is the last one in the package, and the question "does this class survive?" has to be answered rather than deferred again. |
+| Owner | Whoever takes **#90** — the keep-or-retire decision is theirs to make and record, not to defer a third time. Added 2026-08-03: the first draft of this entry named two triggers and no owner, while citing ADR-014 §4 in its own body. This register had already learned that twice — *"a deferral needs an owner and a trigger, not just a reason"* (Cluster L) and *"a decision awaiting an owner, not a task awaiting effort"* (epic #181 closeout). |
+| Location | `views_postprocessing/contract/enrichment.py` (the whole class; `_gather` specifically); the shipping twin is `views_postprocessing/contract/historical.py:54-68` |
+
+**Verified, not inferred (2026-08-02):** `grep -rn "GaulLookupEnricher\|enrich_dataframe_with_pg_info"` across the package finds **zero** production callers — the two hits are docstring mentions in `gaul_lookup.py`. The manager calls `gaul_lookup.load()` directly and has zero `enrich` references. **C-66**'s resolution already said this plainly: *"the pandas enricher leaves the delivery path entirely."*
+
+**What PR #210 did, and why that raises the question.** S4 (#89) rewrote this class's lookup side from a pandas merge to a numpy/pyarrow keyed gather: a measured dtype analysis, an empty-lookup guard, a mutation-proven bug fix, a corrected CIC, and five reviewers' attention. All of it spent on a method with no reachable caller outside its own test suite. The engineering is sound; what is missing is anyone having **decided** that the class should exist.
+
+**The duplication is the concrete consequence.** `_gather`'s `argsort → searchsorted → clip → equality-mask` is the same shape as `historical.py:54-68`. The policies differ deliberately — `historical` **raises** on an absent gid (*"geography must never silently vanish"*), the enricher returns nulls for the downstream gate to catch — so extracting a shared helper would mean parameterising the failure policy, which is the guessed abstraction **WET before DRY** exists to prevent. Two copies that are understood is the right call *today*. The trigger above is what stops "today" lasting indefinitely, per **ADR-014 §4**.
+
+**The precedent is C-45**, `unfao/frames.py`: an unused adapter carried on no live path, resolved by deleting it. This is the same shape with a different module, and the same question — keep it as the declared verification/reference implementation, or retire it and let the fidelity suite test `historical.py` directly.
+
+**Deliberately NOT registered from the same review** (defects in unmerged code, all fixed in #210 before merge rather than tracked): a NaN gid crashing the warning path, the unvalidated int64 coercion at both ends, the AST guard's `else`-branch blind spot, ADR-012's stale pandas-merge claim, and three CIC claims retired elsewhere by #200. The register tracks standing risk; a defect fixed before it ships is not one. They are recorded in the PR.
+
+Cross-refs: **C-45** (RESOLVED — the same shape, resolved by deletion), **C-66** (RESOLVED — established the enricher left the delivery path), **C-40** (which calls `enrichment.py` and `extraction.py` together *"the retired-in-place `enrichment.py`/`extraction.py` legacy seams"*), **#89** / **#90** / epic **#85**, ADR-014 §4.
+
+---
+
+### C-76: `build_gaul_lookup.py` will write an empty lookup without complaint
+
+| Field | Value |
+|-------|-------|
+| ID | C-76 |
+| Tier | 4 — no silent corruption. A zero-row artifact fails downstream at `historical.build_historical_table`, which raises on cells absent from the lookup. The cost is that it fails **late and confusingly**: the message names missing geography rather than an empty lookup, and the artifact is committed by then. |
+| Source | `code-review max` (2026-08-03) — PR #210 second pass, while checking whether the consumer's new guards duplicated a producer guarantee. They do not. |
+| Trigger | When `build_gaul_lookup.py` is next run with a new or renamed `--region`, or against a datafactory whose `gaul_admin` parquets have changed shape — check the printed `cells=` count is non-zero before committing the artifact. Nothing else will tell you. |
+| Owner | Whoever next runs the builder. It is a two-line guard in a script one person runs by hand, not a scheduling decision. |
+| Location | `scripts/build_gaul_lookup.py` — the invariant block at `:246-268` and the write at `:284` |
+
+The builder's invariant block is thorough about what it checks: index uniqueness (C-59), nulls in the metadata columns, `-1` sentinels in the code columns (C-35). It does not check that any rows survived. A `--region` argument that filters every cell out, or an upstream join that produces nothing, writes a zero-row parquet and prints `cells=0` as though that were a result.
+
+**Verified 2026-08-03, and the neighbouring worry is NOT real.** The same review asked whether the builder also fails to reject a null key, since `df.isna().sum().sum()` runs *after* `priogrid_gid` becomes the index and `DataFrame.isna()` does not inspect the index. It does not check it — but the null key is unreachable anyway: `df.index.astype("int64")` raises `IntCastingNaNError` two lines earlier. Protection by accident rather than by declaration, which is worth knowing, but not a defect to fix. **Only the empty case is reachable.**
+
+**Why this was found now.** PR #210 added consumer-side refusals for both an empty lookup and a null key to `GaulLookupEnricher.__init__`, and the review challenged them as duplicating a producer guarantee. Checking established the opposite: for the empty case there is no producer guarantee to duplicate, and for the null key the producer's protection is incidental. The consumer guards stay, and this entry records the producer-side half rather than quietly assuming someone will notice.
+
+Cross-refs: **C-59** and **C-61** (RESOLVED — the invariant block this sits beside, and the reason it is otherwise thorough), **C-35** (the `-1` defect class it does check for), **C-75** (the consumer whose guards prompted the check), #210.
 
 ---
 
