@@ -51,9 +51,13 @@ class _ContractStorePort:
             targets=targets,
             description=description,
         )
-        # The store module degrades gracefully (its ADR-046 policy) and only LOGS
-        # metadata failures — which strands an invisible orphan file (run-0
-        # historical, 2026-07-27). The delivery fails loud instead.
+        # On a metadata failure the store logs, then RETURNS success=False with the
+        # file already uploaded (pipeline-core modules/appwrite/file.py — the file is
+        # the claim; its line number moves between releases). It never raises, so a
+        # caller that discards the result ships an invisible orphan: run-0's historical
+        # artifact, 2026-07-27. This check is the whole mechanism.
+        # (Until 2026-08-03 this comment said the store "only LOGS": false, and
+        # self-defeating — if it only logged, `success` would be True.)
         success = getattr(result, "success", None)
         if success is None and hasattr(result, "to_dict"):
             success = result.to_dict().get("success")
@@ -219,7 +223,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         """No-op by design.
 
         Geography is not joined into either payload: the historical artifact
-        attaches it at build time (``unfao/historical.py``) and the forecast ships
+        attaches it at build time (``contract/historical.py``) and the forecast ships
         it as the §5 GAUL sidecar, built in the sink at ``_save``. The hook stays
         so the Template Method's phases remain truthful.
         """

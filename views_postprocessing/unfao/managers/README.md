@@ -17,13 +17,16 @@ and uploads the result to the FAO Appwrite store.
 rules live in `views_postprocessing/delivery/` and are **called** by the manager (via the
 `contract/frame_extraction.py` seam), never inherited into it.
 
-It is **406 lines**, against a 450-line budget enforced by
+It sits just under a **450-line budget** — applied to this whole directory, not to this file alone — enforced by
 `tests/test_doc_accuracy.py::test_the_manager_stays_within_its_line_budget`. It was 636
 before #149. ADR-012 deliberately stopped calling it "thin" and states a number instead —
 a word nobody can check became a bound a test can.
 
-It is also **the only module in this repository that imports `views_pipeline_core`**, and a
-test keeps it that way (register C-40).
+It is also one of **only two modules in this repository that import
+`views_pipeline_core`** — this one and its CRAF'd counterpart, `crafd/managers/crafd.py`,
+added in #211. A test holds that to an explicit allowlist, so a *third* importer fails
+CI (register C-40). The two files are near-identical by design; register **C-33** names
+what would make it time to stop copying.
 
 It does **not** transform prediction values (no collapse, no reconciliation — those are
 downstream). It joins metadata, guards integrity, and delivers.

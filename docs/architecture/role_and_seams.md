@@ -14,7 +14,10 @@ metadata, guards their integrity, and delivers them to a partner store** — it 
 **post-forecast delivery layer**, not a spatial-mapping library and not a statistical
 post-processor.
 
-The only live consumer today is the **UN FAO** delivery (`views_postprocessing/unfao/`).
+Two partner deliveries live here: the **UN FAO** one
+(`views_postprocessing/unfao/`), delivering to FAO-FSFC since 2026-07-27, and
+**CRAF'd** (`views_postprocessing/crafd/`), added 2026-08-03 with its upload interlock
+still closed. They are peers — one producer, one partner package each.
 
 ---
 
@@ -182,11 +185,17 @@ views_postprocessing/
 │   ├── source_metadata.py producer (datafactory) facts, e.g. last_valid_month_id
 │   ├── store_metadata.py  prediction-store facts
 │   └── launch_config.py   the delivery mode the launcher must declare
-├── unfao/               WHO A DELIVERY IS FOR — the only FAO-specific code
+├── unfao/               WHO A DELIVERY IS FOR — the FAO-specific code, and only that
 │   ├── product.py         targets, consumer document name, S_MIN, upload interlock
 │   ├── appwrite_env.py    the declared store coordinates
-│   └── managers/unfao.py  UNFAOPostProcessorManager (406 lines; the only importer
-│                            of views_pipeline_core)
+│   └── managers/unfao.py  UNFAOPostProcessorManager
+├── crafd/               WHO A DELIVERY IS FOR — the CRAF'd-specific code (same three
+│   │                      files, same shape; register C-33 on why it is a copy)
+│   ├── product.py
+│   ├── appwrite_env.py
+│   └── managers/crafd.py  CRAFDPostProcessorManager
+│                          the two managers are the ONLY importers of
+│                          views_pipeline_core — one per partner, allowlisted by test
 └── data/gaul_lookup.parquet   the precomputed GAUL lookup (ADR-011)
 ```
 

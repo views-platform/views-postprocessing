@@ -1,4 +1,4 @@
-"""Tests for the representation seam (`unfao/frame_extraction.py`).
+"""Tests for the representation seam (`contract/frame_extraction.py`).
 
 **These were parity tests until #151.** They proved that the same data expressed as a
 pandas MultiIndex frame and as a views-frames `PredictionFrame` yielded *identical*

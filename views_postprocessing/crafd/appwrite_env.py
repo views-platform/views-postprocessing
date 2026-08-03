@@ -6,15 +6,20 @@ target classes) plus the one operator-issued secret slot. The contract is homed 
 views-appwrite and referenced by pinned URL, never copied — copies were the
 platform's original failure (þing-01 sáttmál S6):
 
-    https://github.com/views-platform/views-appwrite/blob/47172af/docs/ADRs/platform/coordinate_registry.toml
+    https://github.com/views-platform/views-appwrite/blob/90fc105/docs/ADRs/platform/coordinate_registry.toml
 
-That pin is registry **v1.3.0** (ratified, þing-02) — declared below as
-``SEAM_CONTRACT_VERSION`` / ``SEAM_CONTRACT_COMMIT`` so the pin is a value a test can
-check rather than a fact buried in prose. The ``APPWRITE_CRAFD_*`` names are declared
-at that edition (reserved slots); their *values* were filled by the operator at
-views-crafdapi S9 (views-appwrite PR #38) — but this module declares names, never
-reads values. A pinned URL does not rot, but it does go stale, and nothing in this
+That pin is registry **v1.4.1** — declared below as ``SEAM_CONTRACT_VERSION`` /
+``SEAM_CONTRACT_COMMIT`` so the pin is a value a test can check rather than a fact
+buried in prose. A pinned URL does not rot, but it does go stale, and nothing in this
 repository could previously tell you it had (register C-57).
+
+**The first pin taken here predated its own coordinates having values.** At commit
+``47172af`` the four ``APPWRITE_CRAFD_*`` names were reserved slots with **no values**.
+The operator filled them in views-appwrite PR #38 (merged ``12eb6c6``, 2026-08-02),
+which landed *within* v1.3.0 without bumping the version; v1.4.0 came two hours later
+in PR #40. So the stale pin was stale by commit, not only by version — and no test
+could see it, because the drift check was scoped to the FAO package by name (register
+C-57, amended 2026-08-03). It is now scoped to both.
 
 **Pin from the tip of `main`, never from a sibling checkout's `HEAD`** (#196).
 
@@ -37,8 +42,13 @@ logger = logging.getLogger(__name__)
 #: this repo cites. **A version string and a sha are not coordinate values** — the
 #: registry forbids copying its values, and nothing here copies one. What is recorded is
 #: *which edition was read*, which is exactly what makes drift detectable.
-SEAM_CONTRACT_VERSION = "1.3.0"
-SEAM_CONTRACT_COMMIT = "47172af"
+#:
+#: Bumping these is not bookkeeping: it asserts that someone re-checked this module's
+#: declaration against that edition of the registry. ``tests/test_env_declaration.py``
+#: enforces the pair — for this package and for ``unfao`` alike — against a local
+#: views-appwrite checkout when one is present.
+SEAM_CONTRACT_VERSION = "1.4.1"
+SEAM_CONTRACT_COMMIT = "90fc105"
 
 CONNECTION_ENV = (
     "APPWRITE_ENDPOINT",
