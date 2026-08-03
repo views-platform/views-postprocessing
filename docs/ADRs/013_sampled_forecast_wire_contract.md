@@ -689,10 +689,10 @@ a "simplification."
   this contract governs the **data** crossing the Appwrite seam; the
   **identity/config** crossing the same seam (which key, which coordinates,
   sourced from where, named how) is governed by
-  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/20dfd0f/docs/ADRs/platform/appwrite_seam_contract.md)**,
+  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/90fc105/docs/ADRs/platform/appwrite_seam_contract.md)**,
   homed in views-appwrite and referenced here **by pinned URL, never by copy** —
   with its coordinate registry
-  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/20dfd0f/docs/ADRs/platform/coordinate_registry.toml), v1.4.0)
+  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/90fc105/docs/ADRs/platform/coordinate_registry.toml), v1.4.1)
   as the canonical source of the non-secret coordinates this repo's runtime
   resolves. This repo's declared environment (`unfao/appwrite_env.py`, fail-loud
   entry validation) follows that registry's names.
@@ -705,7 +705,14 @@ a "simplification."
   a pinned commit, which is what "referenced by URL, never by copy" was always supposed
   to mean — an unpinned `main` link drifts silently under the reader.
 
-  **Re-pinned again 2026-08-03 — the drift detector's first real firing.** The registry
+  **Re-pinned a third time, hours later, to v1.4.1 @ `90fc105`.** The registry moved
+  twice in one day (v1.4.1 adds a register reframing upstream; our 13 names were
+  re-verified unchanged in class and membership both times). The detector is doing its
+  job, but a pin that must be chased per-PR is a cost worth naming: if views-appwrite
+  settles into a slower cadence this is fine, and if it does not, the check may want to
+  compare a MAJOR/MINOR floor rather than an exact version. Recorded, not acted on.
+
+  **Re-pinned 2026-08-03 — the drift detector's first real firing.** The registry
   moved to **v1.4.0** on 2026-08-02 (four CRAFD coordinates graduated from reserved to
   real, and the CRAFD caller key was recorded as issued). `test_env_declaration.py`
   failed on the next run, naming the version and telling the reader what to do, which is
