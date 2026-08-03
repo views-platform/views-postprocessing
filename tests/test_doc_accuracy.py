@@ -153,14 +153,29 @@ def test_pandas_is_not_imported_at_runtime_anywhere_in_the_package():
     real import from one inside a ``TYPE_CHECKING`` guard, and would have passed
     unchanged while the meaningful property changed underneath it.
     """
+    def _is_type_checking(test: ast.expr) -> bool:
+        """`TYPE_CHECKING` or `typing.TYPE_CHECKING`, and nothing else.
+
+        Substring-matching `ast.dump(test)` also matched `not TYPE_CHECKING`, which
+        means the opposite. Polarity is the whole point of a guard.
+        """
+        if isinstance(test, ast.Name):
+            return test.id == "TYPE_CHECKING"
+        return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+
     runtime, type_only = [], []
     for source in sorted(_PKG.rglob("*.py")):
         tree = ast.parse(source.read_text())
-        guards = [
-            n for n in ast.walk(tree)
-            if isinstance(n, ast.If) and "TYPE_CHECKING" in ast.dump(n.test)
-        ]
-        guarded = {id(n) for g in guards for n in ast.walk(g)}
+        # BODY only, never `orelse`. Walking the whole `If` node classified a real
+        # runtime `import pandas` sitting in the `else:` branch as type-only — the
+        # guard passed on the exact thing it exists to catch. Reproduced before fixing.
+        guarded = {
+            id(n)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.If) and _is_type_checking(node.test)
+            for stmt in node.body
+            for n in ast.walk(stmt)
+        }
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
                 continue
@@ -443,3 +458,53 @@ def test_no_partner_contact_details_are_published_in_this_repository():
         f"partner contact addresses appear in this public repository: {offenders}. "
         "Keep them in the project materials; reference the decision, not the address."
     )
+
+
+def test_the_runtime_import_guard_catches_both_ways_of_evading_it():
+    """A guard that cannot fail is decoration (ADR-014 §2) — and this one could not.
+
+    Its first draft walked the whole ``if TYPE_CHECKING`` node and substring-matched
+    ``ast.dump(test)``. Two evasions passed it, both reproduced before the fix:
+
+    - a real runtime ``import pandas`` in the ``else:`` branch (walked as if guarded);
+    - ``if not TYPE_CHECKING:`` (substring match ignores polarity, which is the
+      entire point of a guard).
+
+    That is the same shape as the ``&``-not-short-circuiting bug this story fixed in
+    `enrichment.py` — a guard that READS as a guard and is not one — committed twice
+    in one pull request, which is why this test exists rather than a comment.
+    """
+    def classify(src: str) -> list[str]:
+        tree = ast.parse(src)
+
+        def is_tc(test):
+            if isinstance(test, ast.Name):
+                return test.id == "TYPE_CHECKING"
+            return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+
+        guarded = {
+            id(n)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.If) and is_tc(node.test)
+            for stmt in node.body
+            for n in ast.walk(stmt)
+        }
+        out = []
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [getattr(node, "module", None) or a.name for a in node.names]
+                if any((n or "").split(".")[0] == "pandas" for n in names):
+                    out.append("type-only" if id(node) in guarded else "runtime")
+        return out
+
+    assert classify(
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    pass\nelse:\n    import pandas\n"
+    ) == ["runtime"], "an import in the else: branch was classified type-only"
+
+    assert classify(
+        "from typing import TYPE_CHECKING\nif not TYPE_CHECKING:\n    import pandas\n"
+    ) == ["runtime"], "`not TYPE_CHECKING` was treated as a type-checking guard"
+
+    assert classify(
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import pandas\n"
+    ) == ["type-only"], "a legitimate type-only import was flagged — the guard cries wolf"

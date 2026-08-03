@@ -47,7 +47,7 @@ unfao/       who a delivery is FOR         — one partner's product and manager
 | **Delivery Invariants** | Representation-free rules over primitives that a delivery must satisfy: coverage, no-collapse, gid parity, observed-range, provenance. Live in `delivery/` — **nothing there imports pandas or views_frames**. *Forecast identity was one of these until 2026-07-31 — see the amendment below.* | Authoritative — they define what a valid delivery is | Stable — changes are governance decisions |
 | **Representation Seam** | `contract/frame_extraction.py` — turns a `views_frames` frame into the primitives the invariants consume. **One seam.** Its pandas sibling `unfao/extraction.py` was deleted in #151 once the pandas delivery was retired; the two ran as deliberate WET siblings through the migration. | Derived — isolates the representation so invariants stay representation-free | Evolving |
 | **Wire Mechanism** | `contract/wire/` — the ADR-013 contract: header, shard, sidecar, run manifest, sink, source selection. Partner-neutral: it takes its consumer name and collapse floor as **arguments** (#153). | Authoritative — the contract with the consumer | Stable — changes are contract amendments |
-| **Enrichment Asset** | The precomputed GAUL lookup (`data/gaul_lookup.parquet`), its identity in `contract/gaul_lookup.py`, its schema in `contract/gaul_schema.py`, and the pandas merge that joins it (`contract/enrichment.py`, the build/verification path). | Authoritative for geographic metadata | Stable — rebuilt only when the producer releases new GAUL data |
+| **Enrichment Asset** | The precomputed GAUL lookup (`data/gaul_lookup.parquet`), its identity in `contract/gaul_lookup.py`, its schema in `contract/gaul_schema.py`, and the keyed gather that joins it (`contract/enrichment.py`, the build/verification path — numpy/pyarrow since #89; see register **C-75** on whether that class should survive at all). | Authoritative for geographic metadata | Stable — rebuilt only when the producer releases new GAUL data |
 | **Artifact Builders** | `contract/historical.py` — turns a frame plus the lookup into the partner-facing artifact. | Derived | Evolving |
 | **External Facts** | Facts read from systems this repo does not own: the producer's (`contract/source_metadata.py` — `last_valid_month_id`, D-07) and the store's (`contract/store_metadata.py`). | Authoritative (the owning system is the source of truth) | Evolving |
 | **Launch Declarations** | `contract/launch_config.py` — the delivery mode the launcher must declare. Omitting a key is **refused by name**, never inferred (ADR-003, register C-63). | Authoritative | Stable |
@@ -60,7 +60,7 @@ unfao/       who a delivery is FOR         — one partner's product and manager
 636 lines holding two of everything, and it called `unfao/extraction.py` *"the **single**
 pandas-aware module"* when pandas lived in three. Both drifted the same way: the ADR described
 the intended end state of a migration that then stopped one step short. Both are now true —
-pandas has exactly one importer again (`contract/enrichment.py`) — and the load-bearing ones are
+pandas has **zero runtime importers** (#89 made `contract/enrichment.py`'s a type-only import under `if TYPE_CHECKING` — pandas is in that class's interface, not its implementation) — and the load-bearing ones are
 **mechanically checked** by `tests/test_doc_accuracy.py`, so the next drift fails CI instead of
 waiting for an audit.
 

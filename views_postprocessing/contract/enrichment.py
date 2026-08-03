@@ -74,6 +74,17 @@ class GaulLookupEnricher:
             logger.error(err_msg)
             raise ValueError(err_msg)
 
+        if table.column(_KEY).null_count:
+            err_msg = (
+                f"GAUL lookup at {self._lookup_path} has null values in {_KEY!r}. A "
+                "null key cannot identify a cell, and coercing it would make it "
+                "collide with any unusable id on the query side — the row would then "
+                "be reported as FOUND and receive another cell's metadata. Rebuild "
+                "with scripts/build_gaul_lookup.py, which refuses to write nulls."
+            )
+            logger.error(err_msg)  # ADR-008: logged persistently AND raised
+            raise ValueError(err_msg)
+
         if table.num_rows == 0:
             err_msg = (
                 f"GAUL lookup at {self._lookup_path} is empty. Every cell would gather "
@@ -111,27 +122,69 @@ class GaulLookupEnricher:
             len(self._keys), self._lookup_path, self.lookup_version,
         )
 
-    def _gather(self, gids) -> tuple[dict, np.ndarray]:
-        """Metadata for each gid, plus a mask of the ones absent from the lookup.
+    @staticmethod
+    def _as_cell_ids(gids) -> tuple[np.ndarray, np.ndarray]:
+        """``(int64 ids, usable mask)`` — DECLARED, never coerced (ADR-003).
+
+        A cell id is an integer. Anything that is not one — a missing value, a
+        non-integral float, a ``pd.NA`` — is marked **unusable** rather than cast,
+        and unusable ids gather to null exactly as an unknown gid does. The
+        downstream gate then sees a hole, which is what it exists for.
+
+        **Why not just cast.** ``np.asarray(gids, dtype=np.int64)`` looks equivalent
+        and is not, in three ways found in review of #210:
+
+        - a ``NaN`` becomes ``INT64_MIN`` with only a ``RuntimeWarning``. If a lookup
+          key were ever null it would take the same sentinel, the two would collide,
+          and the row would be reported FOUND — receiving another cell's metadata.
+          That is the fabricated value this module's docstring forbids (cf. C-35).
+        - a non-integral float **truncates silently**: ``54220.000000001`` becomes
+          ``54220`` and matches a real, *different* cell. Verified against the pandas
+          merge this replaced: it returns null there, and even warns. A silent wrong
+          match is strictly worse than the crash it would replace.
+        - a ``pd.NA`` raises a bare ``TypeError`` from numpy — no log, no
+          contract-shaped error, unlike every other guard in this file.
+        """
+        arr = np.asarray(gids)
+        if arr.dtype.kind in ("i", "u"):
+            return arr.astype(np.int64), np.ones(arr.shape, dtype=bool)
+        if arr.dtype.kind == "f":
+            usable = np.isfinite(arr) & (arr == np.rint(arr))
+            return np.where(usable, arr, 0).astype(np.int64), usable
+        # object / pandas-nullable: convert element-wise, marking failures unusable.
+        ids = np.zeros(len(arr), dtype=np.int64)
+        usable = np.zeros(len(arr), dtype=bool)
+        for i, value in enumerate(arr):
+            try:
+                as_float = float(value)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(as_float) and as_float == int(as_float):
+                ids[i], usable[i] = int(as_float), True
+        return ids, usable
+
+    def _gather(self, gids) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray]:
+        """``(metadata, absent mask, converted ids, usable mask)``.
 
         A sorted-key ``searchsorted`` rather than a hash map: the lookup is 64,742
         rows read once per process, and the gather is over the delivery's row count.
         Absent gids yield ``None`` in every column — the null the downstream gate
-        exists to catch, not a sentinel it would pass.
+        exists to catch, not a sentinel it would pass. An id that is not a usable
+        cell id is treated the same way: absent, never guessed at.
         """
-        wanted = np.asarray(gids, dtype=np.int64)
+        wanted, usable = self._as_cell_ids(gids)
         # `self._keys` is non-empty — __init__ refuses an empty lookup. An earlier draft
         # guarded with `(len(self._keys) > 0) & (...)`, which READS as a guard and is
         # not one: `&` evaluates both operands, so the index happened regardless and an
         # empty lookup raised IndexError from inside the gather rather than ValueError
         # from the constructor. Guard where the condition is knowable, not where it bites.
         idx = np.clip(np.searchsorted(self._keys, wanted), 0, len(self._keys) - 1)
-        found = self._keys[idx] == wanted
+        found = (self._keys[idx] == wanted) & usable
         out = {
             col: [vals[i] if hit else None for i, hit in zip(idx, found)]
             for col, vals in self._values.items()
         }
-        return out, ~found
+        return out, ~found, wanted, usable
 
     @staticmethod
     def _read_version(path: Path) -> str:
@@ -177,7 +230,7 @@ class GaulLookupEnricher:
             base = df.copy()
 
         gids = base[pg_id_col].to_numpy()
-        gathered, absent = self._gather(gids)
+        gathered, absent, wanted, usable = self._gather(gids)
 
         merged = base.copy()
         for col in METADATA_COLS:
@@ -185,10 +238,21 @@ class GaulLookupEnricher:
 
         n_unmapped = int(absent.sum())
         if n_unmapped:
-            unmatched = sorted({int(g) for g, miss in zip(gids, absent) if miss})
+            # Two distinct reasons, reported distinctly. An earlier draft did
+            # `int(g) for g in gids` over the caller's RAW column and raised
+            # `ValueError: cannot convert float NaN to integer` — from inside the very
+            # line whose job is to report the problem gracefully. Reporting the
+            # CONVERTED ids instead fixed the crash but named cell `0` for an
+            # unusable input, sending a reader after a cell that was never asked for.
+            # An id that is not a cell id has no id to report; say how many, not which.
+            unknown = sorted({int(i) for i, miss, ok in zip(wanted, absent, usable) if miss and ok})
+            n_unusable = int((absent & ~usable).sum())
+            detail = f"unknown cells {unknown[:20]}" if unknown else "no unknown cells"
+            if n_unusable:
+                detail += f"; {n_unusable} row(s) carried no usable cell id"
             logger.warning(
                 "%d/%d rows have no lookup match (will fail validation): %s",
-                n_unmapped, len(merged), unmatched[:20],
+                n_unmapped, len(merged), detail,
             )
         return merged
 

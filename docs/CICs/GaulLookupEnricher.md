@@ -25,8 +25,12 @@ views-datafactory area-majority join), so this class does only a table join.
 - This class does **not** build the lookup table (that is
   `scripts/build_gaul_lookup.py`, run offline).
 - This class does **not** fill, impute, or invent metadata for unmatched cells.
-- This class does **not** validate the result — null/coverage validation is the
-  manager's `_validate()` responsibility.
+- This class does **not** validate the result. Null/coverage enforcement lives on the
+  delivery path — `contract/historical.assert_metadata_complete` at artifact build and
+  `delivery/coverage.py` for the region contract. It is **not** the manager's
+  `_validate()`, which stopped null-gating in #149 and now asserts only that the read
+  resolved. (Corrected 2026-08-02; PR #200 retired the same claim in the manager's CIC
+  and this one was left standing.)
 - This class does **not** read from the datafactory, viewser, or Appwrite.
 
 ---
@@ -103,9 +107,10 @@ views-datafactory area-majority join), so this class does only a table join.
   column.
 - **Raises** `ValueError` if `pg_id_col` is not in the input.
 - **Does not raise** on unmatched cells — it surfaces them as nulls and logs a
-  WARNING. This is deliberate: the manager's `_validate()` null gate is the
-  single enforcement point, so a coverage hole fails loudly there (one place),
-  not in two. Passing a sentinel for unmatched cells would be a **bug** (it would
+  WARNING naming the unknown cells, and separately counting rows that carried no
+  usable cell id at all. This is deliberate: enforcement is a single point on the
+  delivery path (`historical.assert_metadata_complete`), so a coverage hole fails
+  loudly there, not in two places. Passing a sentinel for unmatched cells would be a **bug** (it would
   bypass that gate). Aligns with ADR-003 (fail loud on semantic ambiguity).
 
 ---
@@ -135,7 +140,12 @@ out = enricher.enrich_dataframe_with_pg_info(
 # out has the 9 metadata columns; unmatched cells are null.
 ```
 
-Drop-in for the manager's existing call (same method name and key kwargs).
+Signature-compatible with the runtime mapper it replaced (same method name and key
+kwargs), which is why the mapper-only kwargs are still accepted and ignored.
+**The manager does not call this class** — it has no `enrich` reference at all, and
+reads the lookup directly via `gaul_lookup.load()` (register C-66). This example is a
+build/verification-path usage. Whether the class should survive that is register
+**C-75**.
 
 ---
 
