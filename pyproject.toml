@@ -29,6 +29,22 @@ pyarrow = ">=16.1.0,<17.0.0"
 pytest = ">=8.0,<10.0"   # the suite runs on 9.x today; 8.x still works
 ruff = ">=0.6,<1.0"
 
+# Ruff's default rule selection is NOT stable across ruff versions, and inheriting a
+# moving default is the inference ADR-003 forbids applied to tooling. Measured
+# 2026-08-03: ruff 0.14.13 reported 0 findings on this tree; 0.16.1 reported **815**,
+# because the newer release widened its defaults. CI installed 0.16.1 from the dev
+# group's `>=0.6,<1.0` and went red on a codebase nothing had changed.
+#
+# So the rule set is declared here. These are the classic defaults this repository has
+# in fact been linted against throughout, which is why it is green on them. Widening is
+# a deliberate, separate piece of work — 815 findings is a backlog, not a gate, and a
+# gate that starts red gets switched off (ADR-014 §3).
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
