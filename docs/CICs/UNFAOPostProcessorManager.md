@@ -8,11 +8,26 @@
 
 ---
 
+> **Corrected 2026-08-03 — this document named a collaborator the manager has never
+> called.** Six statements described enrichment as delegated to `GaulLookupEnricher`,
+> one naming the call `GaulLookupEnricher.enrich_dataframe_with_pg_info()`. The manager
+> contains **zero** references to it — `tests/test_gaul_lookup_access.py` actively
+> asserts its absence — and the sibling CIC has long said *"the manager does not call
+> this class."* Two contract documents asserted opposite things about the same call.
+> Geography is attached by `contract/historical.py` and `contract/wire/sidecar.py` from
+> a lookup the manager loads once per delivery. See register **C-75**.
+>
+> Five further claims in this file described deleted code and are corrected below:
+> a `dotenv` load that no longer happens, a "known gap" in env validation that
+> `assert_env_declared` closed, an upload count and file type that were wrong in three
+> ways, a selection precondition weaker than `source_selection` enforces, and two
+> "incorrect usage" examples for code paths that no longer exist.
+
 ## 1. Purpose
 
 > **What is this class for?**
 
-`UNFAOPostProcessorManager` orchestrates the end-to-end postprocessing pipeline that reads VIEWS conflict predictions, enriches them with geographic metadata via the precomputed GAUL lookup (`GaulLookupEnricher`, ADR-011), validates the output schema, and delivers the enriched data to the UN FAO via Appwrite cloud storage.
+`UNFAOPostProcessorManager` orchestrates the end-to-end postprocessing pipeline that reads VIEWS conflict predictions, enriches them with geographic metadata from the precomputed GAUL lookup (ADR-011), validates the output schema, and delivers the enriched data to the UN FAO via Appwrite cloud storage.
 
 It is the single entrypoint for producing and delivering UN FAO-formatted prediction data.
 
@@ -20,7 +35,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 
 ## 2. Non-Goals (Explicit Exclusions)
 
-- This class does **not** perform spatial mapping logic — it delegates enrichment to `GaulLookupEnricher` (a merge against the precomputed GAUL lookup)
+- This class does **not** perform spatial mapping logic — it reads the precomputed GAUL lookup (`contract/gaul_lookup.load()`) and the artifact builders attach geography from it
 - This class does **not** train, evaluate, or modify prediction models
 - This class does **not** define the spatial assignment algorithm
 - This class does **not** manage shapefile data or geographic reference assets
@@ -33,7 +48,7 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 - Guarantees a 4-stage pipeline: read → transform → validate → save
 - Guarantees that historical data is sourced from ViewsER via `ViewsDataLoader`
 - Guarantees that forecast data is sourced from the Appwrite production forecasts bucket
-- Guarantees that geographic metadata is added via `GaulLookupEnricher.enrich_dataframe_with_pg_info()` (a cell-id merge against the precomputed lookup)
+- Guarantees that geographic metadata is attached from the precomputed lookup — by `contract/historical.py` for the historical artifact and `contract/wire/sidecar.py` for the §5 GAUL sidecar, each a keyed gather on cell id
 - Guarantees that required metadata columns are validated before upload
 - Guarantees that both historical and forecast datasets are uploaded to the UN FAO Appwrite bucket with correct metadata (name, loa, type, category)
 - Logs structural failures before raising them (ADR-008): the config/`loa` guards, the `_validate` gates, and the dataset/`_save` guard all `logger.error`-then-raise (#13 / C-19 resolved); the `delivery/` invariants raise representation-free, with the manager logging context at each call site
@@ -45,11 +60,10 @@ It is the single entrypoint for producing and delivering UN FAO-formatted predic
 - Requires a `PostprocessorPathManager` at initialization pointing to valid model paths
 - Requires `configs` dict to contain an `ensemble` key naming the source ensemble
 - Requires environment variables for Appwrite connectivity (endpoint, project ID, API key, bucket/collection IDs)
-- Requires the ensemble's `.env` file to be loadable via `dotenv`
-- Requires the Appwrite production forecasts bucket to contain at least one file with `category="forecast"`
-- Requires the precomputed GAUL lookup parquet to be present so `GaulLookupEnricher` can load it at construction
+- Requires the Appwrite production forecasts bucket to contain a **complete run**: a manifest matching `{category: "forecast", type: "sampled_forecast_manifest"}`, a manifest per declared target, and every shard those manifests name. A bucket holding merely *some* `category="forecast"` file raises `SourceSelectionError` (`contract/wire/source_selection.py`)
+- Requires the precomputed GAUL lookup parquet to be present; it is read once per delivery via `contract/gaul_lookup.load()`
 
-Assumptions that are not met **must cause failure**, not fallback behavior. **Known gap:** the Appwrite env vars are read via `os.getenv()` without a startup validation — a missing var yields `None`, which is passed to `AppwriteConfig` unchecked rather than failing loud at the boundary (tracked by **C-19-adjacent / #11**; a fail-loud env check is the cheap fix).
+Assumptions that are not met **must cause failure**, not fallback behavior. The environment is validated fail-loud: `appwrite_env.assert_env_declared` runs before **both** `AppwriteConfig` constructions and names every missing variable, and an empty string counts as missing. *(This paragraph previously described that as a "known gap" with `os.getenv()` passing `None` through unchecked; C-19 closed it, and `tests/test_env_declaration.py` pins it.)*
 
 ---
 
@@ -63,8 +77,7 @@ Assumptions that are not met **must cause failure**, not fallback behavior. **Kn
 - Downloads data from ViewsER (network I/O)
 - Downloads forecast data from Appwrite (network I/O)
 - Writes timestamped parquet files to `data_generated/` directory
-- Uploads two parquet files to the UN FAO Appwrite bucket (network I/O)
-- Loads `.env` from ensemble path (modifies process environment)
+- Uploads to the UN FAO Appwrite bucket (network I/O) — **only when the §11.4 interlock is open**. `product.UPLOAD_ENABLED` is `False` by default, and the sink then makes **zero** store calls. Enabled, a run uploads one parquet per (target, month) — 108 at run-0 — plus the GAUL sidecar parquet, the historical parquet, and a **JSON** run manifest, committed last. Forecast-leg documents carry `{name, category, loa, filename, doc_type, targets}` and no `description`; only the historical artifact carries structured provenance
 - Logs pipeline progress at INFO/ERROR levels
 
 ---
@@ -77,11 +90,11 @@ Assumptions that are not met **must cause failure**, not fallback behavior. **Kn
 - **Null values in required metadata columns:** Raises `ValueError` with null count and affected column name (C-01 resolved — validation active)
 - **Dataset initialization failure:** Raises `ValueError` in `_save()` if datasets are None
 - **Appwrite upload failure:** Propagates exception from `DatastoreModule`
-- **Wrong forecast selected:** structurally impossible since #149. Selection is by **run manifest** — a commit marker whose contents are hash-verified — not by scanning the bucket for the newest `category="forecast"` upload. Declared identity is additionally checked **per shard header** against the launched ensemble inside `TargetLease.load()` (`contract/wire/source_selection.py:73-81`), so identity comes from the artifact's own content. The metadata-field check this bullet used to describe (`delivery/identity.py`) was retired in #150 and the legacy reader it served in #149; register C-25 is closed as *superseded by mechanism*
+- **Wrong forecast selected:** structurally impossible since #149. Selection is by **run manifest** — a commit marker whose contents are hash-verified — not by scanning the bucket for the newest `category="forecast"` upload. Declared identity is additionally checked **per shard header** against the launched ensemble inside `TargetLease.load()` (`contract/wire/source_selection.py:73-81`), so identity comes from the artifact's own content. The metadata-field check this bullet used to describe (`delivery/identity.py`) was retired in #150 and the legacy reader it served in #149; register C-25 is closed as *superseded by mechanism* <!-- legacy-ok: retirement record -->
 - **Launch config incomplete:** raises `LaunchConfigError` naming the missing key. A launcher that omits `wire_contract` or declares a `data_format` other than `feature_frame` is **refused**, never quietly routed into a fallback (ADR-003, register C-63)
 - **Region coverage mismatch:** Raises `CoverageError` in `_check_coverage()` (called from `_validate()`) if a pinned region's delivered cell count is wrong (S1/C-34) or a GAUL-uncovered excluded cell leaks into the delivery (S4/C-30)
-- **Fabricated historical tail:** `_read_historical_frame()` drops months beyond the producer's `last_valid_month_id` at the read (`_clip_observed_history` was the pandas equivalent, retired with that path in #149) so unobserved zero-padding is not shipped as observed history (S2/C-26); **degrades open** (skips the clip with a WARNING) if the boundary cannot be resolved
-- **Upload provenance:** every upload's `description` carries structured provenance (lookup version, region, expected/actual cell counts, unmapped count) via `_delivery_description()` (S5/C-15)
+- **Fabricated historical tail:** `_read_historical_frame()` drops months beyond the producer's `last_valid_month_id` at the read (`_clip_observed_history` was the pandas equivalent, retired with that path in #149) so unobserved zero-padding is not shipped as observed history (S2/C-26); **degrades open** (skips the clip with a WARNING) if the boundary cannot be resolved <!-- legacy-ok: retirement record -->
+- **Upload provenance:** the historical artifact's `description` carries structured provenance (lookup version, region, expected/actual cell counts, unmapped count) built by `delivery/provenance.py` (`build_provenance` → `compact_description`) via the manager's `_historical_frame_description()` (S5/C-15). The **forecast** side carries no such description: its guarantee is the wire's verified chain — per-shard content hashes recorded in the §4.2 run manifest, header asserts on load, and manifest-last commit ordering. That is identity and integrity, not the C-15 provenance field set; the §4.2 manifest's keys are exactly `contract_version`, `run_id`, `targets`, `shards`, `expected_months`, `expected_cell_count`, `sidecar` — and it carries **no** `lookup_version`, `region` or `unmapped_count`. `_delivery_description()` was the pandas-path equivalent and was deleted with it in #149 <!-- legacy-ok: retirement record -->
 
 The following **must never** fail silently:
 - Missing or None environment variables for Appwrite
@@ -95,7 +108,7 @@ The following **must never** fail silently:
 ## 7. Boundaries and Interactions
 
 **Allowed interactions:**
-- Delegates geographic enrichment to `GaulLookupEnricher` (a merge against the precomputed GAUL lookup)
+- Reads the precomputed GAUL lookup once and passes it to the artifact builders, which attach geography
 - Uses `views-pipeline-core` managers for path resolution, data loading, and Appwrite integration
 - Reads environment variables for external service configuration
 - Writes to local filesystem and Appwrite cloud storage
@@ -105,7 +118,7 @@ The following **must never** fail silently:
 - PRIO-GRID geometry details
 - The internals of how the lookup table was built
 
-This anchors the class within ADR-002 (topology): `unfao/` → `contract/` → `delivery/`, one way only. It is **the repository's only importer of `views_pipeline_core`** (mechanically pinned by `tests/test_doc_accuracy.py`), which is what makes C-40's blast radius one file wide. 406 lines as of epic #148, down from 636 — not yet *thin*, and held under a 450-line budget by the same test.
+This anchors the class within ADR-002 (topology): `unfao/` → `contract/` → `delivery/`, one way only — and since #211 the same holds for `crafd/`, the second partner package. It is one of **the repository's only two importers of `views_pipeline_core`** (both mechanically pinned to an allowlist by `tests/test_doc_accuracy.py`), which keeps C-40's blast radius at one file per partner. Not yet *thin*: it came down from 636 lines at epic #148 and now sits just under a **450-line budget**, which `tests/test_doc_accuracy.py` applies to the whole `managers/` directory of each partner rather than to this file alone — a seam that holds its line count by moving 800 lines into a sibling module has not held anything. The exact figure is deliberately not repeated here; the test carries it.
 
 ---
 
@@ -132,10 +145,16 @@ manager._save()
 
 ## 9. Examples of Incorrect Usage
 
-- **Calling `_transform()` before `_read()`** — datasets will be None, causing AttributeError
 - **Calling `_save()` without `_validate()`** — may upload incomplete data to partners
-- **Accessing `_enricher` directly to bypass the enrichment pipeline** — violates the orchestration boundary
 - **Hardcoding Appwrite configuration instead of reading from environment** — violates ADR-009
+- **Reaching past the manager into `contract/` to publish** — the sink is driven through
+  `_ContractStorePort` so the store is one seam; bypassing it also bypasses the
+  `result.success` check that turns a partial upload into a refusal
+
+*(Two entries were removed here on 2026-08-03 because they described code that no longer
+exists: "calling `_transform()` before `_read()`" — `_transform` is a documented no-op
+that cannot raise — and "accessing `_enricher` directly", an attribute removed in #152
+/ C-66.)*
 
 ---
 
@@ -145,7 +164,7 @@ manager._save()
 - **Beige tests:** Missing ensemble name in config; None environment variables; empty forecast bucket; DataFrames with unexpected index structure
 - **Red tests:** Corrupted parquet downloads; network timeouts during upload; DataFrames where all cells map to None (all-ocean input)
 
-Currently: the manager cannot be instantiated without `views-pipeline-core`, so its stage logic is covered by **source-scan and replica tests** — `tests/test_validation.py`, `tests/test_launch_config.py` (the refusals), `tests/test_gaul_lookup_access.py` (one lookup read, threaded). `tests/test_append_metadata.py` was deleted in #149 with the method it mirrored. A full end-to-end test against the live manager (C-03) still requires a production-like environment.
+Currently: the manager cannot be instantiated without `views-pipeline-core`, so its stage logic is covered by **source-scan and seam tests** — `tests/test_validation.py` (the metadata null-gate, tested against `contract/historical.assert_metadata_complete` where it fires, plus pins that it has not drifted back into `_validate`), `tests/test_launch_config.py` (the refusals), `tests/test_gaul_lookup_access.py` (one lookup read, threaded). There is no longer a replica of any manager method: `tests/test_validation.py` held one until S4 (#185) and it had diverged from `_validate` since #149, while `tests/test_append_metadata.py` was deleted in #149 with the method it mirrored. <!-- legacy-ok: retirement record --> A full end-to-end test against the **live manager** still requires a production-like environment and is tracked as **#18**; þing-02 **D2** forbids integration tests against the production Appwrite project, no non-production one existing.
 
 The input-integrity guards (S0–S6, epic #51) are representation-free invariants in `views_postprocessing/delivery/` that the manager **calls** (never inherits). Each has primitives unit tests — `tests/test_delivery_coverage.py` (S1/S4), `tests/test_delivery_observed_range.py` (S2), `tests/test_provenance.py` (S5), `tests/test_frame_extraction.py` (the seam), `tests/test_store_metadata.py` (store identity) — and `tests/test_input_integrity_e2e.py` drives the invariants on **primitives**, which is how the manager calls them. S3's forecast-identity rule moved to the wire layer (#150) and is covered by `tests/test_wire_source_selection.py`. The design contract (representation-free, called-not-inherited) is pinned by `tests/test_input_integrity_design_contract.py`.
 
@@ -157,7 +176,7 @@ The input-integrity guards (S0–S6, epic #51) are representation-free invariant
 - Partner-specific output formats are **evolving** — the UN FAO schema may change (see C-24, D-06 for schema divergence investigation)
 - The source of forecast data (Appwrite bucket/collection) is **evolving** — operational configuration
 - Null validation is **active** (C-01 resolved 2026-06-02)
-- The enrichment source is the **precomputed GAUL lookup table** (`GaulLookupEnricher`, ADR-011), as of the Stage 3 swap; the old runtime mapper was **removed** (C-39 / PR #42) — it no longer exists in the repo
+- The enrichment source is the **precomputed GAUL lookup table** (`views_postprocessing/data/gaul_lookup.parquet`, ADR-011), as of the Stage 3 swap; the old runtime mapper was **removed** (C-39 / PR #42) — it no longer exists in the repo
 
 ---
 

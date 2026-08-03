@@ -40,19 +40,32 @@ packages answer three different questions, and every category below names the on
 delivery/    what makes a delivery VALID   — representation-free invariants
 contract/    how a delivery is BUILT       — partner-neutral machinery
 unfao/       who a delivery is FOR         — one partner's product and manager
+crafd/       who a delivery is FOR         — another partner's product and manager
 ```
+
+**Amended 2026-08-03 (#211): the third row repeats.** `crafd/` joined `unfao/` as a
+second partner package. This does not add a fourth category — a partner package is a
+partner package, and the closed set is unchanged. What it changes is that *"who a
+delivery is FOR"* is answered N times rather than once, and every claim below that said
+**"the"** partner or **"one"** module now says how many.
+
+A partner package is the shape a partner takes **inside this repository**. It is not
+the same thing as a partner *repository*: `views-crafdapi` and `views-productionapi`
+are consumer APIs cut from `views-faoapi`, and this repository is the single producer
+that serves all of them. `docs/CLONING.md` was written before that was settled and
+described the cut-a-repo case; it now says which is which.
 
 | Category | Purpose | Authority | Stability |
 |----------|---------|-----------|-----------|
 | **Delivery Invariants** | Representation-free rules over primitives that a delivery must satisfy: coverage, no-collapse, gid parity, observed-range, provenance. Live in `delivery/` — **nothing there imports pandas or views_frames**. *Forecast identity was one of these until 2026-07-31 — see the amendment below.* | Authoritative — they define what a valid delivery is | Stable — changes are governance decisions |
 | **Representation Seam** | `contract/frame_extraction.py` — turns a `views_frames` frame into the primitives the invariants consume. **One seam.** Its pandas sibling `unfao/extraction.py` was deleted in #151 once the pandas delivery was retired; the two ran as deliberate WET siblings through the migration. | Derived — isolates the representation so invariants stay representation-free | Evolving |
 | **Wire Mechanism** | `contract/wire/` — the ADR-013 contract: header, shard, sidecar, run manifest, sink, source selection. Partner-neutral: it takes its consumer name and collapse floor as **arguments** (#153). | Authoritative — the contract with the consumer | Stable — changes are contract amendments |
-| **Enrichment Asset** | The precomputed GAUL lookup (`data/gaul_lookup.parquet`), its identity in `contract/gaul_lookup.py`, its schema in `contract/gaul_schema.py`, and the pandas merge that joins it (`contract/enrichment.py`, the build/verification path). | Authoritative for geographic metadata | Stable — rebuilt only when the producer releases new GAUL data |
+| **Enrichment Asset** | The precomputed GAUL lookup (`data/gaul_lookup.parquet`), its identity in `contract/gaul_lookup.py`, its schema in `contract/gaul_schema.py`, and the keyed gather that joins it (`contract/enrichment.py`, the build/verification path — numpy/pyarrow since #89; see register **C-75** on whether that class should survive at all). | Authoritative for geographic metadata | Stable — rebuilt only when the producer releases new GAUL data |
 | **Artifact Builders** | `contract/historical.py` — turns a frame plus the lookup into the partner-facing artifact. | Derived | Evolving |
 | **External Facts** | Facts read from systems this repo does not own: the producer's (`contract/source_metadata.py` — `last_valid_month_id`, D-07) and the store's (`contract/store_metadata.py`). | Authoritative (the owning system is the source of truth) | Evolving |
 | **Launch Declarations** | `contract/launch_config.py` — the delivery mode the launcher must declare. Omitting a key is **refused by name**, never inferred (ADR-003, register C-63). | Authoritative | Stable |
-| **Partner Product** | `unfao/product.py` (targets, consumer document name, collapse floor, upload interlock) and `unfao/appwrite_env.py` (the store coordinates). **This is what a clone replaces.** | Authoritative — one reason to change: the partner relationship | Evolving |
-| **Pipeline Manager** | `unfao/managers/unfao.py` — a concrete pipeline-core postprocessor (Template-Method subclass) that *orchestrates* read/transform/validate/save and **calls** the invariants, never inherits them. **It is the only module in the repository that imports `views_pipeline_core`** — the coupling C-40 describes is one file wide. It is not yet *thin*: 406 lines, down from 636 (#149). | Derived | Evolving |
+| **Partner Product** | Per partner: `<partner>/product.py` (targets, consumer document name, collapse floor, upload interlock) and `<partner>/appwrite_env.py` (the store coordinates). Two exist — `unfao/` and `crafd/` (#211). **This pair plus the Pipeline Manager below is what a new partner supplies** — three files, as `docs/CLONING.md` states them. | Authoritative — one reason to change: that partner relationship | Evolving |
+| **Pipeline Manager** | One per partner: `<partner>/managers/<partner>.py` — a concrete pipeline-core postprocessor (Template-Method subclass) that *orchestrates* read/transform/validate/save and **calls** the invariants, never inherits them. **These are the only modules in the repository that import `views_pipeline_core`**, pinned to an explicit allowlist by `tests/test_doc_accuracy.py` — the coupling C-40 describes is one file per partner. Neither is yet *thin* — each sits just under the 450-line budget `tests/test_doc_accuracy.py` holds them to, down from 636 (#149), and since #211 the second is a near-verbatim copy of the first — deliberate WET with a named extraction trigger, recorded in register **C-33**. | Derived | Evolving |
 | **Derived Outputs** | Arrow shards, the GAUL sidecar, the run manifest and the historical parquet, produced per run and delivered to the partner store. | Ephemeral | Ephemeral |
 
 **Two claims this ADR made until 2026-08-01, both now corrected rather than quietly dropped**
@@ -60,7 +73,7 @@ unfao/       who a delivery is FOR         — one partner's product and manager
 636 lines holding two of everything, and it called `unfao/extraction.py` *"the **single**
 pandas-aware module"* when pandas lived in three. Both drifted the same way: the ADR described
 the intended end state of a migration that then stopped one step short. Both are now true —
-pandas has exactly one importer again (`contract/enrichment.py`) — and the load-bearing ones are
+pandas has **zero runtime importers** (#89 made `contract/enrichment.py`'s a type-only import under `if TYPE_CHECKING` — pandas is in that class's interface, not its implementation) — and the load-bearing ones are
 **mechanically checked** by `tests/test_doc_accuracy.py`, so the next drift fails CI instead of
 waiting for an audit.
 
@@ -78,9 +91,16 @@ waiting for an audit.
 
 - **Screaming architecture:** the categories match the package layout — `delivery/`
   (invariants), `contract/` (the machinery: `wire/`, the `frame_extraction.py` seam, the
-  GAUL asset, artifact builders, external-fact readers), `unfao/` (the partner's product and
-  its manager). A reader can infer responsibilities from the structure, and the one-way
-  dependency `unfao/ → contract/ → delivery/` is enforced by test, not convention.
+  GAUL asset, artifact builders, external-fact readers), and one package per partner —
+  `unfao/`, `crafd/` — each holding that partner's product and its manager. A reader can
+  infer responsibilities from the structure, and the one-way dependency
+  `<partner>/ → contract/ → delivery/` is enforced by test, not convention — **both legs
+  of it, for every declared partner, since #211.** Neither was fully true before:
+  `test_contract_package_does_not_import_any_partner` named `unfao`, so `contract/` was
+  free to import `crafd`; and the `contract/ → delivery/` leg had no test at all until
+  `test_the_invariants_do_not_import_the_machinery` was written — a documented arrow
+  that half existed, which is worse than an undocumented one because a reader stops
+  checking.
 - **DIP / OCP:** primitives are the abstraction the invariants depend on; the representation
   seam is the single point of change for a representation migration (C-40), so the invariants
   are closed against it.
@@ -117,7 +137,7 @@ looking for deleted code.
 **The rule is not weaker — it is enforced from better evidence.** The retired
 `assert_forecast_identity` compared one selected store document's `name`/`loa` against the
 configured ensemble. Since the ADR-013 contract path became the only path (#149), the same
-guarantee is enforced in `unfao/wire/source_selection.py:73-81`: `TargetLease.load()`
+guarantee is enforced in `contract/wire/source_selection.py:73-81`: `TargetLease.load()`
 checks **every shard header's declared `provenance.ensemble`** against the launched
 ensemble, and refuses the run on a mismatch. Identity now comes from the artifact's own
 declared content rather than from a metadata field on a single document, and it is checked

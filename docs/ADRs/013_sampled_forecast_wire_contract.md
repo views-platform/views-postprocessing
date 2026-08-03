@@ -689,13 +689,46 @@ a "simplification."
   this contract governs the **data** crossing the Appwrite seam; the
   **identity/config** crossing the same seam (which key, which coordinates,
   sourced from where, named how) is governed by
-  **[the Appwrite Seam Contract — Identity, Secrets & Configuration Contract (VIEWS Appwrite seam)](https://github.com/views-platform/views-appwrite/blob/main/docs/ADRs/platform/the Appwrite Seam Contract_identity_secrets_configuration_contract.md)**,
-  homed in views-appwrite and referenced here **by URL, never by copy** — with its
-  coordinate registry
-  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/main/docs/ADRs/platform/coordinate_registry.toml))
+  **[the Appwrite Seam Contract](https://github.com/views-platform/views-appwrite/blob/90fc105/docs/ADRs/platform/appwrite_seam_contract.md)**,
+  homed in views-appwrite and referenced here **by pinned URL, never by copy** —
+  with its coordinate registry
+  ([`coordinate_registry.toml`](https://github.com/views-platform/views-appwrite/blob/90fc105/docs/ADRs/platform/coordinate_registry.toml), v1.4.1)
   as the canonical source of the non-secret coordinates this repo's runtime
   resolves. This repo's declared environment (`unfao/appwrite_env.py`, fail-loud
   entry validation) follows that registry's names.
+
+  **Corrected 2026-08-02 (#184).** Both links were previously unpinned (`/blob/main/`),
+  and the first was **broken**: #158's rename of `PLATFORM-001` → *the Appwrite Seam
+  Contract* was applied as a blanket find-and-replace and rewrote the **filename inside
+  the URL**, producing a path containing spaces that could not resolve. The upstream file
+  has since been renamed to `appwrite_seam_contract.md` independently. Both now point at
+  a pinned commit, which is what "referenced by URL, never by copy" was always supposed
+  to mean — an unpinned `main` link drifts silently under the reader.
+
+  **Re-pinned a third time, hours later, to v1.4.1 @ `90fc105`.** The registry moved
+  twice in one day (v1.4.1 adds a register reframing upstream; our 13 names were
+  re-verified unchanged in class and membership both times). The detector is doing its
+  job, but a pin that must be chased per-PR is a cost worth naming: if views-appwrite
+  settles into a slower cadence this is fine, and if it does not, the check may want to
+  compare a MAJOR/MINOR floor rather than an exact version. Recorded, not acted on.
+
+  **Re-pinned 2026-08-03 — the drift detector's first real firing.** The registry
+  moved to **v1.4.0** on 2026-08-02 (four CRAFD coordinates graduated from reserved to
+  real, and the CRAFD caller key was recorded as issued). `test_env_declaration.py`
+  failed on the next run, naming the version and telling the reader what to do, which is
+  what S6 (#187) built it for — its first firing was a true positive, not a false alarm.
+  Re-verified before bumping rather than after: all **13** names this repo declares are
+  present at v1.4.0 with unchanged class, and nothing was added or removed registry-wide,
+  so the registry's own claim that the bump *"imposes no new obligation on any consumer"*
+  holds here mechanically and not merely by assertion. Both links now pin `20dfd0f`.
+
+  **Re-pinned same day (#196).** The first pin taken here was resolved from a local
+  views-appwrite checkout's `HEAD` — which was sitting on an unmerged branch. That
+  commit declared registry v1.4.0, never reached `main`, and has been withdrawn. Both
+  links were then pinned to `47172af`, the tip of `main` at that time, carrying the
+  ratified v1.3.0 (superseded 2026-08-03 — see the erratum above). The
+  lesson is narrow and worth keeping: **resolve a cross-repo pin from the tip of the
+  other repo's `main`, not from whatever its working copy has checked out.**
 
 ---
 
@@ -857,6 +890,28 @@ runs can therefore never touch the live bucket by accident.
 Dated events after adoption. Errata correct errors in this document; other entries
 record execution progress against it.
 
+- **2026-08-02 — Erratum E2 (§7d links; `contract_version` stays 1.5):** §7d's first
+  link was **broken and had never resolved**. Issue #158 renamed the cross-repo contract
+  from `PLATFORM-001` to *the Appwrite Seam Contract* and the rename was applied as a
+  blanket find-and-replace, which rewrote the **filename inside the URL** — producing
+  `.../platform/the Appwrite Seam Contract_identity_secrets_configuration_contract.md`,
+  a path containing spaces. #158 was then closed while four `PLATFORM-001` citations
+  also survived in this repo's `.py`, one of them inside the message raised by
+  `appwrite_env.assert_env_declared`. Corrected in place (dated marker in §7d): the
+  upstream file is `appwrite_seam_contract.md`, and **both** §7d links are now pinned
+  rather than tracking `main`. §7d claimed *"referenced by URL, never by copy"* — true in
+  letter and false in effect while an unpinned link could drift under it.
+  `tests/test_doc_accuracy.py` now refuses the retired name in code. (#184, epic #181.)
+
+  **Amended the same day (#196):** the first pin was taken from a local views-appwrite
+  checkout's `HEAD` while it sat on the unmerged `feat/s1-single-writer-rule` branch. That
+  commit declared registry v1.4.0 and has been **withdrawn unmerged** (views-appwrite #30,
+  #27); its sha is deliberately not repeated here, so that grepping for it finds nothing.
+  Both links were then pinned to **`47172af`** — the tip of `main` at that time, registry
+  **v1.3.0**, ratified at þing-02 (superseded 2026-08-03 by v1.4.0 @ `20dfd0f`, when S6's
+  drift check fired). Verified before re-pinning: the withdrawn commit was reachable only
+  from that branch, `47172af` was `origin/main`, and both cited files existed at it. **Resolve a
+  cross-repo pin from the other repo's `main`, never from its working copy's `HEAD`.**
 - **2026-07-15 — §4.1a's recorded inconsistency CONFIRMED live.** During the Hop-B
   legacy-guard work (faoapi PR #200), a read-only audit of the live `unfao_bucket`
   found **six `orange_ensemble`-named forecast documents** stranded by the `name`

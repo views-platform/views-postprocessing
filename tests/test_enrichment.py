@@ -6,8 +6,14 @@ that swapping it in for the runtime mapper (Stage 3) is invisible downstream.
 """
 
 import pandas as pd
+import logging
+
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
+from views_postprocessing.contract import gaul_lookup
 from views_postprocessing.contract.enrichment import (
     GaulLookupEnricher,
     METADATA_COLS,
@@ -28,8 +34,24 @@ def enricher():
 
 
 @pytest.fixture(scope="module")
-def lookup(enricher):
-    return enricher._lookup
+def lookup():
+    """The committed artifact as a pandas frame, built here rather than reached for.
+
+    Until S4 (#89) this was ``enricher._lookup`` — the enricher's own private pandas
+    frame. It no longer has one: the lookup side is numpy + pyarrow, and pandas is a
+    type-only import there. These tests are about the **artifact**, not the enricher,
+    so they load it directly.
+
+    The ``set_index`` is deliberate and forward-looking. ``to_pandas()`` currently
+    restores ``priogrid_gid`` as the index from the parquet's embedded pandas
+    metadata — metadata that **S5 (#90) removes** when the builder becomes
+    pyarrow-native. Handling both shapes means these tests do not have to change
+    again then.
+    """
+    df = gaul_lookup.load().to_pandas()
+    if "priogrid_gid" in df.columns:
+        df = df.set_index("priogrid_gid")
+    return df
 
 
 class TestLookupIntegrity:
@@ -157,3 +179,241 @@ class TestFailLoud:
             enricher.enrich_dataframe_with_pg_info(
                 pd.DataFrame({"x": [1]}), pg_id_col="priogrid_gid",
             )
+
+
+# ── the guarantees the CIC states, pinned (S4 / #89; ADR-014 §1) ─────────────
+#
+# The CIC claims row/order/index preservation "verified across eight input shapes"
+# and names the output dtypes. That verification was a throwaway script run once
+# during development — a guarantee resting on a claim rather than on a check, which
+# is precisely what ADR-014 §1 forbids, written by the story after the ADR landed.
+# These commit it.
+
+
+class TestConstructionRefusals:
+    """Degenerate lookups must fail at construction, naming the lookup."""
+
+    def _write(self, path, gids):
+        cols = {"priogrid_gid": pa.array(gids, pa.int64())}
+        for c in METADATA_COLS:
+            cols[c] = pa.array(
+                [0.0] * len(gids) if c in ("pg_xcoord", "pg_ycoord") or c.endswith("_code")
+                else ["x"] * len(gids),
+                pa.float64() if c in ("pg_xcoord", "pg_ycoord") or c.endswith("_code") else pa.string(),
+            )
+        t = pa.table(cols).replace_schema_metadata({b"lookup_version": b"t@00000000"})
+        pq.write_table(t, path)
+        return path
+
+    def test_an_empty_lookup_is_refused_at_construction(self, tmp_path):
+        """It used to raise IndexError from inside the gather instead — the guard
+        `(len(self._keys) > 0) & (...)` read as a guard and was not one, because `&`
+        evaluates both operands."""
+        path = self._write(tmp_path / "empty.parquet", [])
+        with pytest.raises(ValueError, match="is empty"):
+            GaulLookupEnricher(path)
+
+    def test_a_null_key_is_refused_at_construction(self, tmp_path):
+        """A null key would coerce to the same sentinel as an unusable query id, the
+        two would collide, and the row would be reported FOUND — receiving another
+        cell's metadata. That is the fabricated value this module forbids (cf. C-35)."""
+        cols = {"priogrid_gid": pa.array([1, None, 3], pa.int64())}
+        for c in METADATA_COLS:
+            numeric = c in ("pg_xcoord", "pg_ycoord") or c.endswith("_code")
+            cols[c] = pa.array([0.0] * 3 if numeric else ["x"] * 3,
+                               pa.float64() if numeric else pa.string())
+        path = tmp_path / "nullkey.parquet"
+        pq.write_table(pa.table(cols).replace_schema_metadata({b"lookup_version": b"t@0"}), path)
+        with pytest.raises(ValueError, match="null values"):
+            GaulLookupEnricher(path)
+
+
+class TestUnusableCellIds:
+    """A value that is not a cell id gathers to null — never to a guessed cell.
+
+    Each case was verified against the pandas merge this replaced; the behaviour
+    below is that merge's, not an invention. The drifted-float case is the one that
+    matters most: a blind `astype(np.int64)` truncates `54220.000000001` to `54220`
+    and matches a real, *different* cell, silently.
+    """
+
+    def _out(self, enricher, col):
+        return enricher.enrich_dataframe_with_pg_info(
+            pd.DataFrame({"priogrid_gid": col, "month_id": [1] * len(col)}),
+            pg_id_col="priogrid_gid", time_id_col="month_id",
+        )
+
+    def test_a_missing_gid_yields_null_and_does_not_crash(self, enricher, lookup):
+        good = lookup.index[:2].tolist()
+        out = self._out(enricher, [float(good[0]), float("nan"), float(good[1])])
+        assert len(out) == 3
+        assert out["country_iso_a3"].isna().sum() == 1
+
+    def test_a_non_integral_gid_never_matches_a_neighbouring_cell(self, enricher, lookup):
+        gid = int(lookup.index[100])
+        out = self._out(enricher, [float(gid) + 1e-9])
+        assert out["country_iso_a3"].isna().all(), (
+            "a drifted float matched a cell — truncation turned it into a different, "
+            "real gid and fabricated that cell's geography"
+        )
+
+    def test_pandas_na_yields_null_rather_than_a_bare_typeerror(self, enricher, lookup):
+        good = lookup.index[:2].tolist()
+        out = self._out(enricher, pd.array([good[0], pd.NA, good[1]], dtype="Int64"))
+        assert len(out) == 3 and out["country_iso_a3"].isna().sum() == 1
+
+    def test_an_unusable_id_cannot_match_the_cell_it_was_substituted_with(self, tmp_path):
+        """The `& usable` term in `_gather`, proven load-bearing (ADR-014 §2).
+
+        It survived removal against the committed artifact: an unusable id converts to
+        `0`, and `0` is not a real gid, so the key comparison already failed. That made
+        it look like decoration. It is not — it is the only thing standing between an
+        unusable id and the row it was substituted onto, and the substitute is a real
+        key the moment a lookup contains gid `0`.
+
+        Without the mask, the NaN row below silently receives cell 0's geography. That
+        is the fabricated value this module's docstring forbids, produced from an input
+        the caller never wrote.
+        """
+        cols = {"priogrid_gid": pa.array([0, 5, 9], pa.int64())}
+        for c in METADATA_COLS:
+            numeric = c in ("pg_xcoord", "pg_ycoord") or c.endswith("_code")
+            cols[c] = pa.array(
+                [0.0] * 3 if numeric else ["ZERO", "FIVE", "NINE"],
+                pa.float64() if numeric else pa.string(),
+            )
+        path = tmp_path / "withzero.parquet"
+        pq.write_table(
+            pa.table(cols).replace_schema_metadata({b"lookup_version": b"t@00000000"}), path
+        )
+
+        out = GaulLookupEnricher(path).enrich_dataframe_with_pg_info(
+            pd.DataFrame({"priogrid_gid": [5.0, float("nan"), 9.0], "month_id": [1, 1, 1]}),
+            pg_id_col="priogrid_gid", time_id_col="month_id",
+        )
+        assert out["country_iso_a3"].tolist() == ["FIVE", None, "NINE"], (
+            "an unusable id matched the cell it was substituted with — `& usable` is "
+            "what prevents that, and this is the input that proves it"
+        )
+
+    def test_a_string_gid_column_is_refused_rather_than_parsed(self, enricher, lookup):
+        """A string gid is a declaration error, and the merge this replaced said so.
+
+        `pandas` raised *"You are trying to merge on object and int64 columns. If you
+        wish to proceed you should use pd.concat"*. An
+        earlier draft of `_as_cell_ids` used `float(value)`, which happily parsed
+        `"54220"` and matched — inference where the old path declared (ADR-003).
+        """
+        gid = str(int(lookup.index[0]))
+        out = self._out(enricher, [gid])
+        assert out["country_iso_a3"].isna().all(), (
+            f"the string {gid!r} was parsed into a cell id; a string column is a "
+            "declaration error, not a gid to be guessed at"
+        )
+
+    @pytest.mark.parametrize(
+        "label,array",
+        [
+            # Each case must enter the branch it is testing. An earlier draft built
+            # them all with dtype=object, which routed every one through the
+            # element-wise branch — so the int and float bounds it claimed to test
+            # were never executed, and removing them left the suite green.
+            ("uint64 max (int branch)", np.array([np.iinfo(np.uint64).max], dtype=np.uint64)),
+            ("1e30 (float branch)", np.array([1e30], dtype=np.float64)),
+            ("inf (float branch)", np.array([np.inf], dtype=np.float64)),
+            ("-inf (float branch)", np.array([-np.inf], dtype=np.float64)),
+            ("string (object branch)", np.array(["123"], dtype=object)),
+            ("bool (object branch)", np.array([True], dtype=object)),
+            ("float exactly 2**63", np.array([2.0**63], dtype=np.float64)),
+            ("timedelta64", np.array([1], dtype="timedelta64[ns]")),
+        ],
+    )
+    def test_out_of_range_and_non_numeric_values_are_unusable_not_wrapped(
+        self, enricher, label, array
+    ):
+        """Outside int64 the cast WRAPS rather than raising, and a wrapped id flagged
+        valid is exactly the fabricated value this conversion exists to prevent.
+
+        `uint64` max becomes `-1`; `1e30` and `float(2**63)` become `INT64_MIN`. Each
+        passes a naive finite-and-integral test, so the bounds are separate conditions
+        rather than consequences of the others.
+
+        Asserted through the PUBLIC method. An earlier draft called the private
+        `_as_cell_ids` and checked its mask — pinning an implementation detail rather
+        than the guarantee a caller relies on, and skipping `_gather`'s use of that
+        mask entirely. Every dtype below is reachable through a DataFrame column, so
+        there was never a reason to reach inside.
+        """
+        out = enricher.enrich_dataframe_with_pg_info(
+            pd.DataFrame({"priogrid_gid": array, "month_id": [1] * len(array)}),
+            pg_id_col="priogrid_gid", time_id_col="month_id",
+        )
+        assert out["country_iso_a3"].isna().all(), (
+            f"{label} produced a match — an id the caller never wrote was treated as "
+            "a cell and that cell's geography was fabricated onto the row"
+        )
+
+        # AND at the mask, because the public assertion above cannot tell "refused"
+        # from "accepted but wrapped to an id that happens to be absent" — both give
+        # null. Reverting the float bound or re-admitting timedelta64 left the public
+        # assertion green while the value was silently accepted; only this sees it.
+        # The public check is the caller's guarantee; this one is the mutation proof.
+        _, usable = GaulLookupEnricher._as_cell_ids(array)
+        assert not usable.any(), (
+            f"{label} was ACCEPTED as a cell id (it only looked refused because the "
+            f"wrapped id is absent from this lookup — against a lookup that contains "
+            f"it, this row would receive that cell's geography)"
+        )
+
+    def test_the_warning_names_unknown_cells_but_invents_no_id_for_unusable_ones(
+        self, enricher, lookup, caplog
+    ):
+        good = int(lookup.index[0])
+        with caplog.at_level(logging.WARNING):
+            self._out(enricher, [float(good), float("nan"), 999999.0])
+        message = " ".join(r.getMessage() for r in caplog.records)
+        assert "999999" in message, "the genuinely unknown cell must be named"
+        assert "no usable cell id" in message
+        assert "[0]" not in message, (
+            "an unusable id was reported as cell 0 — a cell nobody asked about"
+        )
+
+
+class TestFramePropertiesPreserved:
+    """Row count, order and index survive the gather. Was CIC prose; now a check."""
+
+    @pytest.mark.parametrize("shape", ["ordered", "reversed", "duplicated", "single", "empty"])
+    def test_row_count_and_order_are_preserved(self, enricher, lookup, shape):
+        gids = {
+            "ordered": lookup.index[:50].tolist(),
+            "reversed": lookup.index[:50].tolist()[::-1],
+            "duplicated": lookup.index[:5].tolist() * 3,
+            "single": lookup.index[:1].tolist(),
+            "empty": [],
+        }[shape]
+        out = enricher.enrich_dataframe_with_pg_info(
+            pd.DataFrame({"priogrid_gid": gids, "month_id": [1] * len(gids)}),
+            pg_id_col="priogrid_gid", time_id_col="month_id",
+        )
+        assert len(out) == len(gids)
+        assert out["priogrid_gid"].tolist() == gids
+
+    def test_a_non_default_index_is_preserved(self, enricher, lookup):
+        gids = lookup.index[:20].tolist()
+        df = pd.DataFrame({"priogrid_gid": gids, "month_id": [1] * 20},
+                          index=range(1000, 1020))
+        out = enricher.enrich_dataframe_with_pg_info(
+            df, pg_id_col="priogrid_gid", time_id_col="month_id")
+        assert out.index.equals(df.index), (
+            "the index moved. The pandas merge this replaced mutated it on empty "
+            "input; the gather must not mutate it on any input."
+        )
+
+    def test_name_columns_are_object_not_categorical(self, enricher, lookup):
+        """The CIC states this dtype. It changed in #89 and was measured, not guessed."""
+        out = enricher.enrich_dataframe_with_pg_info(
+            pd.DataFrame({"priogrid_gid": lookup.index[:5].tolist(), "month_id": [1] * 5}),
+            pg_id_col="priogrid_gid", time_id_col="month_id",
+        )
+        for c in NAME_COLS:
+            assert out[c].dtype == object, f"{c} is {out[c].dtype}, CIC says object"

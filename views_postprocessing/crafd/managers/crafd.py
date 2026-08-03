@@ -13,7 +13,7 @@ from datetime import datetime
 import os
 from views_pipeline_core.modules.dataloaders.datafactory_contract import declared_data_format
 from views_postprocessing.contract import frame_extraction, gaul_lookup, historical, launch_config, source_metadata, store_metadata
-from views_postprocessing.unfao import appwrite_env, product
+from views_postprocessing.crafd import appwrite_env, product
 from views_postprocessing.contract.wire import sink as wire_sink
 from views_postprocessing.contract.wire import source_selection
 from views_postprocessing.delivery import coverage, observed_range, provenance
@@ -69,7 +69,7 @@ class _ContractStorePort:
             )
 
 
-class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
+class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
     def __init__(
         self,
         model_path: PostprocessorPathManager,
@@ -307,8 +307,8 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         # file itself.
         lookup = gaul_lookup.load()
         upload_enabled = bool(self.configs.get("wire_upload_enabled", product.UPLOAD_ENABLED))
-        store = _ContractStorePort(self._unfao_datastore()) if upload_enabled else None
-        # The wire is partner-neutral (#153): the manager supplies FAO's product
+        store = _ContractStorePort(self._crafd_datastore()) if upload_enabled else None
+        # The wire is partner-neutral (#153): the manager supplies CRAF'd's product
         # facts explicitly rather than the mechanism reaching for them.
         summary = wire_sink.deliver_run(
             self._forecast_resolution,
@@ -319,11 +319,11 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             store=store,
             upload_enabled=upload_enabled,
         )
-        # Historical leg (#126): the FAO product ships actuals alongside the wire —
-        # frame-built, same artifact shape faoapi already ingests, same interlock.
+        # Historical leg (#126): the CRAF'd product ships actuals alongside the wire —
+        # frame-built, same artifact shape the FAO delivery already ships, same interlock.
         if self._historical_frame is None:
             raise ValueError(
-                "contract _save: no historical frame — the un_fao descriptor must "
+                "contract _save: no historical frame — the un_crafd descriptor must "
                 "declare data_format: feature_frame (#126)."
             )
         hist_path, hist_description, _ = self._build_historical_artifact(
@@ -349,13 +349,13 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         summary["historical"] = hist_path.name
         return summary
 
-    def _unfao_datastore(self) -> DatastoreModule:
-        """The FAO-facing store (`unfao_bucket`)."""
-        return DatastoreModule(appwrite_file_manager_config=self._unfao_appwrite_config())
+    def _crafd_datastore(self) -> DatastoreModule:
+        """The CRAF'd-facing store (`crafd_bucket`)."""
+        return DatastoreModule(appwrite_file_manager_config=self._crafd_appwrite_config())
 
-    def _unfao_appwrite_config(self) -> AppwriteConfig:
+    def _crafd_appwrite_config(self) -> AppwriteConfig:
         appwrite_env.assert_env_declared(
-            appwrite_env.CONNECTION_ENV + appwrite_env.UNFAO_ENV, store="unfao_bucket datastore"
+            appwrite_env.CONNECTION_ENV + appwrite_env.CRAFD_ENV, store="crafd_bucket datastore"
         )
         return AppwriteConfig(
             path_manager=self._model_path,
@@ -364,10 +364,10 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
             auth_method="api_key",
             cache_ttl_hours=24,
-            bucket_id=os.getenv("APPWRITE_UNFAO_BUCKET_ID"),
-            bucket_name=os.getenv("APPWRITE_UNFAO_BUCKET_NAME"),
-            collection_id=os.getenv("APPWRITE_UNFAO_COLLECTION_ID"),
-            collection_name=os.getenv("APPWRITE_UNFAO_COLLECTION_NAME"),
+            bucket_id=os.getenv("APPWRITE_CRAFD_BUCKET_ID"),
+            bucket_name=os.getenv("APPWRITE_CRAFD_BUCKET_NAME"),
+            collection_id=os.getenv("APPWRITE_CRAFD_COLLECTION_ID"),
+            collection_name=os.getenv("APPWRITE_CRAFD_COLLECTION_NAME"),
             database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
             database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
         )

@@ -72,6 +72,13 @@ These ADRs form the architectural constitution of the repository.
   sidecar, and the no-collapse boundary (delivery/draws.py). Supersedes the phantom
   "platform ADR-046". Adopted 2026-07-15 via views-models#149.
 
+- **ADR-014** — Claims, and the Guards That Carry Them
+  ADR-003 applied to the repository's own statements: a guarantee is attached to a check,
+  a guard is mutation-proven or it is decoration, a false negative beats a false alarm, a
+  deferral names a trigger and an owner, and a change that names a record disposes of that
+  record in the same change. Arises from epic #181, which found seven places where this
+  repo said one thing and did another.
+
 ADRs numbered 010 and above define:
 
 - Domain-specific decisions

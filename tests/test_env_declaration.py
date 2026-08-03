@@ -7,36 +7,194 @@ repo's manager reached inside views-models' checkout for its environment. The
 verdict retired it — the launcher declares its env sourcing (views-models M3,
 merged), and this package only validates (verdict D6).
 
-Imports only `unfao.appwrite_env` (dependency-light by design); the manager
-module itself needs views-pipeline-core, absent in test environments, so the
-manager-side facts are pinned by source scan — the repo's standing pattern.
+Imports **every partner's** `appwrite_env` and their shared sibling
+`contract.launch_config` — all dependency-light by design (no views-pipeline-core, no
+pandas), which is what lets them be exercised directly here. The manager modules are
+not exercised directly: instantiating one needs a full Appwrite environment and a
+views-models path manager, so the manager-side facts are pinned by source scan instead —
+the repo's standing pattern. (The older reason given here, that views-pipeline-core is
+"absent in test environments", stopped being true: it is a declared dependency,
+CI installs it, and the manager module imports fine.)
+
+**Scoped to `unfao` by name until #211**, at which point `crafd/appwrite_env.py`
+landed pinned to a registry edition at which its own coordinates had no values, and
+every check here went on passing over a module it was not looking at. The partner list
+now comes from `tests/conftest.PARTNER_PACKAGES` and is asserted against the
+filesystem, so the next partner cannot be silently exempt (register C-57).
 """
 
+import ast
+import logging
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from tests.conftest import (
+    PARTNER_PACKAGES,
+    broken_sibling_overrides,
+    commit_is_on_main,
+    git_output,
+    require_sibling,
+    sibling_repo,
+)
+from views_postprocessing.contract import launch_config
+from views_postprocessing.crafd import appwrite_env as crafd_env
 from views_postprocessing.unfao import appwrite_env
 
+_REPO = Path(__file__).resolve().parent.parent
+_PKG = _REPO / "views_postprocessing"
 
-_MANAGER_SOURCE = (
-    Path(__file__).resolve().parent.parent
-    / "views_postprocessing"
-    / "unfao"
-    / "managers"
-    / "unfao.py"
-)
+
+def _manager_source(partner: str) -> Path:
+    """``<partner>/managers/<partner>.py``, asserted to exist.
+
+    The layout is **declared** — ``docs/CLONING.md`` §3 states it as the shape a new
+    partner supplies — but a declaration this function merely assumes is one it cannot
+    notice going stale. Without the check below a renamed manager gives a bare
+    ``FileNotFoundError`` from ``read_text``, which is loud but says nothing about
+    which rule was broken (ADR-014 §2: assert that a guard's inputs are real).
+    """
+    path = _PKG / partner / "managers" / f"{partner}.py"
+    assert path.exists(), (
+        f"no manager at {path.relative_to(_PKG.parent)}. Every check in this file that "
+        f"scans {partner}'s manager silently covers nothing without it. The layout is "
+        "declared in docs/CLONING.md §3 — either follow it or teach this function the "
+        "new one; do not leave the scan pointing at a path that stopped existing."
+    )
+    return path
+
+
+_SHARED_CLASS = {
+    "APPWRITE_ENDPOINT": "connection",
+    "APPWRITE_DATASTORE_PROJECT_ID": "connection",
+    "APPWRITE_DATASTORE_API_KEY": "secret",
+    "APPWRITE_PROD_FORECASTS_BUCKET_ID": "target",
+    "APPWRITE_PROD_FORECASTS_BUCKET_NAME": "target",
+    "APPWRITE_PROD_FORECASTS_COLLECTION_ID": "target",
+    "APPWRITE_PROD_FORECASTS_COLLECTION_NAME": "target",
+    "APPWRITE_METADATA_DATABASE_ID": "target",
+    "APPWRITE_METADATA_DATABASE_NAME": "target",
+}
+
+#: Per partner: the module, the tuple naming its own outbound store, and how this test
+#: treats every name that partner declares.
+#:
+#: **Parametrised since #211, and that is the point.** Every check below imported
+#: ``unfao.appwrite_env`` by name. When ``crafd/appwrite_env.py`` landed pinned two
+#: registry editions stale — at a commit where its own four ``APPWRITE_CRAFD_*``
+#: coordinates still carried no values — not one of them fired, because none of them
+#: was looking. A drift detector that names its subject cannot detect drift in the
+#: subject it does not name (register C-57, amended 2026-08-03).
+_PARTNER_ENV = {
+    "unfao": (
+        appwrite_env,
+        appwrite_env.UNFAO_ENV,
+        _SHARED_CLASS | {
+            "APPWRITE_UNFAO_BUCKET_ID": "target",
+            "APPWRITE_UNFAO_BUCKET_NAME": "target",
+            "APPWRITE_UNFAO_COLLECTION_ID": "target",
+            "APPWRITE_UNFAO_COLLECTION_NAME": "target",
+        },
+    ),
+    "crafd": (
+        crafd_env,
+        crafd_env.CRAFD_ENV,
+        _SHARED_CLASS | {
+            "APPWRITE_CRAFD_BUCKET_ID": "target",
+            "APPWRITE_CRAFD_BUCKET_NAME": "target",
+            "APPWRITE_CRAFD_COLLECTION_ID": "target",
+            "APPWRITE_CRAFD_COLLECTION_NAME": "target",
+        },
+    ),
+}
+
+_PARTNERS = tuple(_PARTNER_ENV)
+
+#: Every coordinate name any partner declares — the left-hand sides a document could
+#: assign a registry value to.
+_EXPECTED_NAMES = {name for _, _, expected in _PARTNER_ENV.values() for name in expected}
+
+
+#: Function names that belong to python-dotenv and to essentially nothing else.
+#:
+#: ``set_key``/``get_key``/``unset_key`` are deliberately **absent**. They are dotenv
+#: members, but they are also ordinary method names — a first draft included ``set_key``
+#: and flagged ``draft.set_key("run_id", run_id)`` in ``contract/store_metadata.py`` as
+#: *"python-dotenv is back in this package"*. That is ADR-014 §3: a guard that cries
+#: wolf gets deleted, and then the rule it carried is unguarded. Reaching them requires
+#: importing ``dotenv``, which the import half below catches outright.
+_DOTENV_CALLS = {"load_dotenv", "find_dotenv", "dotenv_values"}
+
+
+def _dotenv_use(source: str) -> list[str]:
+    """Real imports of, and calls into, python-dotenv — parsed, not grepped.
+
+    **Prose is not a violation and must not be treated as one.** ``appwrite_env.py``'s
+    own docstring explains what the retired borrow was, spelling it exactly; a token
+    scan over the package flags that sentence and gets deleted, after which the rule it
+    carried is unguarded (ADR-014 §3 — when a guard cries wolf, the matching is wrong
+    before the scope is). An AST walk sees imports and calls and never sees a docstring
+    or a comment, so the guard can cover the whole package without lying about prose.
+    """
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            found += [a.name for a in node.names if a.name.split(".")[0] == "dotenv"]
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[0] == "dotenv":
+                found.append(f"from {node.module}")
+        elif isinstance(node, ast.Call):
+            fn = node.func
+            name = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", None)
+            if name in _DOTENV_CALLS:
+                found.append(f"{name}()")
+    return sorted(set(found))
+
+
+def test_no_sibling_override_points_at_a_missing_path():
+    """Assert the cross-repo checks' inputs are real (ADR-014 §2), once for all of them.
+
+    Every gated check in this repository resolves a sibling checkout and skips when it
+    is absent. Absent is normal — CI checks out only this repo. A variable that is
+    *set* and wrong is not normal, and skipping on it means an operator who asked for
+    the cross-repo assertions silently got none of them, for as long as the typo lives.
+    """
+    broken = broken_sibling_overrides()
+    assert not broken, (
+        f"sibling override(s) set but pointing at nothing: {broken}. Every check gated "
+        "on those repositories is skipping — you asked for them and are getting none. "
+        "Fix the path or unset the variable."
+    )
 
 
 def test_the_dotenv_borrow_is_dead():
-    # Prose may mention the dead borrow; importing or calling it may not.
-    text = _MANAGER_SOURCE.read_text()
-    for token in ("load_dotenv", "from dotenv", "import dotenv", "find_dotenv"):
-        assert token not in text, (
-            f"{token!r} is back in the manager (þing-01 #134 killed the borrow): "
-            "the launcher declares the environment; this package must never load one."
-        )
+    """þing-01 #134's verdict, held over the whole package rather than two files.
+
+    **This guard has been too narrow twice.** It was scoped to ``unfao``'s manager, and
+    a live ``load_dotenv`` in ``crafd/managers/crafd.py`` left the suite green. Widened
+    to both managers, it still covered 2 files of 30: verified 2026-08-03 that
+    ``load_dotenv(find_dotenv())`` at module scope in ``unfao/appwrite_env.py`` — *the
+    entry validator whose own docstring says the borrow is dead* — ran on import with
+    the suite green, as did the same line in ``product.py`` and ``launch_config.py``.
+
+    The rule was never about managers. þing-01 D6 says **this package** validates the
+    environment and never loads one, so the scan is the package. Register **C-74**'s
+    shape twice over: a guard narrower than the sentence describing it.
+    """
+    offenders = {
+        source.relative_to(_PKG).as_posix(): used
+        for source in sorted(_PKG.rglob("*.py"))
+        for used in [_dotenv_use(source.read_text())]
+        if used
+    }
+    assert not offenders, (
+        f"python-dotenv is back in this package: {offenders}. þing-01 #134 killed the "
+        "borrow — the launcher declares the environment (verdict D6) and this package "
+        "validates it fail-loud. A module that loads a .env reintroduces the copy-chain "
+        "the assembly retired, and does it at import time, before any validation runs."
+    )
 
 
 def test_missing_env_raises_naming_every_missing_variable(monkeypatch):
@@ -81,26 +239,425 @@ def test_empty_string_counts_as_missing(monkeypatch):
         )
 
 
-def test_declared_names_match_the_manager_reads():
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_declared_names_match_the_manager_reads(partner):
     # Declaration and use must not drift: every APPWRITE_* name the manager
     # actually reads is declared, and both store paths validate before building.
-    text = _MANAGER_SOURCE.read_text()
+    #
+    # Parametrised since #211. The crafd manager reads its own four coordinates by
+    # hardcoded literal (`crafd.py:363-366`) exactly as the FAO one does, so it can
+    # drift from its own declaration in exactly the same way — and did not have a
+    # check saying otherwise.
+    module, own_store, _ = _PARTNER_ENV[partner]
+    text = _manager_source(partner).read_text()
     read_names = set(re.findall(r'os\.getenv\("(APPWRITE_[A-Z_]+)"\)', text))
-    declared = set(
-        appwrite_env.CONNECTION_ENV + appwrite_env.PROD_FORECASTS_ENV + appwrite_env.UNFAO_ENV
+    declared = set(module.CONNECTION_ENV + module.PROD_FORECASTS_ENV + own_store)
+    assert read_names == declared, (
+        f"[{partner}] the manager reads {sorted(read_names - declared)} without "
+        f"declaring them, and declares {sorted(declared - read_names)} without "
+        "reading them"
     )
-    assert read_names == declared
     # One validation per store construction. Was 3 until #149 retired the legacy
     # `_save`, whose Appwrite config duplicated `_unfao_appwrite_config` verbatim;
-    # the two survivors are the production_forecasts read and the unfao_bucket write.
+    # the two survivors are the production_forecasts read and the partner-bucket write.
     assert text.count("appwrite_env.assert_env_declared(") == 2
 
 
-def test_secret_env_names_follow_the_platform_naming_rule():
-    # PLATFORM-001 D3: suffix _API_KEY/_PASSWORD/_TOKEN ⇒ secret. Exactly one
+# ── ADR-008 across BOTH entry validators (S1 / #182, register C-71) ──────────
+#
+# `appwrite_env` asserts the launcher assembled the *environment*; `launch_config`
+# asserts it declared the *delivery mode*. They are deliberate siblings, NOT a
+# shared abstraction (WET before DRY — the trigger to extract is a THIRD such
+# module, #181). Siblings drift: `launch_config` was written in #149 by mirroring
+# `appwrite_env`, inherited its missing log call, was fixed in review, and left
+# the module it copied as the odd one out for two weeks.
+#
+# Parametrising the ADR-008 obligation over both is what stops that recurring —
+# and adding a third validator is one line here, not a new test.
+_REFUSALS = (
+    pytest.param(
+        lambda: appwrite_env.assert_env_declared(("VPP_S1_ABSENT_VAR",), store="test_store"),
+        EnvironmentError,
+        "VPP_S1_ABSENT_VAR",
+        id="appwrite_env.assert_env_declared",
+    ),
+    pytest.param(
+        lambda: launch_config.assert_contract_mode({}),
+        launch_config.LaunchConfigError,
+        launch_config.WIRE_CONTRACT_KEY,
+        id="launch_config.assert_contract_mode",
+    ),
+    pytest.param(
+        lambda: launch_config.assert_frame_native_historical("pandas_dataframe"),
+        launch_config.LaunchConfigError,
+        launch_config.FEATURE_FRAME_FORMAT,
+        id="launch_config.assert_frame_native_historical",
+    ),
+)
+
+
+@pytest.mark.parametrize("refuse,exc,expected_token", _REFUSALS)
+def test_every_entry_validator_logs_before_it_raises(refuse, exc, expected_token, caplog):
+    """ADR-008:48/51 — a structural refusal must leave a persistent record.
+
+    :48 requires raised structural failures to be logged at ERROR or higher; :51
+    that *"raising is not a substitute for logging."* A launcher misconfiguration
+    is a structural failure by any reading, and these are the two seams whose
+    whole job is to make one visible. An operator reading logs after a refused
+    run must find the reason there, not only in a traceback they no longer have.
+    """
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(exc):
+            refuse()
+
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1, (
+        f"expected exactly one ERROR record from the refusal, got {len(errors)}: "
+        f"{[r.getMessage() for r in errors]}"
+    )
+    assert expected_token in errors[0].getMessage(), (
+        "the log record must name what was missing — a record that says only "
+        "'refused' sends the operator back to the traceback it was meant to replace"
+    )
+
+
+def test_the_environment_refusal_logs_names_and_never_values(monkeypatch, caplog):
+    """The one place ADR-008 and the redaction discipline could collide.
+
+    `CONNECTION_ENV` carries `APPWRITE_DATASTORE_API_KEY` — a secret slot. Logging
+    a refusal is only safe because `missing` holds NAMES: membership is decided by
+    `os.getenv(name)` being falsy and the resolved value is never read. This test
+    pins that, so a future "let's log the current environment for debuggability"
+    cannot land quietly. See tests/test_redaction_guard.py for the wider rule.
+    """
+    sentinel = "s1-sentinel-secret-value-must-never-be-logged"
+    monkeypatch.setenv("APPWRITE_DATASTORE_API_KEY", sentinel)
+    monkeypatch.delenv("APPWRITE_ENDPOINT", raising=False)
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(EnvironmentError):
+            appwrite_env.assert_env_declared(appwrite_env.CONNECTION_ENV, store="unfao_bucket")
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "APPWRITE_ENDPOINT" in logged, "the missing NAME must be reported"
+    assert sentinel not in logged, "a secret VALUE reached a log record"
+    assert "APPWRITE_DATASTORE_API_KEY" not in logged, (
+        "the key was set, so it is not missing — it must not appear at all"
+    )
+
+
+def test_secret_env_names_follow_the_seam_contract_naming_rule():
+    # þing-01 D3, the Appwrite Seam Contract §3 ("Classification — declared, never
+    # inferred"): suffix _API_KEY/_PASSWORD/_TOKEN marks a secret. Exactly one
     # declared name is a secret; every other declared name is a coordinate.
     declared = set(
         appwrite_env.CONNECTION_ENV + appwrite_env.PROD_FORECASTS_ENV + appwrite_env.UNFAO_ENV
     )
     secrets = {n for n in declared if n.endswith(("_API_KEY", "_PASSWORD", "_TOKEN"))}
     assert secrets == {"APPWRITE_DATASTORE_API_KEY"}
+
+
+# ── drift against the Appwrite Seam Contract's registry (S6 / #187, C-57) ────
+#
+# The registry is the authority for every name below and lives in views-appwrite. It
+# is deliberately **referenced, never copied** — one owner, no duplicated values, no
+# drift-by-fork — and that is the right call. What it leaves is C-57's gap: nothing
+# mechanical tells you when the two have diverged.
+#
+# Checked 2026-08-02: there is no live drift. This builds the detector while the
+# answer is known-good, which is the cheap moment; the alternative is discovering it
+# during a failed delivery.
+#
+# **Never assert on a coordinate VALUE.** The registry holds non-secret identifiers,
+# and copying one into a test is the same violation as copying it into code. These
+# compare names, declared classes, and the edition — nothing else.
+
+_REGISTRY_RELPATH = Path("docs") / "ADRs" / "platform" / "coordinate_registry.toml"
+
+#: How this module treats each declared name, vs. the registry's own `class` field.
+#:
+#: **Written out, not derived.** An earlier draft built this by suffix — anything ending
+#: `_API_KEY` is a secret, everything else in CONNECTION_ENV is a connection. That is the
+#: precise inference the registry's header forbids ("class is DECLARED here, never
+#: inferred from a name's prefix"), reproduced inside the test written to enforce it.
+#: It happened to be correct, which is what makes the habit worth breaking rather than
+#: excusing. Adding a name without classifying it now fails below.
+def test_every_partner_package_has_its_environment_checked_here():
+    """Assert this module's declared scope is the real one (ADR-014 §2).
+
+    ``_PARTNER_ENV`` is what every parametrised check below iterates. A partner
+    package missing from it is a partner whose coordinates nobody compares against the
+    registry — and the suite stays green, which is exactly how ``crafd`` arrived. So
+    the keys are checked against the repository's single declared partner list rather
+    than maintained by hand and hoped over.
+    """
+    assert set(_PARTNERS) == set(PARTNER_PACKAGES), (
+        f"partner packages without an environment check: "
+        f"{sorted(set(PARTNER_PACKAGES) - set(_PARTNERS))}; "
+        f"checked but no longer a partner: {sorted(set(_PARTNERS) - set(PARTNER_PACKAGES))}. "
+        "Add the partner to _PARTNER_ENV — an unlisted one is silently exempt from "
+        "every registry comparison in this file."
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_every_declared_name_is_classified_here(partner):
+    """The map above must cover each module exactly — no silent gaps, no strays.
+
+    Without this, adding a name to one of the ENV tuples would simply not be checked
+    against the registry, and the drift test would keep passing while covering less.
+    That is register **C-74**'s shape: a guard quietly narrower than it claims.
+    """
+    module, own_store, expected = _PARTNER_ENV[partner]
+    declared = set(module.CONNECTION_ENV + module.PROD_FORECASTS_ENV + own_store)
+    assert set(expected) == declared, (
+        f"[{partner}] unclassified: {sorted(declared - set(expected))}; "
+        f"stale: {sorted(set(expected) - declared)}"
+    )
+
+
+def _load_registry(repo: Path) -> dict:
+    tomllib = pytest.importorskip(
+        "tomllib",
+        reason="tomllib is stdlib from Python 3.11; pyproject declares >=3.11, so a "
+               "conforming environment has it. CI runs 3.11.",
+    )
+    return tomllib.loads((repo / _REGISTRY_RELPATH).read_text())
+
+
+def _declared_classes(registry: dict) -> dict[str, str]:
+    """name -> the class the registry DECLARES for it (never inferred from the name)."""
+    return {
+        name: body.get("class")
+        for section in ("connection", "target", "secret")
+        for name, body in registry.get(section, {}).items()
+    }
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_every_declared_name_exists_in_the_registry_with_the_class_we_treat_it_as(partner):
+    """C-57: a rename or reclassification upstream must not be silent here."""
+    repo = require_sibling("views-appwrite")
+    declared = _declared_classes(_load_registry(repo))
+    _, _, expected_class = _PARTNER_ENV[partner]
+
+    missing = sorted(n for n in expected_class if n not in declared)
+    assert not missing, (
+        f"[{partner}] names this package requires are absent from the Appwrite Seam "
+        f"Contract's registry: {missing}. Either the registry retired them or this "
+        "module invented them; the registry is the authority."
+    )
+    misclassified = {
+        n: (expected, declared[n])
+        for n, expected in expected_class.items()
+        if declared[n] != expected
+    }
+    assert not misclassified, (
+        f"[{partner}] class mismatch (expected, registry) {misclassified}. Class is "
+        "DECLARED by the registry, never inferred from a name's prefix — a coordinate "
+        "treated as a secret (or the reverse) is a redaction bug waiting to happen."
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_pinned_contract_edition_still_matches_the_registry(partner):
+    """The check that catches everything the other one cannot — including additions.
+
+    Names and classes catch a rename. The edition catches **any** other change: a new
+    target this repo ought to adopt, a retired secret slot, a reworded rule. It fails
+    loudly and tells you what to do rather than what broke.
+
+    It is also the check that would have caught #211's stale crafd pin on the day it
+    was written, had it been looking at crafd. It was not. It is now.
+    """
+    repo = require_sibling("views-appwrite")
+    module = _PARTNER_ENV[partner][0]
+    actual = _load_registry(repo)["meta"]["version"]
+    assert actual == module.SEAM_CONTRACT_VERSION, (
+        f"the Appwrite Seam Contract's registry moved to v{actual}; "
+        f"{partner}/appwrite_env.py declares v{module.SEAM_CONTRACT_VERSION}. Re-verify "
+        f"that module's declaration against v{actual}, then bump SEAM_CONTRACT_VERSION "
+        "and SEAM_CONTRACT_COMMIT together. Do not bump one alone — the pair is the claim."
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_pinned_commit_is_reachable_from_the_contract_repos_main(partner):
+    """Existence is not reachability, and that distinction cost a merged PR (#196).
+
+    S3 pinned a commit resolved with ``rev-parse HEAD`` on a views-appwrite checkout
+    that happened to be sitting on an unmerged branch. The commit existed. Both cited
+    files existed at it. Every check anyone had written passed. It had never reached
+    ``main``, declared a version that was never ratified, and was withdrawn.
+    """
+    repo = require_sibling("views-appwrite")
+    commit = _PARTNER_ENV[partner][0].SEAM_CONTRACT_COMMIT
+    if not git_output(repo, "cat-file", "-t", commit):
+        pytest.skip(
+            f"{commit} is not in the local views-appwrite checkout — run `git fetch` "
+            "there; a stale clone cannot answer whether the pin reached main"
+        )
+    assert commit_is_on_main(repo, commit), (
+        f"[{partner}] the pinned commit {commit!r} is not an ancestor of "
+        "views-appwrite's main. A "
+        "pin taken from a working copy's HEAD can land on an unmerged branch — that is "
+        "#196, verbatim. Re-pin from `git rev-parse --short origin/main`."
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_drift_check_would_catch_a_rename(partner):
+    """A gated test that cannot fail is decoration — so prove this one bites in CI.
+
+    Runs with **no** views-appwrite checkout: a synthetic registry with one name
+    renamed and one reclassified, fed to the same comparison the gated tests use.
+
+    Parametrised over partners for the reason the whole file now is: a detector proven
+    against one partner's coordinates is not proven against another's, and the gated
+    checks skip on any machine without a views-appwrite checkout — so this is the only
+    proof that runs everywhere.
+    """
+    module, own_store, expected_class = _PARTNER_ENV[partner]
+    # The partner's own outbound bucket id — a `target` in the real registry, which is
+    # what makes reclassifying it to `secret` the meaningful mutation.
+    canary = own_store[0]
+
+    registry = {
+        "meta": {"version": module.SEAM_CONTRACT_VERSION},
+        "connection": {"APPWRITE_ENDPOINT": {"class": "connection"}},
+        "target": {canary: {"class": "secret"}},  # reclassified
+        "secret": {"APPWRITE_DATASTORE_API_KEY": {"class": "secret"}},
+    }
+    declared = _declared_classes(registry)
+
+    assert expected_class[canary] == "target", (
+        f"{canary} is not classified as a target here, so reclassifying it below is "
+        "not the mutation this test believes it is"
+    )
+    assert "APPWRITE_DATASTORE_PROJECT_ID" not in declared, "fixture should omit it"
+    missing = sorted(n for n in expected_class if n not in declared)
+    assert missing, "the detector reported no missing names against a registry that omits most"
+
+    mismatched = [
+        n for n, expected in expected_class.items()
+        if n in declared and declared[n] != expected
+    ]
+    assert canary in mismatched, (
+        f"[{partner}] a target reclassified as a secret went unnoticed — that is the "
+        "case where getting it wrong leaks or hides a value"
+    )
+
+
+def _docstring_nodes(tree: ast.AST) -> set[int]:
+    """ids of the string Constants that are docstrings — prose, not values."""
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            first = node.body[0] if node.body else None
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                out.add(id(first.value))
+    return out
+
+
+def test_no_coordinate_value_is_copied_into_this_repo():
+    """The registry's own rule: *"never bake a value into code, an example, or a
+    dataclass default."* Consumers READ and VALIDATE; the launcher supplies values.
+
+    **Two wrong narrowings before this one, both instructive.**
+
+    A substring text scan over every ``.py`` flagged three "leaks": ``file_metadata``
+    (a **function name** in ``contract/store_metadata.py``), ``production_forecasts``
+    and ``unfao_bucket`` (only in refusal labels and docstrings naming which store a
+    function serves). None was a copy, and a guard that fails on
+    ``def file_metadata(record)`` gets deleted — after which the real rule is unguarded.
+
+    Narrowing to *assignments and default arguments* then went too far in the other
+    direction: it caught neither a dict value nor a keyword argument, and the keyword
+    argument is the shape this repo would actually produce —
+    ``AppwriteConfig(bucket_id=...)`` is how every store is configured, and swapping one
+    ``os.getenv`` for a literal there is the violation.
+
+    The right axis was **exact equality on string constants**, not statement shape. It
+    catches dict values and kwargs, while all three original false positives fall out on
+    their own: a function name is not a ``Constant``; ``"unfao_bucket datastore"`` is not
+    equal to ``"unfao_bucket"``; docstrings are excluded outright.
+    """
+    repo = sibling_repo("views-appwrite")
+    if repo is None:
+        pytest.skip("views-appwrite checkout not found — set VIEWS_APPWRITE")
+    registry = _load_registry(repo)
+    values = {
+        body["value"]
+        for section in ("connection", "target")
+        for body in registry.get(section, {}).values()
+        if isinstance(body.get("value"), str) and len(body["value"]) > 6
+    }
+
+    copied = []
+    for source in sorted(_PKG.rglob("*.py")):
+        tree = ast.parse(source.read_text())
+        docstrings = _docstring_nodes(tree)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value in values
+                and id(node) not in docstrings
+            ):
+                copied.append(f"{source.relative_to(_PKG)}:{node.lineno} = {node.value!r}")
+    # Markdown too — the AST half cannot see a fenced ``bash`` block, and that is exactly
+    # where four production-forecasts values sat: in README.md's Configuration section,
+    # two lines below the sentence promising they are never copied, in a PUBLIC
+    # repository. A guard scoped to `.py` while the rule is about the repository is
+    # register C-74's shape (2026-08-03).
+    #
+    # **What counts as a copy, and what does not.** A first draft flagged any line
+    # containing a registry value and immediately fired on a dozen documents that merely
+    # *name* a store in prose — "six stranded documents in unfao_bucket". That is not a
+    # copy; it is a sentence. C-57 recorded the identical false-positive class over `.py`
+    # and the identical lesson: when a guard cries wolf, the matching is wrong before the
+    # scope is (ADR-014 §3).
+    #
+    # The copy is a value **assigned to its own coordinate name** — `APPWRITE_X=value` —
+    # which is a reader's instruction to configure with that literal. That is precise
+    # enough to have caught README.md and to ignore every legitimate mention.
+    assignment = re.compile(
+        r"^\s*(?:export\s+)?(" + "|".join(sorted(_EXPECTED_NAMES)) + r")\s*=\s*(.+?)\s*$"
+    )
+    # This repository's OWN tracked markdown — `git ls-files`, not `rglob`. CI checks
+    # sibling repositories out into the workspace, and their documents are not this
+    # repo's to police; an rglob would scan them and fail on someone else's prose.
+    #
+    # **This half cannot run in CI**, and that is worth stating rather than discovering.
+    # The registry values come from the views-appwrite checkout, which is private and
+    # deliberately not checked out — so the whole test skips there. It guards a
+    # maintainer's commit, not the merge. Closing that is C-81's token decision.
+    tracked = subprocess.run(
+        ["git", "-C", str(_REPO), "ls-files", "-z", "*.md"],
+        capture_output=True, text=True, check=False, timeout=30,
+    ).stdout.split("\0")
+    scanned = [_REPO / name for name in tracked if name and (_REPO / name).exists()]
+    assert scanned, (
+        "git ls-files returned no markdown — the scan would pass over an empty set and "
+        "report success (register C-74's shape). If this is not a git checkout, the "
+        "guard cannot run and must say so rather than pass."
+    )
+    for doc in sorted(scanned):
+        for number, line in enumerate(doc.read_text().splitlines(), 1):
+            match = assignment.match(line)
+            if match and match.group(2).strip('"\'') in values:
+                copied.append(
+                    f"{doc.relative_to(_REPO)}:{number} = {match.group(2)!r} "
+                    f"(assigned to {match.group(1)})"
+                )
+
+    assert not copied, (
+        f"coordinate value(s) from the registry are copied into this repo: {copied}. The "
+        "registry is referenced, never copied — values reach this package through the "
+        "environment the launcher assembles, validated by assert_env_declared. In a "
+        "document, write the NAME and leave the value to the launcher."
+    )

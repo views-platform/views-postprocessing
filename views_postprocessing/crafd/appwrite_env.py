@@ -1,4 +1,5 @@
 """The Appwrite-seam environment this package requires, DECLARED (þing-01 P1, #134).
+Clone of ``unfao/appwrite_env.py`` for the CRAF'd delivery (its own outbound bucket).
 
 Names follow **the Appwrite Seam Contract**'s coordinate registry (connection +
 target classes) plus the one operator-issued secret slot. The contract is homed in
@@ -7,23 +8,24 @@ platform's original failure (þing-01 sáttmál S6):
 
     https://github.com/views-platform/views-appwrite/blob/90fc105/docs/ADRs/platform/coordinate_registry.toml
 
-That pin is registry **v1.4.1** — declared below as
-``SEAM_CONTRACT_VERSION`` / ``SEAM_CONTRACT_COMMIT`` so the pin is a value a test can
-check rather than a fact buried in prose. A pinned URL does not rot, but it does go
-stale, and nothing in this repository could previously tell you it had (register C-57).
+That pin is registry **v1.4.1** — declared below as ``SEAM_CONTRACT_VERSION`` /
+``SEAM_CONTRACT_COMMIT`` so the pin is a value a test can check rather than a fact
+buried in prose. A pinned URL does not rot, but it does go stale, and nothing in this
+repository could previously tell you it had (register C-57).
 
-**Pin from the tip of `main`, never from a sibling checkout's `HEAD`** (#196). The
-first pin taken here was resolved with `git -C ../views-appwrite rev-parse HEAD` on a
-checkout that happened to be sitting on an unmerged feature branch. That commit
-declared v1.4.0, never reached `main`, and was withdrawn. A pin is a claim about what
-the contract *says*; `HEAD` answers a different question — what someone was working
-on.
+**The first pin taken here predated its own coordinates having values.** At commit
+``47172af`` the four ``APPWRITE_CRAFD_*`` names were reserved slots with **no values**.
+The operator filled them in views-appwrite PR #38 (merged ``12eb6c6``, 2026-08-02),
+which landed *within* v1.3.0 without bumping the version; v1.4.0 came two hours later
+in PR #40. So the stale pin was stale by commit, not only by version — and no test
+could see it, because the drift check was scoped to the FAO package by name (register
+C-57, amended 2026-08-03). It is now scoped to both.
+
+**Pin from the tip of `main`, never from a sibling checkout's `HEAD`** (#196).
 
 The LAUNCHER assembles the environment
 (views-models M3: run.sh reads the owned registry; the secret stays the operator
 slot) — this package loads no dotenv and validates fail-loud instead (verdict D6).
-The old implicit borrow (`load_dotenv(ensemble_path_manager.dotenv)`) was the
-runtime edge of the platform's copy-chain (þing-01 sáttmál S6) and is dead.
 
 Deliberately dependency-light: no pipeline-core imports, so the declaration is
 importable (and testable) everywhere.
@@ -43,7 +45,8 @@ logger = logging.getLogger(__name__)
 #:
 #: Bumping these is not bookkeeping: it asserts that someone re-checked this module's
 #: declaration against that edition of the registry. ``tests/test_env_declaration.py``
-#: enforces the pair against a local views-appwrite checkout when one is present.
+#: enforces the pair — for this package and for ``unfao`` alike — against a local
+#: views-appwrite checkout when one is present.
 SEAM_CONTRACT_VERSION = "1.4.1"
 SEAM_CONTRACT_COMMIT = "90fc105"
 
@@ -60,11 +63,11 @@ PROD_FORECASTS_ENV = (
     "APPWRITE_METADATA_DATABASE_ID",
     "APPWRITE_METADATA_DATABASE_NAME",
 )
-UNFAO_ENV = (
-    "APPWRITE_UNFAO_BUCKET_ID",
-    "APPWRITE_UNFAO_BUCKET_NAME",
-    "APPWRITE_UNFAO_COLLECTION_ID",
-    "APPWRITE_UNFAO_COLLECTION_NAME",
+CRAFD_ENV = (
+    "APPWRITE_CRAFD_BUCKET_ID",
+    "APPWRITE_CRAFD_BUCKET_NAME",
+    "APPWRITE_CRAFD_COLLECTION_ID",
+    "APPWRITE_CRAFD_COLLECTION_NAME",
     "APPWRITE_METADATA_DATABASE_ID",
     "APPWRITE_METADATA_DATABASE_NAME",
 )

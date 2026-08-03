@@ -8,7 +8,7 @@ The **post-forecast delivery layer** for the **VIEWS** (Violence Early-Warning S
 pipeline. It takes finished VIEWS forecasts, enriches them with geographic metadata,
 guards their integrity, and delivers them to a partner store.
 
-The only live delivery today is the **UN FAO** path — its product in `views_postprocessing/unfao/`, running on the partner-neutral machinery in `contract/`.
+Two partner deliveries run on the same partner-neutral machinery in `contract/`: the **UN FAO** path (`views_postprocessing/unfao/`), serving FAO-FSFC since 2026-07-27, and **CRAF'd** (`views_postprocessing/crafd/`), added 2026-08-03 with its upload interlock still closed.
 
 > **New here? Read [`docs/architecture/role_and_seams.md`](docs/architecture/role_and_seams.md) first.**
 > It explains what this repo is, how it relates to pipeline-core / faoapi / datafactory,
@@ -50,7 +50,7 @@ Requires **Python 3.11–3.14**.
 | Package | Version | Why |
 |---------|---------|-----|
 | `views-pipeline-core` | `>=2.1.3,<3.0.0` | The framework: lifecycle base classes, data loader, dataset container, Appwrite/datastore tools |
-| `views-frames` | `>=1.0,<2` | The frame data contract — **the live delivery representation** since #126. pandas survives only in `contract/enrichment.py` (the build/verification path) |
+| `views-frames` | `>=1.10.2,<2` | The frame data contract — **the live delivery representation** since #126. pandas survives only in `contract/enrichment.py` (the build/verification path) |
 
 ---
 
@@ -72,27 +72,45 @@ In practice the manager is constructed and run by **views-models**
 
 | Stage | Method(s) | What happens |
 |-------|-----------|--------------|
-| **Read** | `_read_historical_data`, `_read_forecast_data` | Historical actuals from views-datafactory (via the inherited loader); the forecast file from the Appwrite prediction store. The forecast file's identity is checked before use (C-25). |
-| **Transform** | `_transform` → `_append_metadata` | Joins the 9 GAUL metadata columns onto each frame via `GaulLookupEnricher` (a parquet lookup). Prediction values are **not** transformed. |
-| **Validate** | `_validate`, `_check_coverage` | Null-gate on the metadata columns; region coverage + GAUL-excluded-cell guards (C-34 / C-30). |
-| **Clip** | `_clip_observed_history` | Drops fabricated zero-padded tail months from the historical actuals (C-26); the forecast is untouched. |
-| **Save** | `_save` | Writes parquet and uploads to the UN FAO bucket with structured provenance (C-15). |
+| **Read** | `_read_historical_frame`, `_read_forecast_data_contract` | Historical actuals from views-datafactory arrive **frame-native** (#126); the forecast run is resolved from the Appwrite store by its **run manifest**, with each shard's header verified on load (ADR-013 §4.3). |
+| **Transform** | `_transform` | Resolution only. Prediction values are **not** transformed — no collapse, no reconciliation. |
+| **Validate** | `_validate`, `_check_coverage` | Asserts the read resolved, then enforces the region coverage + GAUL-excluded-cell contract (C-34 / C-30). The metadata null-gate fires later, at artifact build (`contract/historical.assert_metadata_complete`). |
+| **Save** | `_save` → `_save_contract` | Builds the ADR-013 wire — arrow shards, the §5 GAUL sidecar, the historical artifact — commits the run **manifest last**. The historical artifact carries structured provenance in its store-document `description` (C-15); the forecast leg's uploads carry `{name, category, loa, filename, doc_type, targets}` and **no `description`** — a gap, not a design. |
+
+The pandas metadata-join and history-clip stages were retired with the legacy delivery path
+in #149; their rules survive as called invariants under `delivery/`. See the
+[manager README](views_postprocessing/unfao/managers/README.md) for what moved where.
+
+### If a delivered value turns out to be wrong
+
+`docs/operations/correction_procedure.md` — how to establish which deliveries are
+affected, confirm the fault offline, and supersede on the wire. The contract has no
+retraction primitive; a correction is a new complete run, manifest last.
 
 ### Output schema (geographic metadata columns)
 
-These 9 columns are the delivered geography contract (declared in `contract/gaul_schema.py`):
+These 9 columns are the delivered geography contract, declared in
+`contract/gaul_schema.py`. **The order below is normative** (ADR-013 §5.1) and is
+byte-pinned by the §10 golden fixture — a reader that reorders them reads the wrong
+column. `tests/test_doc_accuracy.py` checks this table against the declaration.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `pg_xcoord` | float | PRIO-GRID cell centroid longitude |
-| `pg_ycoord` | float | PRIO-GRID cell centroid latitude |
-| `country_iso_a3` | str | ISO 3166-1 alpha-3 country code |
-| `admin1_gaul0_code` | int | GAUL level-0 (country) code |
-| `admin1_gaul0_name` | str | GAUL level-0 (country) name |
-| `admin1_gaul1_code` | int | GAUL level-1 (province) code |
-| `admin1_gaul1_name` | str | GAUL level-1 (province) name |
-| `admin2_gaul2_code` | int | GAUL level-2 (district) code |
-| `admin2_gaul2_name` | str | GAUL level-2 (district) name |
+| Column | Wire type | Description |
+|--------|-----------|-------------|
+| `pg_xcoord` | float64 | PRIO-GRID cell centroid longitude |
+| `pg_ycoord` | float64 | PRIO-GRID cell centroid latitude |
+| `country_iso_a3` | string | ISO 3166-1 alpha-3 country code |
+| `admin1_gaul1_code` | float64 | GAUL level-1 (province) code |
+| `admin1_gaul1_name` | string | GAUL level-1 (province) name |
+| `admin1_gaul0_code` | float64 | GAUL level-0 (country) code |
+| `admin1_gaul0_name` | string | GAUL level-0 (country) name |
+| `admin2_gaul2_code` | float64 | GAUL level-2 (district) code |
+| `admin2_gaul2_name` | string | GAUL level-2 (district) name |
+
+*(Corrected 2026-08-03: this table had `admin1_gaul0_*` before `admin1_gaul1_*` —
+the reverse of the normative order — and typed the four `*_code` columns `int`. They
+are **float64 on the wire, always**, by the §5.1 ruling: the codes are nullable and
+arrow has no nullable int in this contract. Both errors survived because nothing
+compared the table to the declaration.)*
 
 ---
 
@@ -126,39 +144,50 @@ views-postprocessing/
     │   ├── source_metadata.py       # producer (datafactory) facts
     │   ├── store_metadata.py        # prediction-store facts
     │   └── launch_config.py         # the delivery mode the launcher must declare
-    ├── unfao/                    # WHO A DELIVERY IS FOR — the only FAO-specific code
+    ├── unfao/                    # WHO A DELIVERY IS FOR — the FAO-specific code
     │   ├── product.py               # targets, consumer name, S_MIN, upload interlock
     │   ├── appwrite_env.py          # the declared store coordinates
     │   └── managers/unfao.py        # UNFAOPostProcessorManager
+    ├── crafd/                    # WHO A DELIVERY IS FOR — the CRAF'd-specific code
+    │   ├── product.py               # same three files, same shape (register C-33 on
+    │   ├── appwrite_env.py          #   why the manager is a copy, and what would
+    │   └── managers/crafd.py        #   make it time to stop copying)
     └── data/gaul_lookup.parquet  # the precomputed GAUL lookup (ADR-011)
 ```
 
-**Dependencies point one way only:** `unfao/` → `contract/` → `delivery/`. Nothing in
-`contract/` may import `unfao/` — that is what lets a new partner reuse the machinery
-without inheriting FAO, and it is enforced by `tests/test_clone_readiness.py`, not by
-convention. See [`docs/CLONING.md`](docs/CLONING.md).
+**Dependencies point one way only:** `<partner>/` → `contract/` → `delivery/`. Nothing
+in `contract/` may import a partner package — that is what lets a new partner reuse the
+machinery without inheriting another partner's product, and it is enforced by
+`tests/test_clone_readiness.py`, not by convention. The partner list lives in one place
+(`tests/conftest.py`) and is itself checked against the filesystem, so a package added
+without being declared fails rather than passing quietly.
+See [`docs/CLONING.md`](docs/CLONING.md).
 
 ---
 
 ## Configuration
 
-The FAO delivery reads Appwrite connection settings from the environment. The required
-names are **declared** in `unfao/appwrite_env.py` and validated fail-loud before any store
-is constructed — a missing or empty variable raises, naming every one that is absent,
-rather than half-configuring a client. Coordinates come from the Appwrite Seam Contract registry
-(referenced by URL, never copied); the API key is an operator slot:
+Each delivery reads Appwrite connection settings from the environment. The required
+names are **declared** per partner — `unfao/appwrite_env.py`, `crafd/appwrite_env.py` —
+and validated fail-loud before any store is constructed: a missing or empty variable
+raises, naming every one that is absent, rather than half-configuring a client.
+
+**The names are below; the values are not.** Coordinates live in the Appwrite Seam
+Contract's registry, which this repo references by pinned URL and never copies (þing-01
+sáttmál S6 — copies were the platform's original failure). The launcher supplies the
+values; the API key is an operator slot.
 
 ```bash
-# Appwrite connection (secrets)
-APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1
+# Appwrite connection
+APPWRITE_ENDPOINT=...
 APPWRITE_DATASTORE_PROJECT_ID=...
-APPWRITE_DATASTORE_API_KEY=...
+APPWRITE_DATASTORE_API_KEY=...        # operator-issued secret
 
-# Production-forecasts store (input)
-APPWRITE_PROD_FORECASTS_BUCKET_ID=production_forecasts
-APPWRITE_PROD_FORECASTS_BUCKET_NAME=Production Forecasts
-APPWRITE_PROD_FORECASTS_COLLECTION_ID=production_forecasts
-APPWRITE_PROD_FORECASTS_COLLECTION_NAME=Production Forecasts
+# Production-forecasts store (input — shared by every partner)
+APPWRITE_PROD_FORECASTS_BUCKET_ID=...
+APPWRITE_PROD_FORECASTS_BUCKET_NAME=...
+APPWRITE_PROD_FORECASTS_COLLECTION_ID=...
+APPWRITE_PROD_FORECASTS_COLLECTION_NAME=...
 
 # UN FAO store (output)
 APPWRITE_UNFAO_BUCKET_ID=...
@@ -166,10 +195,20 @@ APPWRITE_UNFAO_BUCKET_NAME=...
 APPWRITE_UNFAO_COLLECTION_ID=...
 APPWRITE_UNFAO_COLLECTION_NAME=...
 
-# Metadata database
+# CRAF'd store (output)
+APPWRITE_CRAFD_BUCKET_ID=...
+APPWRITE_CRAFD_BUCKET_NAME=...
+APPWRITE_CRAFD_COLLECTION_ID=...
+APPWRITE_CRAFD_COLLECTION_NAME=...
+
+# Metadata database (shared)
 APPWRITE_METADATA_DATABASE_ID=...
 APPWRITE_METADATA_DATABASE_NAME=...
 ```
+
+*(Corrected 2026-08-03: four production-forecasts coordinate **values** were written out
+above, two lines below the sentence saying they never are. The value-copy guard scanned
+only `.py`; it now scans markdown too.)*
 
 ---
 

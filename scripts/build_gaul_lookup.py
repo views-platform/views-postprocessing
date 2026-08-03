@@ -52,6 +52,22 @@ def _resolve_datafactory() -> Path:
 
     Order: $VIEWS_DATAFACTORY, then the sibling repo next to this one
     (views_platform/views-datafactory). Overridable with --datafactory.
+
+    **Deliberately duplicated with** ``tests/conftest.sibling_repo`` (S7 / #188,
+    register C-46). Not an oversight and not laziness:
+
+    - a script must not import from ``tests/`` — that is the dependency direction
+      backwards, and it would make the build depend on the test tree;
+    - the contracts differ. This returns a ``Path`` **even when the checkout is
+      absent**, so ``main`` can raise its own message naming both the flag and the
+      variable. The test helper returns ``None``, because a missing sibling is a
+      normal skip, not an error.
+
+    Two copies that are understood beat one abstraction that is guessed. What is
+    guarded instead is the thing that actually matters — that they **agree** —
+    pinned by ``tests/test_gaul_lookup_fidelity.py``. If they ever resolve to
+    different checkouts, a rebuilt artifact would be verified against a producer it
+    was not built from.
     """
     env = os.environ.get("VIEWS_DATAFACTORY")
     if env:
@@ -90,8 +106,79 @@ def _region_gids(datafactory: Path, region: str) -> set[int] | None:
     return set(json.loads(path.read_text()))
 
 
-def _provenance(datafactory: Path) -> dict:
-    """Pull the land_gaul ledger entry for traceability (best-effort)."""
+#: The ledger dataset naming the whole GAUL area-majority join, used to stamp an
+#: unregionalised (``--region all``) build.
+AREA_MAJORITY_DATASET = "gaul_admin_area_majority"
+
+#: Length of the digest carried in a stamp. Declared so producer and consumer agree.
+DIGEST_CHARS = 8
+
+
+def stamp_dataset(region: str) -> str:
+    """DECLARED: which ledger dataset's digest stamps this region's build.
+
+    One rule, no fallback. ``--region all`` is stamped by the area-majority join that
+    produced every value; a regional build is stamped by that region's own definition
+    entry, because the region determines which rows exist and a change to it changes
+    the artifact.
+
+    **Why not "whichever entry happens to be present" (register C-60, review of #186).**
+    The first draft read ``land_gaul_region or gaul_admin_area_majority``. Since
+    ``_provenance`` does not take a region, ``land_gaul_region`` is present for *every*
+    build — so ``--region all`` would have been stamped ``all@f74d3b2b``, the land_gaul
+    region definition's digest, on a global artifact. Authoritative-looking and wrong,
+    silently: the exact defect class C-60 exists to close, reintroduced one level up.
+    A region with no ledger entry is now refused, not substituted.
+    """
+    return AREA_MAJORITY_DATASET if region == "all" else f"{region}_region"
+
+
+def _lookup_version(region: str, provenance: dict) -> str:
+    """Compose the DECLARED build stamp: ``<region>@<source digest>``.
+
+    This is the value written as a flat ``lookup_version`` key and read back verbatim
+    by ``contract.gaul_lookup.version`` — register **C-60**. Composing it here is the
+    point: the builder is the only thing holding both the region and the producer's
+    ledger, so the consumer stops needing to know views-datafactory's schema in order
+    to answer "which lookup produced this delivery?".
+
+    **Refuses an untraceable build.** ``_provenance`` is best-effort by design — a
+    missing or reshaped ledger yields ``{}``. Previously that produced the string
+    ``"unknown"`` at *delivery* time, silently, in the one field C-15 exists to answer
+    after a suspect delivery. Failing here moves the error to the moment a human is
+    present to fix it: the build.
+    """
+    dataset = stamp_dataset(region)
+    digest = str((provenance.get(dataset) or {}).get("content_digest", ""))
+    if len(digest) < DIGEST_CHARS:
+        raise LookupBuildError(
+            f"cannot compose a lookup_version for region {region!r}: the datafactory "
+            f"ingestion ledger has no usable content_digest for {dataset!r} "
+            f"(provenance/gaul_admin/ingestion_ledger.jsonl; need at least "
+            f"{DIGEST_CHARS} characters, got {len(digest)}). An artifact without a "
+            "declared version cannot be traced back to the build that made it, which "
+            "is what register C-15 needs after a suspect delivery. Rebuild against a "
+            "datafactory checkout whose ledger declares that dataset — this build is "
+            "NOT stamped from some other region's entry."
+        )
+    return f"{region}@{digest[:DIGEST_CHARS]}"
+
+
+def _provenance(datafactory: Path, *, datasets: tuple[str, ...]) -> dict:
+    """Pull the named ledger entries for traceability (best-effort).
+
+    Kept richer than the stamp — it carries timestamps and the upstream GAUL digest,
+    which are worth having. What changed in C-60 is that the STAMP is no longer
+    derived from it by the consumer; see ``_lookup_version``.
+
+    **The ledger is append-only and the LAST entry per dataset wins.** The real file
+    carries 14 ``gaul_admin_area_majority`` entries and 2 ``land_gaul_region`` ones;
+    this loop overwrites, so the most recent ingestion is what stamps the build. That
+    was harmless while provenance was decorative. Since C-60 the stamp *raises* on its
+    absence, so the selection rule is load-bearing and is stated here rather than left
+    to be inferred from the loop. (Recency-over-a-broad-match is the shape register
+    **C-73** was opened for on the forecast path; here it is intended, and now said.)
+    """
     ledger = (datafactory / "provenance" / "gaul_admin"
               / "ingestion_ledger.jsonl")
     out = {}
@@ -101,8 +188,7 @@ def _provenance(datafactory: Path) -> dict:
                 e = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if e.get("dataset") in ("land_gaul_region",
-                                    "gaul_admin_area_majority"):
+            if e.get("dataset") in datasets:
                 out[e["dataset"]] = {
                     k: e[k] for k in
                     ("content_digest", "source_gaul_digest", "timestamp")
@@ -188,8 +274,11 @@ def build(datafactory: Path, region: str, out: Path) -> pd.DataFrame:
     meta[b"region"] = region.encode()
     meta[b"n_cells"] = str(len(df)).encode()
     meta[b"n_dropped_incomplete"] = str(dropped).encode()
-    meta[b"source_provenance"] = json.dumps(
-        _provenance(datafactory)).encode()
+    prov = _provenance(datafactory, datasets=(AREA_MAJORITY_DATASET, stamp_dataset(region)))
+    # The DECLARED stamp: one flat key, composed here, read verbatim by the consumer
+    # (C-60). Key order in parquet metadata carries no meaning; this is a dict.
+    meta[b"lookup_version"] = _lookup_version(region, prov).encode()
+    meta[b"source_provenance"] = json.dumps(prov).encode()
     table = table.replace_schema_metadata(meta)
     pq.write_table(table, out)
 
