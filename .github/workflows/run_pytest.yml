@@ -72,6 +72,12 @@ jobs:
       run: |
         poetry install 
 
+    # ruff is declared in the dev group; a declared linter nobody runs is a claim
+    # without a check. `ruff check .` is green as of the 3.0.0 bump, so this starts
+    # enforced rather than as a backlog of pre-existing violations.
+    - name: Lint
+      run: poetry run ruff check .
+
     - name: Run tests
       env:
         VIEWS_CRAFDAPI: ${{ github.workspace }}/_siblings/views-crafdapi

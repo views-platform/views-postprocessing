@@ -10,9 +10,24 @@ license = "MIT"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.15"
-views-pipeline-core = ">=2.1.3,<3.0.0"
+# The `appwrite` EXTRA is not optional for this repository, despite the name.
+# 3.0.0 made the SDK an optional extra (pipeline-core #361/#345) on CRP grounds — three
+# repos that never mention Appwrite were installing it. But the partner managers import
+# `views_pipeline_core.modules.appwrite.file` and `.modules.datastore`, and those modules
+# import the SDK unguarded. Without the extra the FAO delivery fails **at import**, not
+# at runtime, and inside a dependency rather than in our own code. Register C-07.
+views-pipeline-core = {version = ">=3.0.0,<4.0.0", extras = ["appwrite"]}
 views-frames = ">=1.10.2,<2"
 pyarrow = ">=16.1.0,<17.0.0"
+
+# pytest was never declared here; it arrived transitively through pipeline-core, which
+# dropped it as a runtime dependency in 3.0.0. CI runs `poetry install` then
+# `poetry run pytest`, so without this the test job stops being able to run at all —
+# and it would fail as "pytest: command not found", which reads like a runner problem
+# rather than a dependency one.
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0,<10.0"   # the suite runs on 9.x today; 8.x still works
+ruff = ">=0.6,<1.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
