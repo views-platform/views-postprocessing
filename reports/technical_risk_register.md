@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-03                           |
 | Total Concerns    | 83                                   |
-| Open Concerns     | 16                                   |
-| Resolved Concerns | 67                                   |
+| Open Concerns     | 15                                   |
+| Resolved Concerns | 68                                   |
 
 ---
 
@@ -440,34 +440,19 @@ Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-
 
 **The precedent is C-45**, `unfao/frames.py`: an unused adapter carried on no live path, resolved by deleting it. This is the same shape with a different module, and the same question — keep it as the declared verification/reference implementation, or retire it and let the fidelity suite test `historical.py` directly.
 
+**DECISION 2026-08-04 (#90), which this entry's Owner field required of whoever took it: RETIRE.**
+
+The conditions are no longer arguable. The class has **zero production callers** — only three test files import it. Its last stated justification was "the build/verification path", and #90 rewrote that path arrow-native without touching it, so the justification is spent. It holds the package's **last pandas reference** (a `TYPE_CHECKING` import), which is the one thing standing between epic #85 and an honest close. And its `_gather` duplicates `contract/historical.py`'s shipping gather, which is independently covered by four test files.
+
+**C-45 is the precedent and it was resolved by deleting.** Same shape, different module.
+
+**Not executed in #90, deliberately.** The retirement touches ten files — the module, its 39 tests, references in two other test files, its CIC, ADR-012, `gaul_lookup.py`'s docstring, the machinery list in `test_clone_readiness.py`, and the pandas-importer assertion in `test_doc_accuracy.py`. Folding that into a builder rewrite would mix a behaviour-preserving change with a large deletion, which is the thing epic #148's S5 explicitly refused to do. It is the next change, not a later one.
+
+**Epic #85 and tracking #93 stay open until it lands**, because their claim — pandas pushed to the seams — only becomes true when this module is gone.
+
 **Deliberately NOT registered from the same review** (defects in unmerged code, all fixed in #210 before merge rather than tracked): a NaN gid crashing the warning path, the unvalidated int64 coercion at both ends, the AST guard's `else`-branch blind spot, ADR-012's stale pandas-merge claim, and three CIC claims retired elsewhere by #200. The register tracks standing risk; a defect fixed before it ships is not one. They are recorded in the PR.
 
 Cross-refs: **C-45** (RESOLVED — the same shape, resolved by deletion), **C-66** (RESOLVED — established the enricher left the delivery path), **C-40** (which calls `enrichment.py` and `extraction.py` together *"the retired-in-place `enrichment.py`/`extraction.py` legacy seams"*), **#89** / **#90** / epic **#85**, ADR-014 §4.
-
----
-
-### C-76: `build_gaul_lookup.py` will write an empty lookup without complaint
-
-| Field | Value |
-|-------|-------|
-| ID | C-76 |
-| Tier | 4 — no silent corruption. A zero-row artifact fails downstream at `historical.build_historical_table`, which raises on cells absent from the lookup. The cost is that it fails **late and confusingly**: the message names missing geography rather than an empty lookup, and the artifact is committed by then. |
-| Source | `code-review max` (2026-08-03) — PR #210 second pass, while checking whether the consumer's new guards duplicated a producer guarantee. They do not. |
-| Trigger | When `build_gaul_lookup.py` is next run with a new or renamed `--region`, or against a datafactory whose `gaul_admin` parquets have changed shape — check the printed `cells=` count is non-zero before committing the artifact. Nothing else will tell you. |
-| Owner | Whoever next runs the builder. It is a two-line guard in a script one person runs by hand, not a scheduling decision. |
-| Location | `scripts/build_gaul_lookup.py` — the invariant block at `:246-268` and the write at `:284` |
-
-The builder's invariant block is thorough about what it checks: index uniqueness (C-59), nulls in the metadata columns, `-1` sentinels in the code columns (C-35). It does not check that any rows survived. A `--region` argument that filters every cell out, or an upstream join that produces nothing, writes a zero-row parquet and prints `cells=0` as though that were a result.
-
-**Verified 2026-08-03, and the neighbouring worry is NOT real.** The same review asked whether the builder also fails to reject a null key, since `df.isna().sum().sum()` runs *after* `priogrid_gid` becomes the index and `DataFrame.isna()` does not inspect the index. It does not check it — but the null key is unreachable anyway: `df.index.astype("int64")` raises `IntCastingNaNError` two lines earlier. Protection by accident rather than by declaration, which is worth knowing, but not a defect to fix. **Only the empty case is reachable.**
-
-**Why this was found now.** PR #210 added consumer-side refusals for both an empty lookup and a null key to `GaulLookupEnricher.__init__`, and the review challenged them as duplicating a producer guarantee. Checking established the opposite: for the empty case there is no producer guarantee to duplicate, and for the null key the producer's protection is incidental. The consumer guards stay, and this entry records the producer-side half rather than quietly assuming someone will notice.
-
-Cross-refs: **C-59** and **C-61** (RESOLVED — the invariant block this sits beside, and the reason it is otherwise thorough), **C-35** (the `-1` defect class it does check for), **C-75** (the consumer whose guards prompted the check), #210.
-
----
-
-
 
 ---
 
@@ -678,6 +663,37 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-76: `build_gaul_lookup.py` will write an empty lookup without complaint — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-76 |
+| Tier | 4 — no silent corruption. A zero-row artifact fails downstream at `historical.build_historical_table`, which raises on cells absent from the lookup. The cost is that it fails **late and confusingly**: the message names missing geography rather than an empty lookup, and the artifact is committed by then. |
+| Source | `code-review max` (2026-08-03) — PR #210 second pass, while checking whether the consumer's new guards duplicated a producer guarantee. They do not. |
+| Trigger | When `build_gaul_lookup.py` is next run with a new or renamed `--region`, or against a datafactory whose `gaul_admin` parquets have changed shape — check the printed `cells=` count is non-zero before committing the artifact. Nothing else will tell you. |
+| Owner | Whoever next runs the builder. It is a two-line guard in a script one person runs by hand, not a scheduling decision. |
+| Location | `scripts/build_gaul_lookup.py` — the invariant block at `:246-268` and the write at `:284` |
+
+The builder's invariant block is thorough about what it checks: index uniqueness (C-59), nulls in the metadata columns, `-1` sentinels in the code columns (C-35). It does not check that any rows survived. A `--region` argument that filters every cell out, or an upstream join that produces nothing, writes a zero-row parquet and prints `cells=0` as though that were a result.
+
+**Verified 2026-08-03, and the neighbouring worry is NOT real.** The same review asked whether the builder also fails to reject a null key, since `df.isna().sum().sum()` runs *after* `priogrid_gid` becomes the index and `DataFrame.isna()` does not inspect the index. It does not check it — but the null key is unreachable anyway: `df.index.astype("int64")` raises `IntCastingNaNError` two lines earlier. Protection by accident rather than by declaration, which is worth knowing, but not a defect to fix. **Only the empty case is reachable.**
+
+**Why this was found now.** PR #210 added consumer-side refusals for both an empty lookup and a null key to `GaulLookupEnricher.__init__`, and the review challenged them as duplicating a producer guarantee. Checking established the opposite: for the empty case there is no producer guarantee to duplicate, and for the null key the producer's protection is incidental. The consumer guards stay, and this entry records the producer-side half rather than quietly assuming someone will notice.
+
+Cross-refs: **C-59** and **C-61** (RESOLVED — the invariant block this sits beside, and the reason it is otherwise thorough), **C-35** (the `-1` defect class it does check for), **C-75** (the consumer whose guards prompted the check), #210.
+
+---
+
+**RESOLVED 2026-08-04 (#90).** `build()` now refuses a zero-row result:
+
+> the build produced ZERO cells for region 'land_gaul'. Either the region filtered every cell out, or the join found no overlap between the seven source parquets. An empty lookup is writable and looks like a result; it is not one.
+
+Pinned by `tests/test_gaul_lookup_fidelity.py::test_builder_refuses_a_build_with_zero_cells`.
+
+**The guard did not survive its own first test, and that is worth recording.** On an empty table `pa.array([True] * 0)` infers NULL type, so `pc.and_` in the completeness filter raised `ArrowNotImplementedError` *before* the zero-row check could speak — the confusing-late-failure this entry exists to prevent, relocated by one function. The mask is now explicitly `pa.bool_()`. A guard written and not watched fail is decoration (ADR-014 §2); this one was watched, failed for the wrong reason, and was fixed.
+
+---
 
 ### C-77: The historical leg names its document from the model path, not from the declared consumer name — and nothing checks the two agree — RESOLVED
 
