@@ -64,7 +64,6 @@ _MACHINERY = (
     "views_postprocessing.contract.historical",
     "views_postprocessing.contract.gaul_lookup",
     "views_postprocessing.contract.gaul_schema",
-    "views_postprocessing.contract.enrichment",
     "views_postprocessing.contract.launch_config",
     "views_postprocessing.contract.source_metadata",
     "views_postprocessing.contract.store_metadata",

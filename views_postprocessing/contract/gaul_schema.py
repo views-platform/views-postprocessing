@@ -1,6 +1,6 @@
 """Single source of truth for the GAUL enrichment schema and PRIO-GRID geometry.
 
-Shared by the production enricher (enrichment.py) and the build/diff tooling
+Shared by the delivery's artifact builders and the build/diff tooling
 (scripts/) so the 9-column contract, the datafactory->contract rename map, and
 the PRIO-GRID coordinate formula are defined exactly once.
 

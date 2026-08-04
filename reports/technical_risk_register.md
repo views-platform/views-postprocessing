@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-03                           |
 | Total Concerns    | 83                                   |
-| Open Concerns     | 15                                   |
-| Resolved Concerns | 68                                   |
+| Open Concerns     | 14                                   |
+| Resolved Concerns | 69                                   |
 
 ---
 
@@ -421,41 +421,6 @@ Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-
 
 ---
 
-### C-75: `GaulLookupEnricher` has no production caller, and now implements a second copy of the delivery path's keyed gather
-
-| Field | Value |
-|-------|-------|
-| ID | C-75 |
-| Tier | 3 — no correctness impact today: the class is off the delivery path, so a defect in it cannot reach the UN FAO. The cost is that **the verification path and the delivery path now implement the same algorithm twice**, and the tests that check the artifact run through the copy that does *not* ship. A fix applied to one and not the other makes the verification stop verifying what ships — quietly, because both would still pass their own tests. |
-| Source | `code-review max` (2026-08-02) — PR #210, five parallel reviewers; two reached this independently |
-| Trigger | When a bug is fixed in `contract/historical.py`'s gather (the one that ships), check whether `contract/enrichment.py`'s copy needs the same fix — nothing links them. Also fires at **S5 (#90)**: once the builder is pyarrow-native, the enricher's pandas interface is the last one in the package, and the question "does this class survive?" has to be answered rather than deferred again. |
-| Owner | Whoever takes **#90** — the keep-or-retire decision is theirs to make and record, not to defer a third time. Added 2026-08-03: the first draft of this entry named two triggers and no owner, while citing ADR-014 §4 in its own body. This register had already learned that twice — *"a deferral needs an owner and a trigger, not just a reason"* (Cluster L) and *"a decision awaiting an owner, not a task awaiting effort"* (epic #181 closeout). |
-| Location | `views_postprocessing/contract/enrichment.py` (the whole class; `_gather` specifically); the shipping twin is `views_postprocessing/contract/historical.py:54-68` |
-
-**Verified, not inferred (2026-08-02):** `grep -rn "GaulLookupEnricher\|enrich_dataframe_with_pg_info"` across the package finds **zero** production callers — the two hits are docstring mentions in `gaul_lookup.py`. The manager calls `gaul_lookup.load()` directly and has zero `enrich` references. **C-66**'s resolution already said this plainly: *"the pandas enricher leaves the delivery path entirely."*
-
-**What PR #210 did, and why that raises the question.** S4 (#89) rewrote this class's lookup side from a pandas merge to a numpy/pyarrow keyed gather: a measured dtype analysis, an empty-lookup guard, a mutation-proven bug fix, a corrected CIC, and five reviewers' attention. All of it spent on a method with no reachable caller outside its own test suite. The engineering is sound; what is missing is anyone having **decided** that the class should exist.
-
-**The duplication is the concrete consequence.** `_gather`'s `argsort → searchsorted → clip → equality-mask` is the same shape as `historical.py:54-68`. The policies differ deliberately — `historical` **raises** on an absent gid (*"geography must never silently vanish"*), the enricher returns nulls for the downstream gate to catch — so extracting a shared helper would mean parameterising the failure policy, which is the guessed abstraction **WET before DRY** exists to prevent. Two copies that are understood is the right call *today*. The trigger above is what stops "today" lasting indefinitely, per **ADR-014 §4**.
-
-**The precedent is C-45**, `unfao/frames.py`: an unused adapter carried on no live path, resolved by deleting it. This is the same shape with a different module, and the same question — keep it as the declared verification/reference implementation, or retire it and let the fidelity suite test `historical.py` directly.
-
-**DECISION 2026-08-04 (#90), which this entry's Owner field required of whoever took it: RETIRE.**
-
-The conditions are no longer arguable. The class has **zero production callers** — only three test files import it. Its last stated justification was "the build/verification path", and #90 rewrote that path arrow-native without touching it, so the justification is spent. It holds the package's **last pandas reference** (a `TYPE_CHECKING` import), which is the one thing standing between epic #85 and an honest close. And its `_gather` duplicates `contract/historical.py`'s shipping gather, which is independently covered by four test files.
-
-**C-45 is the precedent and it was resolved by deleting.** Same shape, different module.
-
-**Not executed in #90, deliberately.** The retirement touches ten files — the module, its 39 tests, references in two other test files, its CIC, ADR-012, `gaul_lookup.py`'s docstring, the machinery list in `test_clone_readiness.py`, and the pandas-importer assertion in `test_doc_accuracy.py`. Folding that into a builder rewrite would mix a behaviour-preserving change with a large deletion, which is the thing epic #148's S5 explicitly refused to do. It is the next change, not a later one.
-
-**Epic #85 and tracking #93 stay open until it lands**, because their claim — pandas pushed to the seams — only becomes true when this module is gone.
-
-**Deliberately NOT registered from the same review** (defects in unmerged code, all fixed in #210 before merge rather than tracked): a NaN gid crashing the warning path, the unvalidated int64 coercion at both ends, the AST guard's `else`-branch blind spot, ADR-012's stale pandas-merge claim, and three CIC claims retired elsewhere by #200. The register tracks standing risk; a defect fixed before it ships is not one. They are recorded in the PR.
-
-Cross-refs: **C-45** (RESOLVED — the same shape, resolved by deletion), **C-66** (RESOLVED — established the enricher left the delivery path), **C-40** (which calls `enrichment.py` and `extraction.py` together *"the retired-in-place `enrichment.py`/`extraction.py` legacy seams"*), **#89** / **#90** / epic **#85**, ADR-014 §4.
-
----
-
 ### C-80: The doc-accuracy scan exempts ADRs and CICs — the two artifact classes that define the contracts
 
 | Field | Value |
@@ -663,6 +628,51 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-75: `GaulLookupEnricher` has no production caller, and now implements a second copy of the delivery path's keyed gather — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-75 |
+| Tier | 3 — no correctness impact today: the class is off the delivery path, so a defect in it cannot reach the UN FAO. The cost is that **the verification path and the delivery path now implement the same algorithm twice**, and the tests that check the artifact run through the copy that does *not* ship. A fix applied to one and not the other makes the verification stop verifying what ships — quietly, because both would still pass their own tests. |
+| Source | `code-review max` (2026-08-02) — PR #210, five parallel reviewers; two reached this independently |
+| Trigger | When a bug is fixed in `contract/historical.py`'s gather (the one that ships), check whether `contract/enrichment.py`'s copy needs the same fix — nothing links them. Also fires at **S5 (#90)**: once the builder is pyarrow-native, the enricher's pandas interface is the last one in the package, and the question "does this class survive?" has to be answered rather than deferred again. |
+| Owner | Whoever takes **#90** — the keep-or-retire decision is theirs to make and record, not to defer a third time. Added 2026-08-03: the first draft of this entry named two triggers and no owner, while citing ADR-014 §4 in its own body. This register had already learned that twice — *"a deferral needs an owner and a trigger, not just a reason"* (Cluster L) and *"a decision awaiting an owner, not a task awaiting effort"* (epic #181 closeout). |
+| Location | `views_postprocessing/contract/enrichment.py` (the whole class; `_gather` specifically); the shipping twin is `views_postprocessing/contract/historical.py:54-68` |
+
+**Verified, not inferred (2026-08-02):** `grep -rn "GaulLookupEnricher\|enrich_dataframe_with_pg_info"` across the package finds **zero** production callers — the two hits are docstring mentions in `gaul_lookup.py`. The manager calls `gaul_lookup.load()` directly and has zero `enrich` references. **C-66**'s resolution already said this plainly: *"the pandas enricher leaves the delivery path entirely."*
+
+**What PR #210 did, and why that raises the question.** S4 (#89) rewrote this class's lookup side from a pandas merge to a numpy/pyarrow keyed gather: a measured dtype analysis, an empty-lookup guard, a mutation-proven bug fix, a corrected CIC, and five reviewers' attention. All of it spent on a method with no reachable caller outside its own test suite. The engineering is sound; what is missing is anyone having **decided** that the class should exist.
+
+**The duplication is the concrete consequence.** `_gather`'s `argsort → searchsorted → clip → equality-mask` is the same shape as `historical.py:54-68`. The policies differ deliberately — `historical` **raises** on an absent gid (*"geography must never silently vanish"*), the enricher returns nulls for the downstream gate to catch — so extracting a shared helper would mean parameterising the failure policy, which is the guessed abstraction **WET before DRY** exists to prevent. Two copies that are understood is the right call *today*. The trigger above is what stops "today" lasting indefinitely, per **ADR-014 §4**.
+
+**The precedent is C-45**, `unfao/frames.py`: an unused adapter carried on no live path, resolved by deleting it. This is the same shape with a different module, and the same question — keep it as the declared verification/reference implementation, or retire it and let the fidelity suite test `historical.py` directly.
+
+**DECISION 2026-08-04 (#90), which this entry's Owner field required of whoever took it: RETIRE.**
+
+The conditions are no longer arguable. The class has **zero production callers** — only three test files import it. Its last stated justification was "the build/verification path", and #90 rewrote that path arrow-native without touching it, so the justification is spent. It holds the package's **last pandas reference** (a `TYPE_CHECKING` import), which is the one thing standing between epic #85 and an honest close. And its `_gather` duplicates `contract/historical.py`'s shipping gather, which is independently covered by four test files.
+
+**C-45 is the precedent and it was resolved by deleting.** Same shape, different module.
+
+**Not executed in #90, deliberately.** The retirement touches ten files — the module, its 39 tests, references in two other test files, its CIC, ADR-012, `gaul_lookup.py`'s docstring, the machinery list in `test_clone_readiness.py`, and the pandas-importer assertion in `test_doc_accuracy.py`. Folding that into a builder rewrite would mix a behaviour-preserving change with a large deletion, which is the thing epic #148's S5 explicitly refused to do. It is the next change, not a later one.
+
+**Epic #85 and tracking #93 stay open until it lands**, because their claim — pandas pushed to the seams — only becomes true when this module is gone.
+
+**Deliberately NOT registered from the same review** (defects in unmerged code, all fixed in #210 before merge rather than tracked): a NaN gid crashing the warning path, the unvalidated int64 coercion at both ends, the AST guard's `else`-branch blind spot, ADR-012's stale pandas-merge claim, and three CIC claims retired elsewhere by #200. The register tracks standing risk; a defect fixed before it ships is not one. They are recorded in the PR.
+
+Cross-refs: **C-45** (RESOLVED — the same shape, resolved by deletion), **C-66** (RESOLVED — established the enricher left the delivery path), **C-40** (which calls `enrichment.py` and `extraction.py` together *"the retired-in-place `enrichment.py`/`extraction.py` legacy seams"*), **#89** / **#90** / epic **#85**, ADR-014 §4.
+
+**RESOLVED 2026-08-04 — retired, as the decision recorded above required.** `views_postprocessing/contract/enrichment.py` and its 39 tests are deleted, along with `docs/CICs/GaulLookupEnricher.md`.
+
+**No coverage of shipping code was lost.** The two tests elsewhere that imported the class both asserted only that its `lookup_version` agreed with `gaul_lookup.version()` — two readers of one fact, checked against each other. They now read the fact through the declared reader the delivery itself uses, which is the half that was ever load-bearing. The gather it duplicated is `contract/historical.py`'s, covered independently by four test files.
+
+**One guard was deleted rather than kept.** `test_gaul_lookup_access.py` asserted `"GaulLookupEnricher" not in` the manager source. With the class gone that assertion cannot fail, and a test that cannot fail is decoration (ADR-014 §2). What it protected — one lookup read per delivery — is the first assertion in the same function and still bites.
+
+**Fifteen files, and the sweep is the point.** The module, its tests, its CIC, the CIC index, two test files that imported it, the machinery list, the pandas-importer assertion, `README.md`'s dependency table and package tree, `role_and_seams.md`'s tree and contract list, ADR-012's ontology row and its pandas claim, and two module docstrings. Every one of those was a live claim about a class that no longer exists — which is the argument for C-80: none of the ADR or CIC references would have been caught by any guard.
+
+**What it makes true.** `grep -rn "^import pandas\|^from pandas" views_postprocessing/ scripts/` now returns nothing at all — not a runtime import, not a type-only one. Epic **#85**'s claim, *pandas pushed to the seams*, is finally literal rather than nearly-true, and #85 and #93 close with this.
+
+---
 
 ### C-76: `build_gaul_lookup.py` will write an empty lookup without complaint — RESOLVED
 

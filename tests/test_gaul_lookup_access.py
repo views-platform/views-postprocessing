@@ -153,19 +153,25 @@ def test_the_manager_reads_the_lookup_once_and_threads_it():
     assert "_DEFAULT_LOOKUP" not in source, (
         "the manager must not import the enricher's private path constant (C-68)"
     )
-    assert "GaulLookupEnricher" not in source, (
-        "the contract delivery does not use the pandas enricher; instantiating it "
-        "loads the lookup a third time into a representation nothing reads (C-66)"
-    )
+    # The `GaulLookupEnricher` assertion that stood here was removed with the class in
+    # #90 (register C-75). A guard against a symbol that no longer exists cannot fail,
+    # and a test that cannot fail is decoration (ADR-014 §2). What it protected — one
+    # read per delivery — is the first assertion in this function and still bites.
 
 
-def test_the_enricher_still_works_and_agrees_on_the_stamp():
-    """The enricher is not retired — it remains the build/verification path's object.
+def test_the_artifacts_identity_comes_from_one_declared_reader():
+    """The stamp has exactly one source, and it is the one the delivery reads.
 
-    What changed is that it no longer *owns* the artifact's identity. Its
-    ``lookup_version`` must still report exactly what ``gaul_lookup.version`` does, or
-    provenance would differ depending on which path produced it.
+    **This test used to assert that `GaulLookupEnricher.lookup_version` agreed with
+    `gaul_lookup.version()`** — two readers of the same fact, checked against each
+    other. The enricher was retired in #90/C-75 as an object with no production caller,
+    so the agreement it policed no longer has two sides. What survives is the property
+    that mattered: the version the delivery stamps into its provenance is read from the
+    artifact, and resolves.
     """
-    from views_postprocessing.contract.enrichment import GaulLookupEnricher
-
-    assert GaulLookupEnricher().lookup_version == gaul_lookup.version()
+    version = gaul_lookup.version()
+    assert version, "the lookup must declare a version; C-60 made this raise rather than degrade"
+    assert "@" in version, (
+        f"lookup_version must be '<region>@<digest>', got {version!r} — the delivery "
+        "carries this verbatim into its provenance record (C-15)."
+    )
