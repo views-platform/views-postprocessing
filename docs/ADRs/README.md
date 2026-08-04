@@ -79,6 +79,15 @@ These ADRs form the architectural constitution of the repository.
   record in the same change. Arises from epic #181, which found seven places where this
   repo said one thing and did another.
 
+- **ADR-015** — Why This Repository Imports Another Project's Appwrite Client
+  The partner managers import `views_pipeline_core.modules.{appwrite,datastore}` and run
+  another project's client under this repo's identity. Kept knowingly: a hand-written
+  client here would be the platform's *third* copy, and the upstream seam to depend on
+  instead does not exist yet. Records what bounds it (an importer allowlist, the
+  `_ContractStorePort` DIP port, a framework-contract test), and the two-part condition —
+  demand and supply — under which it is revisited. Arises from #146 and the þing-02
+  ratification, which asked that the reasoning live here rather than in an issue.
+
 ADRs numbered 010 and above define:
 
 - Domain-specific decisions
