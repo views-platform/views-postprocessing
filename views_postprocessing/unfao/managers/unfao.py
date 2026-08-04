@@ -333,7 +333,15 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             store.upload(
                 hist_path,
                 filename=hist_path.name,
-                name=self._model_path.model_name,
+                # The DECLARED consumer name, not `self._model_path.model_name`
+                # (register C-77). Both resolve to the same string today, because
+                # `model_name` is the views-models directory name and that directory
+                # happens to match — but only one of them is a declaration. The other
+                # is a filesystem coincidence in a different repository, and a
+                # directory rename there would strand this artifact silently: the
+                # consumer filters on the declared name, finds nothing, and reports
+                # an empty endpoint rather than an error (ADR-013 §4.1a).
+                name=product.CONSUMER_DOCUMENT_NAME,
                 doc_type="model",
                 category="historical",
                 loa="pgm",
