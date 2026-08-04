@@ -253,9 +253,11 @@ def test_pandas_is_not_imported_at_runtime_anywhere_in_the_package():
         "the representation the migration removed. If it is genuinely needed, put it "
         "behind `if TYPE_CHECKING` or say in ADR-012 why it is not."
     )
-    assert type_only == ["contract/enrichment.py"], (
-        f"the type-only pandas imports moved: {type_only}. Not necessarily wrong — but "
-        "ADR-012 names the seam, so update it rather than letting the claim drift."
+    assert type_only == [], (
+        f"a type-only pandas import reappeared: {type_only}. There is no pandas in this "
+        "package at all since #90 retired contract/enrichment.py (register C-75) — epic "
+        "#85's claim is now literal, not nearly-true. If one is genuinely needed, say in "
+        "ADR-012 why before adding it back."
     )
 
 
@@ -448,7 +450,7 @@ def test_the_ban_covers_the_post_148_deletions_and_spares_the_live_lookalike():
        ``_BANNED`` says a deletion PR that does not extend it has not finished. No test
        can substitute for that; only the habit can.
     2. **Too broad** — `FAO_PGMDataset` is a *views-faoapi* class, alive and correctly
-       cited in `contract/gaul_schema.py` and `contract/enrichment.py`. A careless
+       cited in `contract/gaul_schema.py`. A careless
        `PGMDataset` pattern would ban a true statement about another repo's code.
     """
     for deleted in (

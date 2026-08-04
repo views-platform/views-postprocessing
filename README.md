@@ -50,7 +50,7 @@ Requires **Python 3.11–3.14**.
 | Package | Version | Why |
 |---------|---------|-----|
 | `views-pipeline-core` | `>=3.0.0,<4.0.0` (with the `appwrite` extra) | The framework: lifecycle base classes, data loader, dataset container, Appwrite/datastore tools |
-| `views-frames` | `>=1.10.2,<2` | The frame data contract — **the live delivery representation** since #126. pandas survives only in `contract/enrichment.py` (the build/verification path) |
+| `views-frames` | `>=1.10.2,<2` | The frame data contract — **the live delivery representation** since #126. There is no pandas in this package at all since #90 |
 | `pyarrow` | `>=16.1.0,<17.0.0` | The wire's serialisation. **Pinned deliberately** — the CVE fix past 17 changes delivered bytes (register C-72) |
 | *dev group* | `pytest`, `ruff` | Not installed by `pip install views-postprocessing`; `poetry install` includes them |
 
@@ -142,7 +142,6 @@ views-postprocessing/
     │   ├── historical.py            # the historical artifact, built pandas-free
     │   ├── gaul_lookup.py           # the GAUL asset: path, version, one read
     │   ├── gaul_schema.py           # the 9-column contract, declared as data
-    │   ├── enrichment.py            # GaulLookupEnricher (build/verification path)
     │   ├── source_metadata.py       # producer (datafactory) facts
     │   ├── store_metadata.py        # prediction-store facts
     │   └── launch_config.py         # the delivery mode the launcher must declare
@@ -220,7 +219,7 @@ only `.py`; it now scans markdown too.)*
 |-----|----------------|
 | [`docs/architecture/role_and_seams.md`](docs/architecture/role_and_seams.md) | **Start here** — role vs the sibling repos + internal seams |
 | [`docs/ADRs/`](docs/ADRs/) | Architecture decisions (esp. ADR-011 mapper→lookup; ADR-012 ontology) |
-| [`docs/CICs/`](docs/CICs/) | Class intent contracts (`UNFAOPostProcessorManager`, `GaulLookupEnricher`) |
+| [`docs/CICs/`](docs/CICs/) | Class intent contracts (`UNFAOPostProcessorManager`) |
 | `reports/technical_risk_register.md` | Tracked risks — C-40 (the remaining pipeline-core inheritance), C-30/C-15 (delivery guards), C-43 (enrichment value verification) |
 
 ---

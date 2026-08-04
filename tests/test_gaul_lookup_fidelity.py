@@ -218,10 +218,16 @@ def test_lookup_declares_its_provenance(lookup_meta):
 
 
 def test_lookup_version_stamp_resolves(lookup):
-    """The stamp the delivery provenance carries (C-15) must not be 'unknown'."""
-    from views_postprocessing.contract.enrichment import GaulLookupEnricher
+    """The stamp the delivery provenance carries (C-15) must not be 'unknown'.
 
-    version = GaulLookupEnricher(_LOOKUP).lookup_version
+    Read through ``gaul_lookup.version`` — the declared reader the delivery itself uses.
+    It was read through ``GaulLookupEnricher`` until that object was retired (#90, C-75);
+    the enricher was never on the delivery path, so this now checks the same fact through
+    the code that ships.
+    """
+    from views_postprocessing.contract import gaul_lookup
+
+    version = gaul_lookup.version(_LOOKUP)
     assert version != "unknown", (
         "lookup_version resolved to 'unknown' — the delivery would ship untraceable "
         "provenance (C-60). The lookup's embedded source_provenance is absent or reshaped."

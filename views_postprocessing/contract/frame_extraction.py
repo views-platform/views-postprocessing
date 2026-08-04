@@ -1,24 +1,21 @@
 """Frame-native representation seam: extract primitives from a views-frames frame.
 
-The **frame counterpart** to ``extraction.py`` (the pandas seam). It returns the *same*
-primitives — sets of ints, numpy month arrays — so the representation-free
+Returns primitives — sets of ints, numpy month arrays — so the representation-free
 ``views_postprocessing.delivery`` invariants consume them unchanged.
 
-Per the migration design (epic #85): pandas and views-frames do **not** coexist at runtime,
-so these are deliberately **siblings** of the pandas readers in ``extraction.py``, not a
-replacement, and there is **no shared ``Extractor`` Protocol** (a polymorphic interface
-nobody dispatches on would be speculative — YAGNI/ISP). When the forecast interior moves to a
-frame (S3 / #88), the manager calls *these*; the pandas readers stay for the still-pandas
-historical path (gated on C-40 / S7).
+**This module was one of a pair and is now alone.** It was written as the frame-native
+sibling of a pandas seam (``extraction.py``), deliberately duplicated rather than
+abstracted while both representations were live: pandas and views-frames did not coexist
+at runtime, and a shared ``Extractor`` Protocol nobody dispatched on would have been
+speculative. That migration is finished — the pandas seam was deleted in #151, and #90
+retired the last module holding a pandas import at all. There is no sibling and no
+still-pandas path; what remains is this one seam, and the docstring is corrected rather
+than left describing a pair.
 
-Scope: the readers the forecast interior needs — distinct cells and months from the frame's
-index. Deliberately **not** here yet (no speculative code):
-- the pandas→``(N, S)`` sample-array unpacker — added when rusty_bucket (#143) declares the
-  layout (the seam will be *told* the layout, never sniff it);
-- a frame-native ``unmapped_cell_count`` — geographic metadata lives on the pandas enriched
-  frame, not the value frame, until the enrichment moves off pandas (S4 / #89);
-- a frame-native ``drop_months_above`` — the observed-range clip is on the *historical*
-  frame, which is gated on the inbound retirement (S7 / #92).
+Scope: the readers the forecast interior needs — distinct cells and months from the
+frame's index. Deliberately **not** here (no speculative code): a sample-array unpacker,
+added when the producer declares its layout — the seam will be *told* the layout, never
+sniff it (ADR-003).
 """
 
 from __future__ import annotations
