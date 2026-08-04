@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-03                           |
 | Total Concerns    | 83                                   |
-| Open Concerns     | 17                                   |
-| Resolved Concerns | 66                                   |
+| Open Concerns     | 16                                   |
+| Resolved Concerns | 67                                   |
 
 ---
 
@@ -609,33 +609,6 @@ Cross-refs: **C-40** (the pipeline-core surface this port wraps), **C-44** (the 
 
 ---
 
-### C-77: The historical leg names its document from the model path, not from the declared consumer name — and nothing checks the two agree
-
-| Field | Value |
-|-------|-------|
-| ID | C-77 |
-| Tier | 2 — structural fragility with a clear trigger, affecting **both** partners. Not Tier 1: the failure is a document the consumer cannot find, not a wrong value inside one. But it is the **F1 invisibility shape** — ADR-013 §4.1a, the defect that left six `orange_ensemble` forecast documents stranded in `unfao_bucket` while forecast serving read empty for months. Nobody notices a delivery that simply is not there. |
-| Source | `code-review max` (2026-08-03) — PR #211, cross-checking the crafd producer against the views-crafdapi consumer |
-| Trigger | When a postprocessor's directory is renamed in views-models, or a new partner package is added whose directory name differs from its `CONSUMER_DOCUMENT_NAME` — check that the historical artifact is still retrievable by the consumer's filter. The forecast leg will keep working, so a green delivery run is not evidence. |
-| Owner | Whoever takes the guard. It is a one-line assertion plus a test, not a design decision — but it must be taken deliberately, because the current agreement is a coincidence nobody has written down. |
-| Location | The historical-artifact upload in `views_postprocessing/<partner>/managers/<partner>.py` — the call passing `name=self._model_path.model_name`, in `_save_contract`. For contrast, the correct leg is the `consumer_name=product.CONSUMER_DOCUMENT_NAME` argument a few lines above, which reaches the wire as `common["name"]` in `contract/wire/sink.py::deliver_run`. |
-
-The forecast leg is right. It threads the declared constant through: the manager passes `consumer_name=product.CONSUMER_DOCUMENT_NAME` into `deliver_run`, which sets `common = {"name": consumer_name, ...}`. One declaration, carried to the wire as a parameter — the shape C-69 credited as already correct.
-
-**The historical-actuals leg does not use that constant at all.** It passes `name=self._model_path.model_name` — a value that comes from the postprocessor's *directory name* in views-models, not from any declaration in this repository. The consumer filters on exactly the string this repo declares: `filters["name"] = self.model_path.model_name`, where the path manager is constructed as `APIPathManager("un_crafd")`.
-
-**For FAO the two agree; for CRAF'd nobody can yet say.** `views-models/postprocessors/` contains `un_fao` and nothing else — there is **no `un_crafd` postprocessor directory**, so CRAF'd's historical `name=` has never been resolved, let alone compared against its consumer's filter. That makes this worse rather than better: for the live partner the agreement is a coincidence nobody wrote down, and for the new one it is an assumption that will first be tested by a production run. Whoever creates that directory decides, without knowing it, whether CRAF'd's actuals are retrievable.
-
-**Nothing in this repository asserts they agree.** `tests/test_product.py` asserts `CONSUMER_DOCUMENT_NAME` for the forecast leg; `tests/test_hop_b_sink_e2e.py` checks `consumer_name` on the forecast leg. Neither touches the historical leg's `name=`. A rename of the views-models directory — an ordinary, plausible act, done in a different repository by someone who has never read this file — silently detaches the historical artifact from the consumer's filter while every test here stays green and every delivery run reports success.
-
-This is ADR-003's rule broken in the quiet direction: the delivery **infers** its consumer identity from a path instead of reading the declaration that exists three lines away. It is also the fourth home for partner identity, where C-69's 2026-07-31 note counted three and recommended consolidation rather than relocation. Consolidation did not reach this line.
-
-**Scope note:** the crafd package inherited this unchanged from `unfao`; PR #211 did not introduce it, it doubled it. Registering it against both partners rather than against the PR.
-
-Cross-refs: **C-01** (RESOLVED — the metadata-completeness gate; same partner, same delivery, different field), **C-69** (RESOLVED — "partner identity has THREE homes"; this is the fourth and the note's consolidation recommendation is the fix), **C-33** (the duplication that turned one instance into two), ADR-013 §4.1a (F1 invisibility), ADR-003 (declarations over inference), #211.
-
----
-
 ## Disagreements
 
 ### D-12: Post-Run-0 infrastructure & naming intents — repo rename, internal-store transport, compute co-location
@@ -703,6 +676,54 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-77: The historical leg names its document from the model path, not from the declared consumer name — and nothing checks the two agree — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-77 |
+| Tier | 2 — structural fragility with a clear trigger, affecting **both** partners. Not Tier 1: the failure is a document the consumer cannot find, not a wrong value inside one. But it is the **F1 invisibility shape** — ADR-013 §4.1a, the defect that left six `orange_ensemble` forecast documents stranded in `unfao_bucket` while forecast serving read empty for months. Nobody notices a delivery that simply is not there. |
+| Source | `code-review max` (2026-08-03) — PR #211, cross-checking the crafd producer against the views-crafdapi consumer |
+| Trigger | When a postprocessor's directory is renamed in views-models, or a new partner package is added whose directory name differs from its `CONSUMER_DOCUMENT_NAME` — check that the historical artifact is still retrievable by the consumer's filter. The forecast leg will keep working, so a green delivery run is not evidence. |
+| Owner | Whoever takes the guard. It is a one-line assertion plus a test, not a design decision — but it must be taken deliberately, because the current agreement is a coincidence nobody has written down. |
+| Location | The historical-artifact upload in `views_postprocessing/<partner>/managers/<partner>.py` — the call passing `name=self._model_path.model_name`, in `_save_contract`. For contrast, the correct leg is the `consumer_name=product.CONSUMER_DOCUMENT_NAME` argument a few lines above, which reaches the wire as `common["name"]` in `contract/wire/sink.py::deliver_run`. |
+
+The forecast leg is right. It threads the declared constant through: the manager passes `consumer_name=product.CONSUMER_DOCUMENT_NAME` into `deliver_run`, which sets `common = {"name": consumer_name, ...}`. One declaration, carried to the wire as a parameter — the shape C-69 credited as already correct.
+
+**The historical-actuals leg does not use that constant at all.** It passes `name=self._model_path.model_name` — a value that comes from the postprocessor's *directory name* in views-models, not from any declaration in this repository. The consumer filters on exactly the string this repo declares: `filters["name"] = self.model_path.model_name`, where the path manager is constructed as `APIPathManager("un_crafd")`.
+
+**For FAO the two agree; for CRAF'd nobody can yet say.** `views-models/postprocessors/` contains `un_fao` and nothing else — there is **no `un_crafd` postprocessor directory**, so CRAF'd's historical `name=` has never been resolved, let alone compared against its consumer's filter. That makes this worse rather than better: for the live partner the agreement is a coincidence nobody wrote down, and for the new one it is an assumption that will first be tested by a production run. Whoever creates that directory decides, without knowing it, whether CRAF'd's actuals are retrievable.
+
+**Nothing in this repository asserts they agree.** `tests/test_product.py` asserts `CONSUMER_DOCUMENT_NAME` for the forecast leg; `tests/test_hop_b_sink_e2e.py` checks `consumer_name` on the forecast leg. Neither touches the historical leg's `name=`. A rename of the views-models directory — an ordinary, plausible act, done in a different repository by someone who has never read this file — silently detaches the historical artifact from the consumer's filter while every test here stays green and every delivery run reports success.
+
+This is ADR-003's rule broken in the quiet direction: the delivery **infers** its consumer identity from a path instead of reading the declaration that exists three lines away. It is also the fourth home for partner identity, where C-69's 2026-07-31 note counted three and recommended consolidation rather than relocation. Consolidation did not reach this line.
+
+**Scope note:** the crafd package inherited this unchanged from `unfao`; PR #211 did not introduce it, it doubled it. Registering it against both partners rather than against the PR.
+
+Cross-refs: **C-01** (RESOLVED — the metadata-completeness gate; same partner, same delivery, different field), **C-69** (RESOLVED — "partner identity has THREE homes"; this is the fourth and the note's consolidation recommendation is the fix), **C-33** (the duplication that turned one instance into two), ADR-013 §4.1a (F1 invisibility), ADR-003 (declarations over inference), #211.
+
+**RESOLVED 2026-08-04 (B1).** Both legs now name the document from the declaration:
+`name=product.CONSUMER_DOCUMENT_NAME` replaces `name=self._model_path.model_name` in each
+partner's historical upload, and `tests/test_product.py::test_both_delivery_legs_name_the_document_from_the_declaration`
+asserts one forecast leg and one historical leg per partner, mutation-proven three ways
+(revert one leg; add a third; stop declaring on the forecast leg).
+
+**Delivery-neutral, verified before changing anything.** `CONSUMER_DOCUMENT_NAME` is
+`"un_fao"` and the views-models directory is `un_fao`, so `model_name` resolved to the same
+string. No delivered byte changes for FAO; what changes is that the agreement is now a
+declaration rather than a coincidence in another repository's filesystem.
+
+**Fixed now rather than when it broke, because it was about to be sprung.** views-models#333
+creates CRAF'd's launcher directory. Whoever named it would have decided, without knowing
+it, whether CRAF'd's historical artifact was retrievable — and the failure mode is an empty
+endpoint, not an error. The constraint was posted on that issue on 2026-08-04; this removes
+the need for anyone to honour it.
+
+One residual, unchanged and not this entry's: the guard is a source scan, because the
+managers cannot be instantiated without Appwrite env and a views-models path manager. That
+is the standing pattern here and the reason **#18** exists.
+
+---
 
 ### C-07: Undeclared direct runtime dependencies in pyproject.toml — RESOLVED
 
@@ -794,6 +815,19 @@ Tier 2 rather than 1: no *value* is corrupted — the payload is exactly right, 
 Cross-refs: C-57 (registry drift — the most likely way a coordinate goes wrong), C-25 (the sibling wrong-*source* selection risk, mitigated by identity assertion), C-13 (the same store calls, timeout dimension), C-40 (the inherited pipeline-core surface this arrives through — **Cluster G**), C-22 (no recall procedure if a mis-delivery is discovered late).
 
 **RESOLVED 2026-08-03 by the pipeline-core 3.0.0 bump (C-44).** The auto-create-and-retry is gone: `create_bucket` appears **zero** times in `modules/appwrite/file.py`, and `:1406` now carries an explicit *"Fail loud, BEFORE any write, if a target container does not exist"* guard. A wrong or stale coordinate now fails instead of silently provisioning new production storage. Upstream views-pipeline-core C-228; verified in the installed wheel.
+
+**Residual, and it is not ours to close: the fix is verified by inspection, not by probe.** This entry closed on *provisioning* — `create_bucket` is gone and I read the guard. The neighbouring **delete** path is a different question and views-pipeline-core **#333** ([þing-02 ledger row C5](https://github.com/views-platform/views-pipeline-core/issues/333), **OPEN**) is the probe that would answer it. Its three siblings — their #322, #331, #332 — all shipped in 3.0.0; #333 did not, because it is **blocked on the operator issuing a test key** (þing-02 G2 item f/h).
+
+What it probes is specific and is not covered by any check we own. The de-dup lookup is a **database** read; the verify step is a **storage** read; and entry to the delete branch requires *the lookup to have succeeded*. So a key with **database read and no bucket-file read** gets past the lookup, fails the verify, and reaches the delete — while a *wholly* read-restricted key fails benignly at the lookup and proves nothing. The dangerous asymmetry is what you get cutting a write-object key by **operation** rather than by **resource**.
+
+Two facts make that concrete for this repository rather than theoretical:
+
+1. **The path has already run 108 times in production on FAO's outbound bucket** — run-0's uploads — and the þing-02 verdict records it was benign *only because the files were readable* (`orð_dómr.md:294-298`).
+2. **We cannot state our own key's scopes from evidence.** `docs/CLONING.md:131` records that this repository ran for months under a key named for pipeline-core and nobody could say what it was scoped to. So the dangerous shape cannot be ruled out by inspection here either.
+
+Nothing to do in this repo, and no reason to reopen the entry: the code fix is real and verified. Recorded because closing C-58 on the provisioning half should not read as closing the delete half, and because #333's gate — *"no scoped writer key is issued before C1 and C2 ship and C5's probe passes"* — is an operator action with this repository downstream of it.
+
+Cross-refs: **C-79** (`_ContractStorePort.upload` fails *open* on an unrecognised result — the same delete-adjacent surface), **C-40** (we run pipeline-core's client under our own identity, which is what þing-02 was about), views-pipeline-core #333/#322/#331/#332.
 
 ---
 

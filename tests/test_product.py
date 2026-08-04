@@ -53,6 +53,8 @@ _CONSUMER_DOCUMENT_NAME = {
 #: Where the consumer's name lives, and the mechanism that consumes it. Both are
 #: pinned: a consumer that kept the string but started filtering on a different field
 #: would strand a delivery just as thoroughly as one that renamed it.
+_PKG = Path(__file__).resolve().parent.parent / "views_postprocessing"
+
 _CONSUMER_PATH_MANAGER = re.compile(r'APIPathManager\(\s*"([a-z0-9_]+)"')
 _CONSUMER_FILTER = 'filters["name"] = self.model_path.model_name'
 
@@ -107,6 +109,56 @@ def test_upload_interlock_defaults_off(partner):
     # §11.4: the default configuration must be unable to touch the live bucket.
     assert _product(partner).UPLOAD_ENABLED is False
 
+
+
+@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
+def test_both_delivery_legs_name_the_document_from_the_declaration(partner):
+    """Register C-77 — the forecast and historical legs must agree, by construction.
+
+    The two legs upload separately and the consumer selects them separately: forecasts
+    by the newest manifest, historical actuals by ``category="historical"``. Both are
+    filtered on the document ``name``, so if the legs disagree the delivery half-arrives
+    — and the failure mode is an **empty endpoint, not an error**, which is ADR-013
+    §4.1a's exact shape.
+
+    **They used to disagree.** The historical leg passed
+    ``name=self._model_path.model_name`` — the views-models *directory* name — while the
+    forecast leg passed the declared ``CONSUMER_DOCUMENT_NAME``. For FAO the two happen
+    to match, so nothing was wrong; nothing *asserted* they matched either, and the
+    agreement lived in a different repository's filesystem layout. The trap was about to
+    be sprung for real: views-models#333 creates CRAF'd's launcher directory, and
+    whoever named it would have decided, without knowing it, whether CRAF'd's historical
+    artifact was retrievable.
+
+    A source scan rather than a call: the managers need Appwrite env and a views-models
+    path manager to instantiate, which is this repo's standing pattern for manager-side
+    facts.
+    """
+    source = (_PKG / partner / "managers" / f"{partner}.py").read_text()
+
+    assert "name=self._model_path.model_name" not in source, (
+        f"[{partner}] an upload names its document from the model path again. That is "
+        "the views-models DIRECTORY name — a fact in another repository, not a "
+        "declaration here. Use product.CONSUMER_DOCUMENT_NAME (register C-77)."
+    )
+
+    # Counted separately, and the lookbehind matters: `consumer_name=product...`
+    # contains `name=product...` as a substring, so a naive count reports three legs
+    # where there are two. (It did, on the first run of this guard.)
+    legs = {
+        "forecast (via the sink)": len(
+            re.findall(r"\bconsumer_name=product\.CONSUMER_DOCUMENT_NAME", source)
+        ),
+        "historical (direct upload)": len(
+            re.findall(r"(?<!consumer_)\bname=product\.CONSUMER_DOCUMENT_NAME", source)
+        ),
+    }
+    assert legs == {"forecast (via the sink)": 1, "historical (direct upload)": 1}, (
+        f"[{partner}] expected exactly one forecast leg and one historical leg naming "
+        f"the document from the declaration; found {legs}. A missing leg means one "
+        "stopped using the declaration; an extra means a new delivery leg nobody has "
+        "checked against the consumer's filter."
+    )
 
 # ── across the seam: the pin above, checked against the repo that owns the fact ──
 
