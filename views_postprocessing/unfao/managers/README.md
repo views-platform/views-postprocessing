@@ -91,5 +91,5 @@ Appwrite).
 
 - [`role_and_seams.md`](../../../docs/architecture/role_and_seams.md) — role + seams
 - [CIC: UNFAOPostProcessorManager](../../../docs/CICs/UNFAOPostProcessorManager.md) — class contract
-- Geography is attached by `contract/historical.py` (the actuals artifact) and `contract/wire/sidecar.py` (the §5 GAUL sidecar), each a keyed gather over the lookup this manager reads once. *(A `GaulLookupEnricher` CIC was linked here until #90; that class had no production caller and was retired — register C-75.)*
+- Geography is attached by `contract/historical.py` (the actuals artifact) and `contract/wire/sidecar.py` (the §5 GAUL sidecar), each a keyed gather over the lookup this manager reads once. *(A `GaulLookupEnricher` CIC was linked here until #90; that class had no production caller and was retired — register C-75.)* <!-- legacy-ok: records what the retired CIC link used to say -->
 - ADR-011 (mapper → lookup), ADR-012 (current ontology)

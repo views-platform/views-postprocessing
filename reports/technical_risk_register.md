@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-03                           |
 | Total Concerns    | 83                                   |
-| Open Concerns     | 12                                   |
-| Resolved Concerns | 71                                   |
+| Open Concerns     | 11                                   |
+| Resolved Concerns | 72                                   |
 
 ---
 
@@ -421,31 +421,6 @@ Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-
 
 ---
 
-### C-80: The doc-accuracy scan exempts ADRs and CICs — the two artifact classes that define the contracts
-
-| Field | Value |
-|-------|-------|
-| ID | C-80 |
-| Tier | 2 — structural, with a demonstrated failure. A CIC is what a contributor reads before changing a class; an ADR is what a consumer reads before building against the wire. Both were free to describe deleted code indefinitely, and did. |
-| Source | `code-review max` (2026-08-03) — development→main sync audit |
-| Trigger | When the next module is moved or deleted, check whether any ADR or CIC names it. The deleted-symbol regex will not tell you. #153 moved seven modules out of `unfao/` and the ADRs still cite the old paths. |
-| Owner | Whoever next extends `tests/test_doc_accuracy.py`. It is a scope change plus a decision about how to exempt genuine history. |
-| Location | `tests/test_doc_accuracy.py` — `_living_docs()` and `_link_checked_docs()` |
-
-`_living_docs()` returns `README.md`, `docs/architecture/*.md`, and package `README.md`s. **`docs/ADRs/` and `docs/CICs/` are outside it**, deliberately — an ADR legitimately records superseded designs, and a scan that fires on history gets deleted (§3). The exemption is right in principle and far too wide in practice.
-
-**What it cost, measured in this sync.** `docs/CICs/UNFAOPostProcessorManager.md` named `GaulLookupEnricher` as the manager's enrichment collaborator in **six** places, one of them a specific call — while the manager contains zero references and `tests/test_gaul_lookup_access.py` actively asserts its absence. The sibling CIC said the opposite in plain words. Two contract documents contradicted each other about the same call, and nothing could see it. Five further claims in the same file described a `dotenv` load that does not happen, an env-validation "known gap" that C-19 closed, an upload count wrong in three ways, and two "incorrect usage" examples for code deleted in #149/#152. ADR-013 still cites `unfao/wire/`, `unfao/product.py` and `unfao/launch_config.py`, all moved in #153.
-
-**The exemption is not understood by the people writing under it.** `docs/CICs/UNFAOPostProcessorManager.md` carries a `legacy-ok` marker — the line-scoped opt-out from a scan that never reaches that file. Its author believed they were suppressing a guard that was not looking.
-
-**A second, narrower hole in the same file.** `test_internal_doc_links_resolve` follows only markdown `](...)` links. Every path written as prose in backticks — which is how this repository writes paths almost everywhere — is unchecked. That is why the stale `unfao/...` references survived a dedicated sweep (S11) and were still being found two epics later.
-
-*Not proposed as a fix here:* pointing the existing regex at ADRs would fire on every historical passage and be reverted within a day. The shape that works is what §3 already recommends — check the **claim**, not the vocabulary: for CICs, that every collaborator named is actually referenced by the class (the negative form already exists at `test_gaul_lookup_access.py:156`); for backticked paths, that a path-shaped token which looks like a repo path resolves, with an opt-out for history.
-
-Cross-refs: **C-74** (a guard narrower than its declared surface), **C-78** (a guard whose declared scope missed a package), **C-67** (ADR-012 drift, which *is* covered and was caught), ADR-014 §1–§3, #211.
-
----
-
 ### C-81: What actually gates `main` is weaker than it looks — CI verifies 17 fewer tests than local, and nothing requires it to pass
 
 | Field | Value |
@@ -576,6 +551,45 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-80: The doc-accuracy scan exempts ADRs and CICs — the two artifact classes that define the contracts — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-80 |
+| Tier | 2 — structural, with a demonstrated failure. A CIC is what a contributor reads before changing a class; an ADR is what a consumer reads before building against the wire. Both were free to describe deleted code indefinitely, and did. |
+| Source | `code-review max` (2026-08-03) — development→main sync audit |
+| Trigger | When the next module is moved or deleted, check whether any ADR or CIC names it. The deleted-symbol regex will not tell you. #153 moved seven modules out of `unfao/` and the ADRs still cite the old paths. |
+| Owner | Whoever next extends `tests/test_doc_accuracy.py`. It is a scope change plus a decision about how to exempt genuine history. |
+| Location | `tests/test_doc_accuracy.py` — `_living_docs()` and `_link_checked_docs()` |
+
+`_living_docs()` returns `README.md`, `docs/architecture/*.md`, and package `README.md`s. **`docs/ADRs/` and `docs/CICs/` are outside it**, deliberately — an ADR legitimately records superseded designs, and a scan that fires on history gets deleted (§3). The exemption is right in principle and far too wide in practice.
+
+**What it cost, measured in this sync.** `docs/CICs/UNFAOPostProcessorManager.md` named `GaulLookupEnricher` as the manager's enrichment collaborator in **six** places, one of them a specific call — while the manager contains zero references and `tests/test_gaul_lookup_access.py` actively asserts its absence. The sibling CIC said the opposite in plain words. Two contract documents contradicted each other about the same call, and nothing could see it. Five further claims in the same file described a `dotenv` load that does not happen, an env-validation "known gap" that C-19 closed, an upload count wrong in three ways, and two "incorrect usage" examples for code deleted in #149/#152. ADR-013 still cites `unfao/wire/`, `unfao/product.py` and `unfao/launch_config.py`, all moved in #153.
+
+**The exemption is not understood by the people writing under it.** `docs/CICs/UNFAOPostProcessorManager.md` carries a `legacy-ok` marker — the line-scoped opt-out from a scan that never reaches that file. Its author believed they were suppressing a guard that was not looking.
+
+**A second, narrower hole in the same file.** `test_internal_doc_links_resolve` follows only markdown `](...)` links. Every path written as prose in backticks — which is how this repository writes paths almost everywhere — is unchecked. That is why the stale `unfao/...` references survived a dedicated sweep (S11) and were still being found two epics later.
+
+*Not proposed as a fix here:* pointing the existing regex at ADRs would fire on every historical passage and be reverted within a day. The shape that works is what §3 already recommends — check the **claim**, not the vocabulary: for CICs, that every collaborator named is actually referenced by the class (the negative form already exists at `test_gaul_lookup_access.py:156`); for backticked paths, that a path-shaped token which looks like a repo path resolves, with an opt-out for history.
+
+Cross-refs: **C-74** (a guard narrower than its declared surface), **C-78** (a guard whose declared scope missed a package), **C-67** (ADR-012 drift, which *is* covered and was caught), ADR-014 §1–§3, #211.
+
+**RESOLVED 2026-08-05 (B5).** ADRs and CICs are now scanned, and the design was chosen by measurement rather than by argument.
+
+**What the measurement said.** A path-resolution check over ADRs would have fired **29** times, and inspecting them showed most were correct history, other repositories' files, or paths inside URLs — the cry-wolf outcome this entry predicted, confirmed before building it. The curated deleted-symbol list was the narrower instrument: **22** hits over ADRs, **0** over CICs. Fourteen of the 22 were in ADR-011 alone.
+
+**Three of those hits were real.** ADR-013 still cited `unfao/historical.py`, `unfao/wire/` and `unfao/wire/source_selection.py` — all moved to `contract/` by #153, all fixed here. Three genuine defects hiding among five markable ones is a workable ratio, and it is the ratio that justified turning the scan on.
+
+**Two escapes, both declared rather than inferred.** Line-scoped `legacy-ok` for an isolated historical mention; a new file-level `<!-- legacy-ok-file: … -->` for a document whose *subject* is a retirement. ADR-011 is the case that earned it — it **is** the decision to remove the runtime mapper, so its subject appears fourteen times, correctly. A second guard pins the set of file-level exemptions to that one document, so adding another shows up in a diff.
+
+**And a check nothing else could have made.** `test_a_cic_does_not_name_a_collaborator_its_class_never_calls` asserts that a class a CIC names is actually referenced by the class it documents — the `GaulLookupEnricher` failure, which no path check and no symbol list would have caught at the time, because the class existed and the paths resolved. Exception types are excluded: a *collaborator* is something the class reaches for, an *exception* something that passes through, and the first draft flagged three exceptions the manager legitimately propagates.
+
+**The mutation campaign found a miss in the previous change.** Reintroducing the exact `GaulLookupEnricher` sentence did **not** fail — the collaborator check only sees classes that still exist, and #90/C-75 had deleted that one. The real gap was that the deletion never extended the deleted-symbol list, which that list's own comment demands in as many words: *"A deletion PR that does not extend this regex has not finished."* Extended here; the reintroduction now fails. Four further historical mentions written yesterday were flagged by the extension and marked.
+
+Cross-refs: **C-75** (the retirement whose CIC error motivated this, and whose PR the mutation test caught short), **C-74** and **C-78** (guards narrower than their declared surface), **C-82** (the register's own prose, still unscanned), ADR-014 §2 and §3.
+
+---
 
 ### C-83: A queryset that fails to import is reported as a queryset that declares the wrong format — RESOLVED
 

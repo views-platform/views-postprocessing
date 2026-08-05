@@ -1120,7 +1120,7 @@ record execution progress against it.
   **4.73 GB peak, 108 shards, 5 min, zero store calls** (interlock held).
   **(B) the historical path is pandas-free** (#126): actuals fetched as a
   `views_frames.FeatureFrame` (the frame path's FIRST production consumer —
-  C-40's gate lifted), artifact built by `unfao/historical.py` via pyarrow —
+  C-40's gate lifted), artifact built by `contract/historical.py` via pyarrow —
   reader-level parity with a legacy characterization golden proven through
   faoapi's own reader semantics. Two ghosts found in the legacy artifact and
   deliberately exorcised (faoapi reader verified safe on both): junk `row`/`col`
@@ -1142,8 +1142,8 @@ record execution progress against it.
   passed at 128 draws, sidecar + manifest staged, zero store calls.
 - **2026-07-20 — HOP-B SINK LEG SHIPPED (epic #105 complete; upload-disabled).**
   The contract's missing middle exists in fixture-proven code:
-  `unfao/wire/` (naming, header, shard, sidecar, run_manifest, source_selection,
-  sink) + `unfao/product.py` + `delivery/parity.py`, wired into the manager
+  `contract/wire/` (naming, header, shard, sidecar, run_manifest, source_selection,
+  sink) + each partner's `product.py` + `delivery/parity.py`, wired into the manager
   behind an explicit declared `wire_contract` launch key. Settled by shipping:
   **§4.2a's configuration home is `unfao/product.py`**; **§5.2's parity
   invariant is `delivery/parity.py`**; the §11.4 upload interlock is live in
@@ -1177,7 +1177,7 @@ record execution progress against it.
   merged 2026-07-15 and run-0 uploaded 2026-07-27, so the sequencing constraint was
   satisfied. The legacy reader it protected has now been **deleted**: this repo
   reads forecasts only through the contract path (manifest selection,
-  `unfao/wire/source_selection.py`) and historical actuals only as a
+  `contract/wire/source_selection.py`) and historical actuals only as a
   `views_frames.FeatureFrame` (#126).
 
   **The retired guard, recorded here because the code that carried it is gone.**
@@ -1204,7 +1204,7 @@ record execution progress against it.
   this ADR should know the surrounding code changed shape and the wire did not.
 
   **What changed.** The pandas delivery this contract replaced was retired (#149) along
-  with the config fork that silently selected it; `delivery/identity.py` was retired
+  with the config fork that silently selected it; `delivery/identity.py` was retired <!-- legacy-ok: post-adoption record of what was retired and when -->
   because the contract path enforces declared identity **per shard header** instead
   (#150, §4.2a); the duplicate representation seam collapsed (#151); the GAUL lookup
   became one artifact read once (#152); and the partner-neutral machinery — the whole
