@@ -54,6 +54,13 @@ _BANNED = re.compile(
         # #150 / #151 / #153 — modules retired or moved out of `unfao/` by epic #148
         r"delivery/identity", r"unfao/extraction", r"unfao/frames",
         r"unfao/historical", r"unfao/gaul_schema", r"unfao/wire",
+        # #90 / C-75 — the enricher retired once it was shown to have no production
+        # caller. Added 2026-08-05, and late: the deletion PR did not extend this list,
+        # which is exactly what the paragraph above says a deletion PR has not finished
+        # doing. Found by the mutation test for the new CIC-collaborator guard, which
+        # could NOT catch a reintroduced mention — that guard only sees classes that
+        # still exist, and this one no longer does.
+        r"GaulLookupEnricher", r"enrich_dataframe_with_pg_info", r"contract/enrichment",
         # #149 — pipeline-core's pandas container, no longer referenced by this repo.
         # Negative lookbehind: `FAO_PGMDataset` is views-faoapi's class and is live.
         # It inherits IGNORECASE, so `fao_PGMDataset` is spared too — no such spelling
@@ -91,6 +98,158 @@ def _deleted_symbol_offenders(docs: list[Path]) -> list[str]:
             if _BANNED.search(line):
                 offenders.append(f"{_label(doc)}:{i}: {line.strip()}")
     return offenders
+
+
+#: A document may declare, once at the top, that its SUBJECT is a retirement — after
+#: which the deleted-symbol scan skips it wholesale.
+#:
+#: ADR-011 is the case this exists for: it is the decision to *replace* the runtime
+#: mapper, so `PriogridCountryMapper`, `geopandas` and `mapping.py` appear fourteen
+#: times in it, every one correctly. Marking fourteen lines would be noise pretending
+#: to be rigour; marking the document once is the same claim, made where a reader sees
+#: it. Per-line ``legacy-ok`` remains the tool for an isolated mention in a document
+#: that is otherwise about the present.
+_RETIREMENT_DOC_MARKER = "<!-- legacy-ok-file:"
+
+
+def _governance_docs() -> list[Path]:
+    """ADRs and CICs — the two classes the deleted-symbol scan did NOT reach.
+
+    **Why they were exempt, and why that was too wide.** An ADR legitimately records
+    superseded designs; a scan that fires on history gets deleted, and then the rule it
+    carried is unguarded (ADR-014 §3). So `_living_docs()` covers README, the
+    architecture docs and package READMEs, and stops.
+
+    Measured 2026-08-05, which is what changed the answer: over `docs/ADRs/` the scan
+    hits 22 lines — 14 of them in ADR-011 alone, all correct. Outside ADR-011 it hits 8,
+    of which **three were genuinely stale** (`unfao/historical.py`, `unfao/wire/`,
+    `unfao/wire/source_selection.py` in ADR-013, all moved to `contract/` by #153) and
+    five were correct history. Over `docs/CICs/` it hits **zero**.
+
+    Three real defects hiding among five markable ones is a workable ratio, and it is
+    how a CIC came to name a collaborator its class had never called, in six places, for
+    weeks (register C-75, C-80).
+    """
+    docs = sorted((_REPO / "docs" / "ADRs").glob("*.md"))
+    docs += sorted((_REPO / "docs" / "CICs").glob("*.md"))
+    return [d for d in docs if d.exists()]
+
+
+#: CIC filename -> the source file whose class it documents. DECLARED, because the
+#: mapping is not derivable: `UNFAOPostProcessorManager.md` documents a class in
+#: `unfao/managers/unfao.py`, and no rule turns one into the other.
+_CIC_SUBJECT = {
+    "UNFAOPostProcessorManager.md": ("unfao", "managers", "unfao.py"),
+}
+
+
+def test_every_cic_declares_which_class_it_documents():
+    """Assert this guard's inputs are real (ADR-014 §2).
+
+    The check below iterates `_CIC_SUBJECT`. A CIC missing from it is unguarded, and
+    the suite stays green — which is how every scoped guard in this repository has
+    failed at least once.
+    """
+    present = {
+        f.name for f in (_REPO / "docs" / "CICs").glob("*.md")
+        if f.name not in ("README.md", "cic_template.md")
+    }
+    assert present == set(_CIC_SUBJECT), (
+        f"CICs with no declared subject: {sorted(present - set(_CIC_SUBJECT))}; "
+        f"declared but absent: {sorted(set(_CIC_SUBJECT) - present)}. A CIC nobody has "
+        "mapped to a source file cannot be checked against it."
+    )
+
+
+@pytest.mark.parametrize("cic", sorted(_CIC_SUBJECT))
+def test_a_cic_does_not_name_a_collaborator_its_class_never_calls(cic):
+    """The failure no path scan and no symbol scan would have caught.
+
+    `docs/CICs/UNFAOPostProcessorManager.md` described enrichment as delegated to
+    `GaulLookupEnricher` in **six** places, one of them naming the call
+    `GaulLookupEnricher.enrich_dataframe_with_pg_info()`. The manager contained zero
+    references to it. The class existed, so no deleted-symbol list would fire; the paths
+    all resolved, so no link check would fire; and the sibling CIC had said *"the manager
+    does not call this class"* for weeks while this one said the opposite.
+
+    A contract document that names a collaborator is making a checkable claim: that the
+    documented class actually reaches for it. This checks that claim, which is the only
+    thing that would have caught it.
+
+    **Deliberately narrow.** Only `CamelCase` names that look like classes, and only
+    those defined in this package — a CIC may freely mention `views_frames` or a
+    pipeline-core type it never touches, and firing on those is how a guard gets deleted
+    (ADR-014 §3).
+    """
+    text = (_REPO / "docs" / "CICs" / cic).read_text()
+    source = (_PKG.joinpath(*_CIC_SUBJECT[cic])).read_text()
+
+    ours = {
+        m.group(1)
+        for f in _PKG.rglob("*.py")
+        for m in re.finditer(r"^class ([A-Z]\w+)", f.read_text(), re.M)
+    }
+    named = {m.group(1) for m in re.finditer(r"`([A-Z]\w+)(?:\.\w+)?\(?\)?`", text)}
+
+    phantom = sorted(
+        n for n in named & ours
+        if n not in source
+        and n not in cic          # the class the CIC is ABOUT is exempt
+        and not n.endswith("Error")  # see below
+    )
+    # Exception types are excluded, and the distinction is the point. A *collaborator*
+    # is something the class reaches for; an *exception* is something that passes
+    # through it. `CoverageError`, `LaunchConfigError` and `SourceSelectionError` are
+    # raised by modules the manager calls and propagate uncaught — a Failure Modes
+    # section naming them is correct and useful, and the first draft of this guard
+    # flagged all three. When a guard cries wolf, the matching is wrong before the
+    # scope is (ADR-014 §3).
+    assert not phantom, (
+        f"{cic} names collaborator(s) {phantom} that "
+        f"{'/'.join(_CIC_SUBJECT[cic])} never references. A contract document that "
+        "points at a class the class does not use sends the next contributor to change "
+        "the wrong file — and tells anyone debugging a bad delivery to inspect code "
+        "that never ran (register C-75, C-80)."
+    )
+
+
+def test_governance_docs_have_no_deleted_symbol_references():
+    """ADRs and CICs are held to the same rule as the living docs, with one escape.
+
+    The escape is declared, not inferred: a document whose subject is a retirement says
+    so once at the top and is skipped; an isolated historical mention elsewhere carries
+    a line-scoped ``legacy-ok``. Either way the reader can see that the reference is
+    deliberate, which is the property that matters — an unmarked stale path is
+    indistinguishable from a marked one to everybody except a scan.
+    """
+    docs = [
+        d for d in _governance_docs()
+        if _RETIREMENT_DOC_MARKER not in d.read_text()
+    ]
+    offenders = _deleted_symbol_offenders(docs)
+    assert not offenders, (
+        "deleted-symbol references in ADRs/CICs:\n" + "\n".join(offenders) +
+        "\n\nIf the mention is history, mark that line `legacy-ok`, or mark the whole "
+        "document with `<!-- legacy-ok-file: why -->` if its subject IS the retirement. "
+        "If it is not history, it is a stale path and the document is wrong."
+    )
+
+
+def test_the_retirement_marker_is_not_used_to_silence_a_live_document():
+    """An escape hatch nobody bounds is just a disabled check.
+
+    A whole-document exemption is the strongest thing available here, so the set of
+    documents holding one is pinned. Adding another is a deliberate act that shows up in
+    a diff, rather than a quiet way to stop a guard complaining.
+    """
+    marked = sorted(
+        d.name for d in _governance_docs() if _RETIREMENT_DOC_MARKER in d.read_text()
+    )
+    assert marked == ["011_replace_runtime_mapper_with_precomputed_lookup.md"], (
+        f"documents exempted from the deleted-symbol scan: {marked}. Only a document "
+        "whose SUBJECT is a retirement earns this. If a present-tense document needs "
+        "it, the document is describing code that no longer exists."
+    )
 
 
 def test_living_docs_have_no_deleted_symbol_references():

@@ -14,7 +14,7 @@ a **runtime spatial-mapping engine** and **bundled shapefiles** as the authorita
 stable core. That architecture no longer exists:
 
 - [ADR-011](011_replace_runtime_mapper_with_precomputed_lookup.md) replaced the runtime
-  geopandas mapper with a **precomputed GAUL lookup table**.
+  geopandas mapper with a **precomputed GAUL lookup table**. <!-- legacy-ok: records what ADR-011 replaced; the mapper is the predecessor, not the present -->
 - The mapper, shapefiles, and caching machinery were deleted (C-39 / PR #42).
 - Input-integrity invariants and structured delivery were added (epic #51).
 
@@ -58,9 +58,9 @@ described the cut-a-repo case; it now says which is which.
 | Category | Purpose | Authority | Stability |
 |----------|---------|-----------|-----------|
 | **Delivery Invariants** | Representation-free rules over primitives that a delivery must satisfy: coverage, no-collapse, gid parity, observed-range, provenance. Live in `delivery/` — **nothing there imports pandas or views_frames**. *Forecast identity was one of these until 2026-07-31 — see the amendment below.* | Authoritative — they define what a valid delivery is | Stable — changes are governance decisions |
-| **Representation Seam** | `contract/frame_extraction.py` — turns a `views_frames` frame into the primitives the invariants consume. **One seam.** Its pandas sibling `unfao/extraction.py` was deleted in #151 once the pandas delivery was retired; the two ran as deliberate WET siblings through the migration. | Derived — isolates the representation so invariants stay representation-free | Evolving |
+| **Representation Seam** | `contract/frame_extraction.py` — turns a `views_frames` frame into the primitives the invariants consume. **One seam.** Its pandas sibling `unfao/extraction.py` was deleted in #151 once the pandas delivery was retired; the two ran as deliberate WET siblings through the migration. | Derived — isolates the representation so invariants stay representation-free | Evolving | <!-- legacy-ok: states that the pandas sibling WAS deleted in #151 — the retirement is the claim -->
 | **Wire Mechanism** | `contract/wire/` — the ADR-013 contract: header, shard, sidecar, run manifest, sink, source selection. Partner-neutral: it takes its consumer name and collapse floor as **arguments** (#153). | Authoritative — the contract with the consumer | Stable — changes are contract amendments |
-| **Enrichment Asset** | The precomputed GAUL lookup (`data/gaul_lookup.parquet`), its identity in `contract/gaul_lookup.py`, its schema in `contract/gaul_schema.py`, and the keyed gathers that join it — `contract/historical.py` for the actuals artifact and `contract/wire/sidecar.py` for the §5 sidecar. *(A second gather lived in `contract/enrichment.py` with no production caller; retired in #90, register **C-75**.)* | Authoritative for geographic metadata | Stable — rebuilt only when the producer releases new GAUL data |
+| **Enrichment Asset** | The precomputed GAUL lookup (`data/gaul_lookup.parquet`), its identity in `contract/gaul_lookup.py`, its schema in `contract/gaul_schema.py`, and the keyed gathers that join it — `contract/historical.py` for the actuals artifact and `contract/wire/sidecar.py` for the §5 sidecar. *(A second gather lived in `contract/enrichment.py` with no production caller; retired in #90, register **C-75**.)* | Authoritative for geographic metadata | Stable — rebuilt only when the producer releases new GAUL data | <!-- legacy-ok: records the second gather that was retired in #90 -->
 | **Artifact Builders** | `contract/historical.py` — turns a frame plus the lookup into the partner-facing artifact. | Derived | Evolving |
 | **External Facts** | Facts read from systems this repo does not own: the producer's (`contract/source_metadata.py` — `last_valid_month_id`, D-07) and the store's (`contract/store_metadata.py`). | Authoritative (the owning system is the source of truth) | Evolving |
 | **Launch Declarations** | `contract/launch_config.py` — the delivery mode the launcher must declare. Omitting a key is **refused by name**, never inferred (ADR-003, register C-63). | Authoritative | Stable |
@@ -70,7 +70,7 @@ described the cut-a-repo case; it now says which is which.
 
 **Two claims this ADR made until 2026-08-01, both now corrected rather than quietly dropped**
 (register C-67). It called the manager *"the **thin** `UNFAOPostProcessorManager`"* when it was
-636 lines holding two of everything, and it called `unfao/extraction.py` *"the **single**
+636 lines holding two of everything, and it called `unfao/extraction.py` *"the **single** <!-- legacy-ok: quotes the false claim this ADR was written to correct -->
 pandas-aware module"* when pandas lived in three. Both drifted the same way: the ADR described
 the intended end state of a migration that then stopped one step short. Both are now true —
 pandas is **absent from the package entirely** (#89 reduced the last one to a type-only import; #90 retired the module that held it — register C-75) — and the load-bearing ones are
@@ -129,7 +129,7 @@ Seam" wording will need a light touch (the seam stays; its internals change).
 
 ## Amendment 2026-07-31 — forecast identity re-homed to the wire layer (#150, epic #148)
 
-**`views_postprocessing/delivery/identity.py` is retired.** The "Delivery Invariants" row
+**`views_postprocessing/delivery/identity.py` is retired.** The "Delivery Invariants" row <!-- legacy-ok: the amendment recording that identity.py is retired -->
 above listed *forecast identity* among the authoritative rules; that module no longer
 exists, and this amendment records where the rule went so a reader of the row is not
 looking for deleted code.

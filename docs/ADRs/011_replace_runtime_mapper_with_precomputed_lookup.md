@@ -1,5 +1,7 @@
 # ADR-011: Replace Runtime Spatial Mapper with Precomputed Lookup Table
 
+<!-- legacy-ok-file: this ADR IS the decision to retire the runtime mapper. `PriogridCountryMapper`, `mapping.py`, `geopandas` and the cache machinery are its subject, named throughout and correctly. Marking the document once says that where a reader sees it; marking fourteen lines would be noise pretending to be rigour. -->
+
 **Status:** Accepted  
 **Date:** 2026-06-02  
 **Deciders:** Project maintainers (PRIO MD&D Team)  
