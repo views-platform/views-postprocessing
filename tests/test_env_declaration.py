@@ -263,6 +263,66 @@ def test_declared_names_match_the_manager_reads(partner):
     assert text.count("appwrite_env.assert_env_declared(") == 2
 
 
+def test_a_queryset_that_failed_to_import_is_refused_as_that(caplog):
+    """Register C-83 — the refusal must name the real fault, not a plausible one.
+
+    `get_queryset()` returns ``None`` for **any** exception while importing
+    ``config_queryset.py``. Feeding that to ``declared_data_format`` yields
+    ``'dataframe'`` (its documented default for a non-dict), and the format guard then
+    tells the operator to set ``data_format: 'feature_frame'`` — in a file that already
+    says exactly that.
+
+    Reproduced both ways on 2026-08-03: in an environment without views-datafactory the
+    real ``un_fao`` queryset reported ``dataframe`` while declaring ``feature_frame``;
+    in a complete environment the same file reported ``feature_frame``.
+    """
+    import logging
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(launch_config.LaunchConfigError) as excinfo:
+            launch_config.assert_queryset_was_importable(None)
+
+    message = str(excinfo.value)
+    assert "could not be imported" in message
+    assert "data_format" in message and "do not edit" in message.lower(), (
+        "the refusal must actively steer the operator AWAY from the config file — "
+        "that is the whole point, since the old message steered them into it"
+    )
+    assert any(r.levelno >= logging.ERROR for r in caplog.records), (
+        "ADR-008: a structural refusal leaves a persistent record, not just a traceback"
+    )
+
+
+def test_an_importable_queryset_passes_the_readability_check():
+    """The guard must not stand in front of a queryset that imported fine.
+
+    Anything not-None passes here; whether it declares the right format is the *next*
+    check's question, and keeping them separate is the entire fix.
+    """
+    launch_config.assert_queryset_was_importable({"data_format": "feature_frame"})
+    launch_config.assert_queryset_was_importable({})  # wrong, but importable
+
+
+def test_both_managers_check_importability_before_asking_what_was_declared():
+    """Order matters: reversed, the confusing message wins again.
+
+    Source-scan because the managers need Appwrite env and a views-models path manager
+    to instantiate — the standing pattern for manager-side facts.
+    """
+    for partner in _PARTNERS:
+        source = _manager_source(partner).read_text()
+        assert source.count("get_queryset()") == 1, (
+            f"[{partner}] the queryset must be read ONCE and the value reused; reading "
+            "it twice invites the two checks to disagree about what they saw"
+        )
+        importable = source.index("assert_queryset_was_importable")
+        declared = source.index("assert_frame_native_historical")
+        assert importable < declared, (
+            f"[{partner}] the importability check must come FIRST. Reversed, a queryset "
+            "that failed to import is still reported as one declaring 'dataframe'."
+        )
+
+
 # ── ADR-008 across BOTH entry validators (S1 / #182, register C-71) ──────────
 #
 # `appwrite_env` asserts the launcher assembled the *environment*; `launch_config`
