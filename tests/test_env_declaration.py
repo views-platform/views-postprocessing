@@ -541,6 +541,34 @@ def test_the_pinned_contract_edition_still_matches_the_registry(partner):
     )
 
 
+@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
+def test_the_docstring_states_the_same_edition_the_constants_declare(partner):
+    """The module says the edition twice — in prose and in a constant. Only one is checked.
+
+    Both `appwrite_env.py` docstrings name the registry edition in a sentence
+    (*"That pin is registry v1.4.1"*) beside the constant that declares it. The drift
+    detector reads the constant, so on 2026-08-05 the pins moved to v1.4.4 with both
+    guards green and both docstrings still saying v1.4.1 — a reader following the prose
+    would have checked their coordinates against a superseded edition.
+
+    This is the same defect the register carries as C-80 and C-82: a claim in prose next
+    to a fact in code, with a guard on the fact only. Cheap to close here because the
+    prose states the value in a fixed form, so the two can simply be compared.
+    """
+    module = _PARTNER_ENV[partner][0]
+    stated = re.findall(r"registry \*\*v([\d.]+)\*\*", module.__doc__ or "")
+    assert stated, (
+        f"{partner}/appwrite_env.py's docstring no longer states the registry edition in "
+        "the form this guard reads. If the sentence was reworded, reword the pattern too "
+        "— do not delete the check, or the prose goes unguarded again."
+    )
+    assert set(stated) == {module.SEAM_CONTRACT_VERSION}, (
+        f"[{partner}] the docstring says registry v{'/v'.join(sorted(set(stated)))} but "
+        f"SEAM_CONTRACT_VERSION declares v{module.SEAM_CONTRACT_VERSION}. The constant is "
+        "what the drift detector checks, so the prose is the half that rots silently."
+    )
+
+
 @pytest.mark.parametrize("partner", _PARTNERS)
 def test_the_pinned_commit_is_reachable_from_the_contract_repos_main(partner):
     """Existence is not reachability, and that distinction cost a merged PR (#196).

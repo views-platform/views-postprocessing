@@ -3,7 +3,7 @@
 
 **Status:** Active  
 **Owner:** PRIO MD&D Team  
-**Last reviewed:** 2026-06-02  
+**Last reviewed:** 2026-08-05  
 **Related ADRs:** ADR-001, ADR-002, ADR-008, ADR-009  
 
 ---

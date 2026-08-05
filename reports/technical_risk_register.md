@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-03                           |
-| Total Concerns    | 83                                   |
+| Last Updated      | 2026-08-05                           |
+| Total Concerns    | 84                                   |
 | Open Concerns     | 11                                   |
-| Resolved Concerns | 72                                   |
+| Resolved Concerns | 73                                   |
 
 ---
 
@@ -49,7 +49,7 @@ covered a single open entry (see Historical clusters below).
 **Root cause:** the register, ADR prose, and issue bodies are hand-maintained mirrors of cross-repo state that moves under them.
 **Entries:** C-44, C-46, C-47, C-57, C-74 (a guard whose declared scan roots silently stopped existing — the cluster's disease inside the cluster's own prescription) — plus this register's own findings at review-rr 2026-07-31 (header miscount, two RESOLVED entries misfiled under Open, eight stale `unfao.py` line ranges after the manager grew 273→636 lines, two unnamespaced foreign-register IDs). Historical precedent: the entire C-48–C-55 ADR-013 audit series, and C-42/C-47.
 **Highest tier:** 3
-**Fix strategy:** this repo already solved this disease once — the ADR-013 audit series ended with **40 permanent guard tests** (`tests/test_falsify_adr013_*.py`), and the same pattern now guards the þing-01 invariants (`tests/test_env_declaration.py`, `tests/test_redaction_guard.py` — the latter briefly **only over the roots that still existed**, see C-74, resolved: a guard is only as good as the assertion that its inputs are real, and it now carries that assertion). There is **no equivalent for the register**. A small `tests/test_register_integrity.py` — header counts match section counts; no RESOLVED body under `## Open Concerns`; every `C-\d+`/`D-\d+` reference resolves or is namespaced to a foreign register — would make this class self-detecting.
+**Fix strategy:** this repo already solved this disease once — the ADR-013 audit series ended with a **permanent guard suite** (`tests/test_falsify_adr013_*.py` — `pytest --collect-only -q tests/test_falsify_adr013*.py` for the count, which moves), and the same pattern now guards the þing-01 invariants (`tests/test_env_declaration.py`, `tests/test_redaction_guard.py` — the latter briefly **only over the roots that still existed**, see C-74, resolved: a guard is only as good as the assertion that its inputs are real, and it now carries that assertion). There is **no equivalent for the register**. A small `tests/test_register_integrity.py` — header counts match section counts; no RESOLVED body under `## Open Concerns`; every `C-\d+`/`D-\d+` reference resolves or is namespaced to a foreign register — would make this class self-detecting.
 **Resolution scope:** Full for the mechanical half.
 
 ### Cluster J: Delivery aftercare has no mechanism
@@ -99,7 +99,7 @@ covered a single open entry (see Historical clusters below).
 | closed | by | proven by |
 |---|---|---|
 | **C-71** ADR-008 in the entry validator | S1 | a check parametrised over **both** validators, so the pair cannot drift again |
-| **C-43, C-59, C-61** Cluster K's build-time guarantees | S2 | `tests/test_gaul_lookup_fidelity.py`, 26 tests |
+| **C-43, C-59, C-61** Cluster K's build-time guarantees | S2 | `tests/test_gaul_lookup_fidelity.py` — one file discharged three entries |
 | **C-03** the `_validate` replica | S4 | 43 self-referential tests replaced by 14 against the real gate |
 | **C-60** the lookup's declared version | S5 | the artifact rebuilt, values byte-identical, stamp unchanged |
 | **C-57** coordinate-registry drift | S6 | four checks, each mutation-proven |
@@ -160,6 +160,29 @@ that indexes only deleted code is noise.
 ---
 
 ## Open Concerns
+
+### C-84: Every identity this repo delivers under dies on 2026-11-17, within 3h35m of the other
+
+| Field | Value |
+|-------|-------|
+| ID | C-84 |
+| Tier | 2 — not silent. The delivery fails loudly and completely, which is the correct behaviour and also the whole problem: there is no degraded mode, no fallback identity, and the date is known in advance. A foreseeable total outage that nobody has scheduled work against is a structural risk, not an operational surprise. |
+| Source | views-appwrite coordinate registry v1.4.3/v1.4.4 — operator console read, 2026-08-05 (þing-02 A3(i)) |
+| Trigger | **A date, unusually — 2026-11-17.** The registry records `VIEWS Pipeline Core` expiring 12:35 and `UN FAO` 16:10 that afternoon. Act when the un_fao delivery is next scheduled within a month of it, or when anyone plans a rotation, whichever is first. |
+| Owner | Simon, and only Simon — issuing and installing keys is a console action. This entry exists so the date is visible from *this* repo's planning surface rather than only from the platform's. |
+| Location | `views_postprocessing/{unfao,crafd}/appwrite_env.py` — the declared coordinates; the values live in the environment and the registry, never here. |
+
+The FAO delivery authenticates with the `UN FAO` key. That key expires **2026-11-17 16:10**, and the platform's other key three and a half hours earlier. Read from the console rather than inferred, and recorded in the registry this repo pins.
+
+**Why the gap is the finding and not the dates.** Three and a half hours is not a stagger — it is close enough that the two keys cannot cover for one another under any realistic response, and both are on the same seam. After 16:10 that afternoon every identity on it is dead at once: model and ensemble writes, the un_fao delivery, the CRAF'd delivery, all preflights, and FAO's own read access. A rotation that assumes one key can carry traffic while the other is replaced has no such window.
+
+**What this repo can and cannot do.** It cannot rotate anything; it holds no credentials and must not (þing-01 D3). What it can do is fail early and legibly rather than mid-delivery — and it does not currently. `appwrite_env.py` validates that the declared variables are *present*, which an expired key still is. An expired key is indistinguishable from a valid one until the first request comes back unauthorised, by which point a delivery is part-way through.
+
+**Deliberately not fixed here, and the reason is C-84's own shape.** A preflight that checks key validity means an authenticated call at startup, and the only project to make it against is production — which þing-02 **D2** forbids for tests and this would not quite be. The honest position is that this is a *date to act on*, not a mechanism to build, and inventing a mechanism would be building the wrong thing to feel busy. Registered so the date is not discovered by an outage.
+
+Cross-refs: **C-81** (the same operator session's other half — branch protection and the CI token), **C-27** (no rotation mechanism for a secret value upstream), **C-57** (the pinned-registry detector, which is how this arrived here at all — it demanded the v1.4.4 bump and the bump is what surfaced the expiry), þing-02 A3(i), views-appwrite C-65 and C-66.
+
+---
 
 ### C-15: Upload metadata lacks enrichment provenance and carries test description
 
@@ -413,7 +436,7 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 
 **(a) views-faoapi is NOT exposed, and the platform ceiling is not uniform.** This entry implied the consumer shared our pin. It does not: faoapi pins **`pyarrow==23.0.1`** — the patched version — in its `pyproject.toml:31`, and it is the repo that actually reads the wire (`forecast/ingestion/wire_reader.py` → `arrow.load`). So nobody on the platform is currently exposed through this path, and the `<17` ceiling views-pipeline-core#280 exists to lift is binding on the **producers** only. One consumer has already moved past it, in production.
 
-**(b) The re-vendor obligation is stronger than "our fixture changes".** ADR-013 §10 is explicit: *"All three implementing repos' test suites consume the same bytes … The other two repos **vendor a copy** and carry a **pinned root-hash equality test** … A change to the fixture is a change to the contract."* Verified — faoapi's copy is at `tests/forecast/golden/wire_contract/SHA256SUMS`, pinned by `tests/forecast/test_wire_golden_fixture.py`. So the upgrade is a **coordinated three-repo re-vendor**, and it carries an undecided question: whether it bumps `contract_version` (the payload schema does not change, only the encoder's bytes — §10 says a fixture change *is* a contract change).
+**(b) The re-vendor obligation is stronger than "our fixture changes".** ADR-013 §10 is explicit: *"All three implementing repos' test suites consume the same bytes … The other two repos **vendor a copy** and carry a **pinned root-hash equality test** … A change to the fixture is a change to the contract."* Verified — faoapi's copy is at `tests/forecast/golden/wire_contract/SHA256SUMS`, pinned by views-faoapi's `tests/forecast/test_wire_golden_fixture.py`. So the upgrade is a **coordinated three-repo re-vendor**, and it carries an undecided question: whether it bumps `contract_version` (the payload schema does not change, only the encoder's bytes — §10 says a fixture change *is* a contract change).
 
 **Filed, so the relocation is complete rather than assumed** (the C-08 lesson): **views-postprocessing#174** (the coordinating issue), **views-faoapi#348** (heads-up + two questions only their seat can answer), and a comment on **views-pipeline-core#280** adding the security dimension and the non-uniform-ceiling finding.
 
@@ -454,33 +477,10 @@ Where each sibling stands, after trying them:
 The two compound: a suite that checks less than you think, and no requirement that even that much passes. Neither is caused by this sync — both are pre-existing — but this sync is the first time `main` receives an epic whose value is largely the guards themselves.
 
 Cross-refs: **C-46** and **C-57** (both RESOLVED; this is the residual each recorded as *"a CI-cost and cross-repo-coupling decision"* and *"worth deciding once for both"* — it now has a live home and a concrete answer per sibling), **C-80** (the other verification gap found in the same audit), #188.
+**Update 2026-08-05 — the operator session happened, and neither half of this entry moved.** Simon read the Appwrite console that morning (views-appwrite v1.4.4). It answered two *other* þing-02 questions definitively — there is **no non-production project**, and both platform keys expire 2026-11-17 (now **C-84**) — but the console read is a different action from issuing a token and a different console from GitHub's. So both halves stand: the two private siblings still have no CI credential, and `protect_main`'s ref-name include-list is still empty.
 
----
+Recorded rather than left implicit because "the operator did a console session" is exactly the kind of adjacent fact that gets mistaken for progress on this entry. It is not. What it does establish is that the session is a thing that happens, and these two items are small enough to ride along with the next one.
 
-### C-82: Governance-artifact prose carries numbers and statuses that nothing checks
-
-| Field | Value |
-|-------|-------|
-| ID | C-82 |
-| Tier | 3 — no delivery is affected, but these are the artifacts people plan from. One instance materially under-scopes a planned dependency bump. |
-| Source | `code-review max` (2026-08-03) — development→main sync audit |
-| Trigger | When the pipeline-core 3.0.0 bump (C-44) is scoped from Cluster M's summary rather than from C-72's body, or when anyone counts on a test-count or issue-state stated in the register. |
-| Owner | Whoever runs the next `review-rr` pass; this is curation, not engineering. |
-| Location | `reports/technical_risk_register.md` (Clusters I, J, M; D-09, D-11); `docs/CICs/*.md` front matter |
-
-`tests/test_register_integrity.py` checks structure — header counts, section placement, reference resolution — and **no prose at all**. Roughly twenty-five statements drift beneath it.
-
-**The one that would change a decision.** Cluster M declares resolution *"Full for … C-72 …"* at the pipeline-core 3.0.0 bump, while C-72's own body says its fix is gated on pipeline-core **#280** (open), **changes delivered wire bytes**, and requires a coordinated three-repo re-vendor of the ADR-013 §10 golden fixture. Someone planning that bump from the cluster summary under-scopes it badly. Cluster M's heading also says six entries where its body says five.
-
-**Self-contradiction elsewhere.** Cluster I still argues that *"there is no equivalent for the register — a small `tests/test_register_integrity.py` … would make this class self-detecting"*; that file exists, has ten green tests, and is cited elsewhere in the same document. Cluster J names issue **#15** as its fix strategy; #15 is closed and superseded by `docs/operations/correction_procedure.md`. D-11 says a branch *"currently has no scheduled deletion PR"* two paragraphs after recording that it was deleted. D-09's `Status` row reads *"Open … after delivery"* directly above prose recording the deferral expired on 2026-07-31.
-
-**Numbers.** The `test_gaul_lookup_fidelity.py` count appears as **26** twice in the register and as **18** twice more including `test_register_integrity.py`'s own docstring; the actual is **24**, and 26 was never true — it was written when the file held 24. Also *"40 ADR-013 guard tests"* (39) and *"`test_enrichment.py`, 16"* (39).
-
-**CIC front matter.** `GaulLookupEnricher.md` says *Last reviewed 2026-06-18* and `UNFAOPostProcessorManager.md` *2026-06-02*, while both bodies carry 2026-08 content. A reader calibrating trust from the header calibrates it wrong in the safe direction, which is lucky rather than designed.
-
-*The general fix is C-80's, not a re-count:* prose that states a number is a claim, and a claim needs a check. Where a number cannot be checked, the honest move is to state the command that produces it — which is what C-33 was forced into after its measurement was wrong five times.
-
-Cross-refs: **C-80** (the same disease in ADRs and CICs, and the mechanism that would catch both), **C-72** and **C-44** (the bump this mis-scopes), **C-33** (the worked example of publishing the command instead of the result), ADR-014 §1.
 
 ---
 
@@ -528,7 +528,7 @@ The pandas→views-frames migration (epic #85) deliberately swaps each seam by a
 
 **✅ CONDITION MET 2026-08-01 (epic #148).** The legacy forecast branch **was** deleted (#149) — before #89 landed, so the re-open trigger below never fired. Position A is vindicated by events rather than by argument: concrete siblings were built, the migration completed, and the second implementation was deleted rather than abstracted over. A Protocol introduced at decision time would have outlived the thing it existed to unify. Recorded in `tests/test_input_integrity_design_contract.py` ② so the next seam decision has the precedent.
 
-**Adjudication: B — but conditionally, and the condition is now named.** B is only correct *if the legacy forecast branch is actually deleted*. It currently has no scheduled deletion PR — only a "named post-run-0 follow-up" (C-40). If it lingers, three-way duplication becomes the permanent shape and Position A wins retroactively. **Re-open trigger: if the legacy forecast branch still exists when #89 (numpy/pyarrow keyed gather) lands, unify all three consumers onto one fail-loud gather primitive as part of that story rather than deferring again.** Cross-refs C-59 (the duplicate-key hazard that lands differently in each of the three), C-40, #89.
+**Adjudication: B — but conditionally, and the condition is now named.** B is only correct *if the legacy forecast branch is actually deleted*. It had no scheduled deletion PR when this was adjudicated — #149 deleted it on 2026-07-31, which is what made B correct rather than merely preferable — only a "named post-run-0 follow-up" (C-40). If it lingers, three-way duplication becomes the permanent shape and Position A wins retroactively. **Re-open trigger: if the legacy forecast branch still exists when #89 (numpy/pyarrow keyed gather) lands, unify all three consumers onto one fail-loud gather primitive as part of that story rather than deferring again.** Cross-refs C-59 (the duplicate-key hazard that lands differently in each of the three), C-40, #89.
 
 **SETTLED 2026-07-31 (review-rr — the original re-open trigger resolved without firing).** The sole re-open condition was a long-lived S6/#91 dual-write. **#91 is CLOSED**, and the contract path shipped frame-native end-to-end (PRs #115–#129, wire delivered in run-0) without a durable dual-representation window. Position A is vindicated by events: concrete siblings + delete is what actually happened, the pandas path is confined to the legacy branch pending its named post-run-0 deletion, and no polymorphic representation port was ever needed. No live tension remains — this entry is kept as decision provenance for the remaining seam work (#89, #90) rather than as an open question.
 
@@ -551,6 +551,48 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-82: Governance-artifact prose carries numbers and statuses that nothing checks — RESOLVED 2026-08-05
+
+| Field | Value |
+|-------|-------|
+| ID | C-82 |
+| Tier | 3 — no delivery is affected, but these are the artifacts people plan from. One instance materially under-scopes a planned dependency bump. |
+| Source | `code-review max` (2026-08-03) — development→main sync audit |
+| Trigger | When the pipeline-core 3.0.0 bump (C-44) is scoped from Cluster M's summary rather than from C-72's body, or when anyone counts on a test-count or issue-state stated in the register. |
+| Owner | Whoever runs the next `review-rr` pass; this is curation, not engineering. |
+| Location | `reports/technical_risk_register.md` (Clusters I, J, M; D-09, D-11); `docs/CICs/*.md` front matter |
+
+`tests/test_register_integrity.py` checks structure — header counts, section placement, reference resolution — and **no prose at all**. Roughly twenty-five statements drift beneath it.
+
+**The one that would change a decision.** Cluster M declares resolution *"Full for … C-72 …"* at the pipeline-core 3.0.0 bump, while C-72's own body says its fix is gated on pipeline-core **#280** (open), **changes delivered wire bytes**, and requires a coordinated three-repo re-vendor of the ADR-013 §10 golden fixture. Someone planning that bump from the cluster summary under-scopes it badly. Cluster M's heading also says six entries where its body says five.
+
+**Self-contradiction elsewhere.** Four were named: Cluster I arguing for a `tests/test_register_integrity.py` that already existed with ten green tests; Cluster J naming closed issue **#15** as its fix strategy; D-11 saying a branch *"currently has no scheduled deletion PR"* two paragraphs after recording its deletion; D-09's `Status` row reading *"Open … after delivery"* above prose recording the deferral expired.
+
+Three were already corrected by the passes that followed, and only **D-11** survived to this one — measured, not assumed: each was grepped for on 2026-08-05 and Clusters I and J and D-09 returned zero hits. That matters more than the count. The instances got fixed one at a time by whoever tripped over them, which is exactly the failure mode this entry describes: **the register self-heals where someone happens to look and rots everywhere else.** D-11 sat contradicting itself for five days in a section nobody had cause to re-read.
+
+**Numbers, and this entry's own numbers rotted while it sat open.** It read: *"the count appears as 26 twice and as 18 twice more; the actual is 24."* Since then #90 added a test and the actual became 25, so the entry describing stale counts had a stale count. That is not irony worth savouring — it is the argument. **A count nothing checks is a claim with a half-life**, and the fix is not a more careful re-count.
+
+Resolved by removing the volatile numbers rather than correcting them, which is the precedent C-33 was forced into after its measurement was wrong five times: publish the **command**, not the result. `40 permanent guard tests` became the collect-only command; the fidelity count became *"one file discharged three entries"*, which is the claim that mattered and does not move. Historical counts inside dated closure records are left alone — *"18 tests, committed in #141"* was true at #141 and is a record, not a claim about now.
+
+**CIC front matter.** `GaulLookupEnricher.md` said *Last reviewed 2026-06-18* and `UNFAOPostProcessorManager.md` *2026-06-02* while both bodies carried 2026-08 content — calibrating a reader's trust wrong in the safe direction, which is luck rather than design. The first document was deleted with its class (#90/B3b). The second is corrected, and the field is now checked against the document's own dated content by `test_a_cic_review_date_is_not_older_than_its_own_content` — git could not answer this, because git records when a line was touched and this field claims when someone read the whole thing.
+
+*The general fix is C-80's, not a re-count:* prose that states a number is a claim, and a claim needs a check. Where a number cannot be checked, the honest move is to state the command that produces it — which is what C-33 was forced into after its measurement was wrong five times.
+
+Cross-refs: **C-80** (the same disease in ADRs and CICs, and the mechanism that would catch both), **C-72** and **C-44** (the bump this mis-scopes), **C-33** (the worked example of publishing the command instead of the result), ADR-014 §1.
+
+**Resolved 2026-08-05 (B6).** Every named instance is disposed of, and two guards now stand where the prose was unchecked:
+
+- `test_test_files_named_by_live_entries_exist_or_name_their_repo` — a live entry may not name a test file that does not exist unless it names the repo that owns it. Scoped to Open Concerns and Disagreements on purpose: eleven such mentions exist register-wide and nine are resolved entries correctly recording what discharged them, so a blanket check would cry wolf and be deleted within a day (ADR-014 §3).
+- `test_a_cic_review_date_is_not_older_than_its_own_content` — a CIC's `Last reviewed` header may not predate dates in its own body.
+
+**The first draft of the first guard was itself the bug it was written to catch,** and this is the part worth keeping. Its foreign-repo exemption reused `_FOREIGN_PREFIXES` — the list that namespaces *identifiers* — over a sixty-character window. That list holds ordinary English: `models`, `frames`, `pipeline-core`. A mutation planting a vanished file in a live entry left it green, because a sentence three words earlier said *"pinned pipeline-core-free"*. It had found its two real defects by luck of their neighbouring words. Rebuilt to require the owning repo **immediately abutting the path**, and re-proven against three mutations including the one that defeated the draft. A guard nobody has watched fail is decoration (ADR-014 §2) — and a guard watched failing on the *wrong* mutation is worse, because it has a proof attached.
+
+**What is deliberately not fixed.** The general case — arbitrary prose asserting an arbitrary number — is not mechanisable and this entry does not claim it is. What is mechanised is the shape that recurred: a claim naming an artifact, checked by asking whether the artifact exists. Numbers that could not be guarded were removed in favour of the command that produces them, per C-33.
+
+*Verify:* `pytest -q tests/test_register_integrity.py tests/test_doc_accuracy.py`
+
+---
 
 ### C-80: The doc-accuracy scan exempts ADRs and CICs — the two artifact classes that define the contracts — RESOLVED
 
@@ -1312,7 +1354,7 @@ Cross-refs: C-15 (the provenance this field serves), C-22 (the recall process th
 
 Replaced by tests of `contract/historical.assert_metadata_complete` — the code that actually gates a delivery — parametrised over the **imported** `METADATA_COLS`, plus source-scan pins that the gate stays at build time and is still invoked. Verified 2026-08-02: `pytest -q tests/test_validation.py` → **14 passed**. Mutation-tested: narrowing the gate to a single column fails **9 of 14**; the old suite passed that mutation untouched, because it was not testing the gate.
 
-**Residual 2 — the enrich→validate end-to-end test — RELOCATED to #18**, per the Register Conventions' relocation rule (a relocation is not complete until the destination exists and is cited by number). Every *leg* is now covered — enrichment (`test_enrichment.py`, 16), artifact build (`test_historical_builder.py`, 7), reader parity (`test_historical_parity.py`, 3), the invariants on primitives (`test_input_integrity_e2e.py`, 8), the wire end to end (`test_hop_b_sink_e2e.py`, 6), the null-gate (`test_validation.py`, 14). What remains uncovered is **the manager orchestrating them**, which needs views-pipeline-core and a production-like Appwrite environment — and þing-02 **D2** forbids integration tests against the production project, no non-production one existing.
+**Residual 2 — the enrich→validate end-to-end test — RELOCATED to #18**, per the Register Conventions' relocation rule (a relocation is not complete until the destination exists and is cited by number). Every *leg* is now covered — enrichment (**no longer a leg**: `GaulLookupEnricher` and `test_enrichment.py` were deleted in #90/B3b, the lookup join having moved into the frame build; recorded here because the closure above was argued from a list this deletion shortened), artifact build (`test_historical_builder.py`, 7), reader parity (`test_historical_parity.py`, 3), the invariants on primitives (`test_input_integrity_e2e.py`, 8), the wire end to end (`test_hop_b_sink_e2e.py`, 6), the null-gate (`test_validation.py`, 14). What remains uncovered is **the manager orchestrating them**, which needs views-pipeline-core and a production-like Appwrite environment — and þing-02 **D2** forbids integration tests against the production project, no non-production one existing.
 
 That gap has **two standing trackers already**, which is why keeping a third here is noise rather than signal: issue **#18** (open since 2026-06-04) and `tests/test_falsification_campaign_3_5.py`, an `xfail(strict)` probe that **flips to XPASS the moment someone writes the test** — a self-surfacing tracker, which is more than this entry was doing. |
 | Tier | 3 |

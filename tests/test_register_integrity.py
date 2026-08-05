@@ -186,6 +186,56 @@ def test_internal_references_resolve_and_foreign_ones_are_namespaced(register):
     )
 
 
+def test_test_files_named_by_live_entries_exist_or_name_their_repo(register):
+    """A live entry pointing at a test nobody can find describes work against nothing.
+
+    Scoped to **Open Concerns and Disagreements** deliberately. A resolved entry citing
+    `test_mapping.py` or `test_reconciliation_parity.py` is recording what discharged it,
+    and those files are correctly gone — a blanket existence check would fire on eleven
+    such mentions and be deleted within a day (ADR-014 §3). Measured before scoping:
+    eleven missing across the whole register, **two** in live entries.
+
+    The two it found on 2026-08-05 were both real, and one of them is a shape this
+    register already polices for identifiers but not for paths:
+    ``tests/forecast/test_wire_golden_fixture.py`` is **views-faoapi's** file. A bare
+    foreign path sends the reader hunting in this repo's tree, which is exactly the
+    argument `test_internal_references_resolve_and_foreign_ones_are_namespaced` makes
+    about a bare ``C-161``.
+
+    **The exemption is a declaration, not a proximity heuristic, and the first draft got
+    that wrong.** It reused `_FOREIGN_PREFIXES` — the identifier-namespacing list — over a
+    60-character window. That list holds ordinary English: ``models``, ``frames``,
+    ``pipeline-core``. Mutation M1 planted a vanished file in a live entry and the guard
+    stayed green, because the sentence three words earlier happened to say *"pinned
+    pipeline-core-free"*. It had caught its two real findings by luck of their neighbours
+    and would have missed most others. So the owning repo must now be named **immediately
+    before the path**, in the possessive form a reader would write anyway.
+    """
+    body = register.split("## Register Conventions")[0]
+    live = body[body.index("## Open Concerns"):body.index("## Resolved Concerns")]
+
+    repo = Path(__file__).resolve().parent.parent
+    #: `views-faoapi's `tests/...`` — the repo abutting the path, not merely nearby.
+    owned_elsewhere = re.compile(r"views-[\w-]+(?:'s)?[\s:]*$")
+
+    unresolved = []
+    for match in re.finditer(r"`(?:(tests/[\w/]+\.py)|(test_\w+\.py))`", live):
+        rel = match.group(1) or f"tests/{match.group(2)}"
+        if (repo / rel).exists():
+            continue
+        if owned_elsewhere.search(live[max(0, match.start() - 40) : match.start()]):
+            continue
+        line = live.count("\n", 0, match.start()) + 1
+        unresolved.append(f"line ~{line} of the live sections: {rel}")
+
+    assert not unresolved, (
+        "live register entries name test files that do not exist here and do not name "
+        f"the repository that owns them: {unresolved}. If the file is another repo's, "
+        "say so beside it. If it is ours, it was deleted and the entry is describing "
+        "work against a file nobody can open."
+    )
+
+
 # ── Closing conditions must not already be met (S2 / #183) ───────────────────
 #
 # The guards above catch a heading that SAYS it is resolved. They cannot catch an
