@@ -367,6 +367,10 @@ _MANAGER_DIRS = tuple((_PKG / p / "managers") for p in _PARTNER_PACKAGES)
 #: previously unbudgeted, which is the same regrowth wearing a different filename.
 _MANAGER_LINE_BUDGET = 450
 
+#: The manager CLASS, separately (C-40). 351 before the 2026-08-05 extraction, 272 after.
+#: A ratchet — see `test_the_manager_class_itself_stays_thin` for why it is not a target.
+_MANAGER_CLASS_BUDGET = 300
+
 
 def _is_type_checking(test: ast.expr) -> bool:
     """`TYPE_CHECKING` or `typing.TYPE_CHECKING`, and nothing else.
@@ -485,6 +489,37 @@ def test_the_manager_stays_within_its_line_budget(managers_dir):
         f"{[f.name for f in sources]}, over epic #148's {_MANAGER_LINE_BUDGET} bound. "
         "It was 636 before #149 and is the repo's one known dumping ground — growth "
         "here is the regression that epic existed to reverse."
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNER_PACKAGES)
+def test_the_manager_class_itself_stays_thin(partner):
+    """The directory budget above is anti-regrowth. This one is anti-*fusion*.
+
+    They measure different things and both are needed. A file can sit comfortably under
+    450 lines while the manager **class** absorbs store construction, env assembly and
+    business logic — which is exactly what register C-40 is about, and exactly what the
+    directory count cannot see. Conversely a thin class proves nothing if 800 lines
+    moved to a sibling module, which is why the directory count exists.
+
+    Added 2026-08-05 alongside the C-40 extraction that took the class from 351 lines to
+    272. The bound is a **ratchet, not a target**: it is the measured value plus modest
+    headroom, and the right response to it failing is to move something out of the class,
+    not to raise the number. If it is ever raised, the raise belongs in a commit message
+    that says what was added and why it had to live on the manager.
+    """
+    source = (_PKG / partner / "managers" / f"{partner}.py").read_text()
+    cls = next(
+        n for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.ClassDef) and n.name.endswith("PostProcessorManager")
+    )
+    lines = cls.end_lineno - cls.lineno + 1
+    assert lines <= _MANAGER_CLASS_BUDGET, (
+        f"{cls.name} is {lines} lines, over the {_MANAGER_CLASS_BUDGET} ratchet. The "
+        "manager is the Template-Method shell: it orchestrates hooks and adapts the "
+        "framework. Logic that can be called with declared arguments belongs in a "
+        "module-level function or in contract/ — where it can be tested without a "
+        "manager, an Appwrite environment or a views-models path manager (C-40 (a))."
     )
 
 

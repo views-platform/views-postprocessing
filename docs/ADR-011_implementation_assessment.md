@@ -1,6 +1,14 @@
 # ADR-011 Implementation Assessment
 
 **Last updated:** 2026-06-12
+> **This is a dated snapshot (2026-06-12), not a description of the code today.** It is
+> kept as a record of what was known when ADR-011 was assessed. Several things it
+> describes as current have since been removed — notably the `.env` credential borrow
+> (killed by þing-01 #134; the environment is now declared and validated fail-loud in
+> each partner's `appwrite_env.py`) and `self.ensemble_path_manager`, which stopped
+> existing on 2026-08-05 when store construction moved off the manager class (register
+> C-40). Read §8 in particular as history.
+
 **Status:** Data prerequisites MET — see §10. Implementation unblocked on the data side; verification infrastructure (Appwrite, pipeline-core E2E) still required before switching the pipeline.
 
 ---
