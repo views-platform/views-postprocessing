@@ -143,6 +143,33 @@ _CIC_SUBJECT = {
 }
 
 
+def test_a_cic_review_date_is_not_older_than_its_own_content():
+    """Front matter that understates how stale a document is calibrates trust wrongly.
+
+    `UNFAOPostProcessorManager.md` said *Last reviewed 2026-06-02* while its body
+    carried an August correction note about a collaborator the class never called. The
+    error was in the safe direction — a reader distrusted it more than needed — but that
+    is luck, not design, and the same field could just as easily claim freshness a
+    document does not have.
+
+    Checked against the document's own dated content rather than against git, because
+    git records when a line was touched and this field claims when someone *read the
+    whole thing*. A date the body mentions later than the header is proof the header is
+    behind.
+    """
+    for cic in sorted(_CIC_SUBJECT):
+        text = (_REPO / "docs" / "CICs" / cic).read_text()
+        header = re.search(r"\*\*Last reviewed:\*\*\s*(\d{4}-\d{2}-\d{2})", text)
+        assert header, f"{cic} declares no review date; a reader cannot calibrate it"
+        body_dates = re.findall(r"\b(20\d\d-\d{2}-\d{2})\b", text[header.end():])
+        newer = sorted(d for d in body_dates if d > header.group(1))
+        assert not newer, (
+            f"{cic} says it was last reviewed {header.group(1)}, but its body cites "
+            f"later dates {newer[:3]}. Either the review date is stale or the content "
+            "was added without re-reading the document it changed."
+        )
+
+
 def test_every_cic_declares_which_class_it_documents():
     """Assert this guard's inputs are real (ADR-014 §2).
 
