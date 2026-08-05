@@ -358,6 +358,49 @@ yet) — consumers must not treat it as authoritative before then. The lift of t
 caveat is tracked as a reminder in pipeline-core: their issue #279 (filed
 2026-07-19) fires when the first real release ships.
 
+**§2.2a Amendment A2 — run maturity, drafted 2026-08-05, NOT YET IN FORCE.**
+
+Requested by views-postprocessing #133 on behalf of views-faoapi (its ADR-033, epic
+#244) so that a consumer can tell a production run from a test one. This clause defines
+the field and the cost of adopting it. **It is not adopted, and `contract_version`
+remains 1.5.** Nothing in this section describes bytes that ship today.
+
+*The field.* A fourth key inside `provenance`:
+
+| key | type | meaning |
+|---|---|---|
+| `status` | string | the producing run's maturity in views-models ADR-017's vocabulary — `graduate`, `candidate`, and the rest. Never inferred; absent is not `graduate`. |
+
+*Why this is an amendment and not a free addition.* §2.1 clause 1 opens the header to
+new **top-level** keys and closes the three sub-objects. `provenance` is one of them, so
+a fourth key is a contract change by this document's own rule. It is purely additive, so
+it is a **MINOR** bump — 1.5 → 1.6 — and a reader built for 1.5 still accepts a 1.6
+artifact.
+
+*What adoption actually costs, which is the reason it is deferred.* `contract_version`
+is written **inside the header bytes**, and §10 pins those bytes. So a MINOR bump is not
+a free-standing edit: it rebuilds the golden fixture, and §10 requires all three
+implementing repositories to re-vendor the new bytes and re-pin their root hashes
+together. The full coordination cost is paid for one optional field.
+
+*Who can stamp it, and it is not this repository.* Hop-B shard headers are the Hop-A
+headers **re-embedded untouched** (`contract/wire/sink.py`). This repository forwards
+provenance; it does not compose it, and it does not know a run's maturity. Synthesising
+one here would be a producer guessing at a fact it was not told — precisely the
+inference this platform's declare-don't-infer rule exists to forbid. **The stamp belongs
+to the Hop-A producer (views-models),** and this repository's part is to forward it,
+which requires no code change once the key is admitted.
+
+*Named trigger for adoption (ADR-014 §4).* Adopt A2 **when the next re-vendor of the
+§10 fixture happens for another reason** — the pyarrow fix tracked as register C-72 /
+issue #174 is the one currently expected, since it also changes delivered bytes and also
+requires all three repos to move together. Riding along costs nothing extra; going alone
+costs a three-repo coordination for a field the consumer has stated it only surfaces.
+**Owner:** whoever executes that re-vendor. If views-faoapi ever promotes `status` from a
+surfaced label to a serving gate, that supersedes this trigger and A2 should be adopted
+on its own.
+
+
 **§2.3 Governance hook.** Changing `sample_count` (wire thinning) or `dtype` on the
 **FAO delivery** changes the published HDI/MAP numbers, and is therefore a
 **re-baseline event**: it requires sign-off under views-faoapi **ADR-023
@@ -889,6 +932,18 @@ runs can therefore never touch the live bucket by accident.
 
 Dated events after adoption. Errata correct errors in this document; other entries
 record execution progress against it.
+
+- **2026-08-05 — Amendment A2 drafted, not in force (§2.2a; `contract_version` stays
+  1.5):** views-postprocessing #133 asked for three declared fields on the run manifest —
+  `maturity`, `source`, and a required schema version. Measured against what is actually
+  delivered and actually read, **two of the three already ship**, and the third is not
+  ours to stamp. `source` is `provenance.ensemble`, forwarded from the Hop-A header and
+  read by views-faoapi as exactly that. The schema version is `contract_version`, present
+  on the run manifest and in every shard header. Only maturity is missing, it belongs in
+  `provenance`, and `provenance` is a closed sub-object — hence A2 rather than a silent
+  addition. The request was written against the manifest; the consumer reads the shard
+  header. Recorded because an accepted ask nobody re-measured would have produced a
+  three-repo fixture re-vendor to add two fields that were already there.
 
 - **2026-08-02 — Erratum E2 (§7d links; `contract_version` stays 1.5):** §7d's first
   link was **broken and had never resolved**. Issue #158 renamed the cross-repo contract

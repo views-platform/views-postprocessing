@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-05                           |
-| Total Concerns    | 84                                   |
-| Open Concerns     | 11                                   |
+| Total Concerns    | 85                                   |
+| Open Concerns     | 12                                   |
 | Resolved Concerns | 73                                   |
 
 ---
@@ -160,6 +160,36 @@ that indexes only deleted code is noise.
 ---
 
 ## Open Concerns
+
+### C-85: A cross-repo ask is adopted on its stated terms without anyone measuring the current state
+
+| Field | Value |
+|-------|-------|
+| ID | C-85 |
+| Tier | 3 — no delivery is affected and no wrong data ships. What is at risk is spending a coordinated three-repository change on work that is already done, which is expensive in exactly the currency this platform has least of. |
+| Source | #133 execution (2026-08-05) — the ask was re-measured before implementing it |
+| Trigger | The next time an issue filed by another repository's seat is picked up for implementation. Before writing code, check what this repository already delivers and what the consumer already reads — the two are stated in the issue and were both wrong last time. |
+| Owner | Whoever implements a cross-repo issue. This is a habit, not a mechanism; see below for why no guard is proposed. |
+| Location | Not a code defect. #133; ADR-013 §2.2a. |
+
+#133 asked for three declared fields — `maturity`, `source`, a required schema version — and said `_save_contract` ships the forecast run only. It was filed in good faith by the views-faoapi seat, accepted, and carried on the backlog for weeks. Measured on 2026-08-05, before writing anything:
+
+| the ask | the measured state |
+|---|---|
+| stamp `source`, *"`source="unknown"` is what's live today"* | **already delivered** as `provenance.ensemble`, and views-faoapi reads exactly that key |
+| declare a required schema version | **already delivered** as `contract_version` — on the run manifest and in every shard header |
+| stamp `maturity` on the run manifest | genuinely missing — but it belongs in the **shard header**, which is where the consumer reads it, and it is **not this repository's to stamp** |
+| *"the global historical is not uploaded"* → decide whether FAO stops receiving it | **false.** `_save_contract` uploads it, `category="historical"`, under the same interlock as the forecast. There was no decision to make |
+
+**Two of three fields already shipped, and the decision had no premise.** Had the issue been implemented as written, the cost would have been a `contract_version` bump — which is written *inside* the header bytes that §10 pins — and therefore a rebuild of the golden fixture and a coordinated re-vendor across all three implementing repositories, in order to add two fields that were already there.
+
+**Why the request was wrong is more useful than that it was wrong.** It was not careless. It was written against the **run manifest**, which is the artifact whose name suggests it carries run-level facts. The consumer reads them from the **shard header's `provenance`**, because that is where the producing pipeline's identity travels. Both seats were describing a real need and neither was describing the same object. A cross-repo ask names an artifact in the other repo's vocabulary, and vocabulary is exactly what does not survive the trip.
+
+**No guard is proposed, deliberately.** There is no mechanical check for "is this request still true", and inventing a ceremony — a template, a checklist field — would be process theatre that decays into an unread heading. What made the difference here was reading the consumer's source before writing any, and that is a habit worth writing down rather than automating. Registered so the next person has the worked example instead of the rule.
+
+Cross-refs: **C-72** (the re-vendor this would have triggered, and the trigger A2 now rides on), **C-77** (the historical leg whose correctness is what makes the co-delivery premise false), ADR-013 §2.2a, ADR-014 §4 (the deferral's named trigger), #133, views-faoapi ADR-033 and its register C-169.
+
+---
 
 ### C-84: Every identity this repo delivers under dies on 2026-11-17, within 3h35m of the other
 
