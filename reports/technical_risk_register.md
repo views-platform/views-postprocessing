@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-03                           |
 | Total Concerns    | 83                                   |
-| Open Concerns     | 14                                   |
-| Resolved Concerns | 69                                   |
+| Open Concerns     | 12                                   |
+| Resolved Concerns | 71                                   |
 
 ---
 
@@ -482,33 +482,6 @@ Cross-refs: **C-46** and **C-57** (both RESOLVED; this is the residual each reco
 
 ---
 
-### C-83: A queryset that fails to import is reported as a queryset that declares the wrong format
-
-| Field | Value |
-|-------|-------|
-| ID | C-83 |
-| Tier | 2 — no wrong data ships; the delivery refuses, which is correct. What is wrong is the reason it gives, and it gives it on the live FAO path, at the moment someone is trying to fix a failed run. It sends them to edit a file that is already right. |
-| Source | `code-review max` (2026-08-03) — the views-pipeline-core 3.0.0 bump review |
-| Trigger | The next time the FAO delivery refuses with *"the queryset declares data_format='dataframe'"*, check whether `config_queryset.py` actually imports before editing it. Most likely on a machine missing views-datafactory, or after any change to that file's own imports. |
-| Owner | Whoever next touches `_read_historical_frame`'s precondition. The fix is ours — distinguishing the two cases takes one branch. |
-| Location | `views_postprocessing/unfao/managers/unfao.py` and the same line in `crafd` — `declared_data_format(self._model_path.get_queryset())` feeding `launch_config.assert_frame_native_historical` |
-
-Three correct-in-isolation behaviours compose into a lie:
-
-1. pipeline-core's `ModelPathManager.get_queryset()` catches **any** exception from importing `config_queryset.py`, logs it, and returns `None`.
-2. `declared_data_format(None)` returns `'dataframe'` — the documented default for a non-dict.
-3. `assert_frame_native_historical('dataframe')` raises: *"the queryset declares `data_format='dataframe'` … **Set `data_format: 'feature_frame'` in the postprocessor's config_queryset**."*
-
-So a queryset that **failed to import** is indistinguishable from one that **declared the wrong format**, and the operator is told to fix a file that is already correct. Reproduced: in an environment without views-datafactory the real `un_fao` queryset reports `dataframe` while declaring `feature_frame`; in a complete environment the same file reports `feature_frame`.
-
-This is ADR-003's rule broken by composition rather than by anyone inferring anything: each layer declares faithfully, and the *absence* of an answer is silently given the shape of an answer. Cluster J's disease — *cannot distinguish "no" from "I could not tell"* — reached through a new door, because #126 made this repo depend on `declared_data_format` in the first place.
-
-**The fix is ours and it is small:** call `get_queryset()` once, and if it returns `None`, refuse with *that* — the queryset could not be imported — rather than passing `None` into a function whose contract is to default. Upstream could also raise instead of returning `None`, but we should not wait for that; we are the ones holding the ambiguous value.
-
-Cross-refs: **C-44** (the bump whose review found this), **C-40** (the inherited surface it arrives through), Cluster J (the *no* vs *could not tell* family), ADR-003, #126, #149.
-
----
-
 ### C-82: Governance-artifact prose carries numbers and statuses that nothing checks
 
 | Field | Value |
@@ -533,31 +506,6 @@ Cross-refs: **C-44** (the bump whose review found this), **C-40** (the inherited
 *The general fix is C-80's, not a re-count:* prose that states a number is a claim, and a claim needs a check. Where a number cannot be checked, the honest move is to state the command that produces it — which is what C-33 was forced into after its measurement was wrong five times.
 
 Cross-refs: **C-80** (the same disease in ADRs and CICs, and the mechanism that would catch both), **C-72** and **C-44** (the bump this mis-scopes), **C-33** (the worked example of publishing the command instead of the result), ADR-014 §1.
-
----
-
-### C-79: `_ContractStorePort.upload`'s result check is called "the whole mechanism" and has no test, and it fails open
-
-| Field | Value |
-|-------|-------|
-| ID | C-79 |
-| Tier | 3 — the check works today and is correct for what the store actually returns, so nothing is shipping wrong. What is missing is any assertion that it keeps working, plus a polarity that would swallow an unrecognised result rather than refuse it. |
-| Source | `code-review max` (2026-08-03) — PR #211 fourth pass, while verifying the corrected comment beside it |
-| Trigger | When views-pipeline-core changes what `DatastoreModule.upload_data` returns — a different result type, a renamed field, or a raise where it used to report — check this port still refuses a partial upload. The 3.0.0 bump (C-44) is the next occasion. |
-| Owner | Whoever takes the pipeline-core 3.0.0 bump; it is the same reading of the same return contract. |
-| Location | `_ContractStorePort.upload` in `views_postprocessing/unfao/managers/unfao.py` and `views_postprocessing/crafd/managers/crafd.py` (byte-identical in both) |
-
-The port exists because the store **reports** a metadata failure without raising: after the file is uploaded it logs, then returns `OperationResult(success=False, code="PARTIAL_SUCCESS")`. A caller that discards the result ships a file with no metadata document — invisible to the consumer, which is what happened to run-0's historical artifact on 2026-07-27. This check is what converts that into a refusal.
-
-**Two things are wrong with how it is held.**
-
-*It is untested.* `grep -rn _ContractStorePort tests/` returns exactly one hit, in a docstring in `tests/test_selection_guard.py` noting that the port is **not** asserted. So the code the comment beside it calls *"the whole mechanism"* is carried by no check at all — ADR-014 §1, in the file that this change edited to say so.
-
-*It fails open.* The refusal is `if success is False`, and `success` is resolved by `getattr(result, "success", None)` with a `to_dict()` fallback. A result object that is neither shape yields `None`, which is not `False`, so the upload is accepted. That is the wrong polarity for a repository whose ADR-003 forbids inferring what should be declared: an unrecognised result is exactly the case where refusing is cheap and guessing is not. The `to_dict()` branch is also dead on the real path — `OperationResult` has a `success` attribute — so it is untested code guarding an untested case.
-
-Neither is urgent, because `OperationResult.success` is typed `bool` and is never `None` today. Both become live the moment the return contract moves, which is precisely when nobody will be looking at this file.
-
-Cross-refs: **C-40** (the pipeline-core surface this port wraps), **C-44** (the 3.0.0 bump that is the named trigger), **C-77** (the other unguarded thing on the same delivery leg), ADR-014 §1, #211, #146.
 
 ---
 
@@ -628,6 +576,76 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-83: A queryset that fails to import is reported as a queryset that declares the wrong format — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-83 |
+| Tier | 2 — no wrong data ships; the delivery refuses, which is correct. What is wrong is the reason it gives, and it gives it on the live FAO path, at the moment someone is trying to fix a failed run. It sends them to edit a file that is already right. |
+| Source | `code-review max` (2026-08-03) — the views-pipeline-core 3.0.0 bump review |
+| Trigger | The next time the FAO delivery refuses with *"the queryset declares data_format='dataframe'"*, check whether `config_queryset.py` actually imports before editing it. Most likely on a machine missing views-datafactory, or after any change to that file's own imports. |
+| Owner | Whoever next touches `_read_historical_frame`'s precondition. The fix is ours — distinguishing the two cases takes one branch. |
+| Location | `views_postprocessing/unfao/managers/unfao.py` and the same line in `crafd` — `declared_data_format(self._model_path.get_queryset())` feeding `launch_config.assert_frame_native_historical` |
+
+Three correct-in-isolation behaviours compose into a lie:
+
+1. pipeline-core's `ModelPathManager.get_queryset()` catches **any** exception from importing `config_queryset.py`, logs it, and returns `None`.
+2. `declared_data_format(None)` returns `'dataframe'` — the documented default for a non-dict.
+3. `assert_frame_native_historical('dataframe')` raises: *"the queryset declares `data_format='dataframe'` … **Set `data_format: 'feature_frame'` in the postprocessor's config_queryset**."*
+
+So a queryset that **failed to import** is indistinguishable from one that **declared the wrong format**, and the operator is told to fix a file that is already correct. Reproduced: in an environment without views-datafactory the real `un_fao` queryset reports `dataframe` while declaring `feature_frame`; in a complete environment the same file reports `feature_frame`.
+
+This is ADR-003's rule broken by composition rather than by anyone inferring anything: each layer declares faithfully, and the *absence* of an answer is silently given the shape of an answer. Cluster J's disease — *cannot distinguish "no" from "I could not tell"* — reached through a new door, because #126 made this repo depend on `declared_data_format` in the first place.
+
+**The fix is ours and it is small:** call `get_queryset()` once, and if it returns `None`, refuse with *that* — the queryset could not be imported — rather than passing `None` into a function whose contract is to default. Upstream could also raise instead of returning `None`, but we should not wait for that; we are the ones holding the ambiguous value.
+
+Cross-refs: **C-44** (the bump whose review found this), **C-40** (the inherited surface it arrives through), Cluster J (the *no* vs *could not tell* family), ADR-003, #126, #149.
+
+**RESOLVED 2026-08-05 (B4).** `launch_config.assert_queryset_was_importable(queryset)` now runs **before** the format check, and both managers read the queryset once and reuse the value.
+
+The refusal says what actually happened — *"the postprocessor's config_queryset could not be imported … This is NOT a declaration problem: do not edit data_format until the module imports"* — and steers the operator toward the traceback pipeline-core logged, and toward a missing sibling checkout or dependency. It logs before it raises (ADR-008).
+
+**Three guards, because order is the fix.** One proves the refusal fires and names the real fault; one proves an importable queryset passes (the format question belongs to the *next* check, and keeping them separate is the whole point); one asserts, per partner, that `get_queryset()` is called exactly once and that importability is checked first. Mutation-proven by deleting the check and by reversing the order — both fail.
+
+**What is not fixed here, deliberately.** Upstream still returns `None` for any import exception, so the ambiguity exists at its source; we simply stopped passing it into a function whose contract is to default. Raising upstream would be better and is not ours to do — and waiting for it would have left the misleading message on the live FAO path meanwhile.
+
+---
+
+### C-79: `_ContractStorePort.upload`'s result check is called "the whole mechanism" and has no test, and it fails open — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-79 |
+| Tier | 3 — the check works today and is correct for what the store actually returns, so nothing is shipping wrong. What is missing is any assertion that it keeps working, plus a polarity that would swallow an unrecognised result rather than refuse it. |
+| Source | `code-review max` (2026-08-03) — PR #211 fourth pass, while verifying the corrected comment beside it |
+| Trigger | When views-pipeline-core changes what `DatastoreModule.upload_data` returns — a different result type, a renamed field, or a raise where it used to report — check this port still refuses a partial upload. The 3.0.0 bump (C-44) is the next occasion. |
+| Owner | Whoever takes the pipeline-core 3.0.0 bump; it is the same reading of the same return contract. |
+| Location | `_ContractStorePort.upload` in `views_postprocessing/unfao/managers/unfao.py` and `views_postprocessing/crafd/managers/crafd.py` (byte-identical in both) |
+
+The port exists because the store **reports** a metadata failure without raising: after the file is uploaded it logs, then returns `OperationResult(success=False, code="PARTIAL_SUCCESS")`. A caller that discards the result ships a file with no metadata document — invisible to the consumer, which is what happened to run-0's historical artifact on 2026-07-27. This check is what converts that into a refusal.
+
+**Two things are wrong with how it is held.**
+
+*It is untested.* `grep -rn _ContractStorePort tests/` returns exactly one hit, in a docstring in `tests/test_selection_guard.py` noting that the port is **not** asserted. So the code the comment beside it calls *"the whole mechanism"* is carried by no check at all — ADR-014 §1, in the file that this change edited to say so.
+
+*It fails open.* The refusal is `if success is False`, and `success` is resolved by `getattr(result, "success", None)` with a `to_dict()` fallback. A result object that is neither shape yields `None`, which is not `False`, so the upload is accepted. That is the wrong polarity for a repository whose ADR-003 forbids inferring what should be declared: an unrecognised result is exactly the case where refusing is cheap and guessing is not. The `to_dict()` branch is also dead on the real path — `OperationResult` has a `success` attribute — so it is untested code guarding an untested case.
+
+Neither is urgent, because `OperationResult.success` is typed `bool` and is never `None` today. Both become live the moment the return contract moves, which is precisely when nobody will be looking at this file.
+
+Cross-refs: **C-40** (the pipeline-core surface this port wraps), **C-44** (the 3.0.0 bump that is the named trigger), **C-77** (the other unguarded thing on the same delivery leg), ADR-014 §1, #211, #146.
+
+**RESOLVED 2026-08-05 (B4).** Two changes, and the second is the one that mattered.
+
+**Polarity.** `if success is False` became `if success is not True`. The old form failed **open**: a result that was `None`, or lacked the attribute, or carried a non-bool, sailed through as though the upload had worked. The dead `to_dict()` fallback went with it — an unrecognised result should be refused and *named*, not adapted to silently. The refusal now reports what it actually received, because `success=None` (a moved contract) and `success=False` (a reported failure) are different faults and send an operator to different places.
+
+**Tests, where there were none.** `tests/test_store_port.py` — 16 tests over both partners: the happy path, a reported failure carrying the store's own error, four unrecognised-result shapes, and the field list the port forwards. Mutation-proven by reverting the polarity, which fails four of them.
+
+**The standing excuse never applied here.** Manager-side facts are source-scanned because the managers need Appwrite env and a views-models path manager to instantiate. `_ContractStorePort` needs neither — it takes a store object and calls four methods on it. A fake store was always enough; nobody had tried.
+
+**Its trigger fired two days before this and nobody noticed.** The entry read *"the 3.0.0 bump is the next occasion"*; the bump landed 2026-08-03, C-44 was closed with a wheel-level verification of the suite, and the return contract was never re-read. `test_register_integrity.py` cannot catch that — its checks are structural and none evaluates whether a named external event has occurred. That gap is C-82's.
+
+---
 
 ### C-75: `GaulLookupEnricher` has no production caller, and now implements a second copy of the delivery path's keyed gather — RESOLVED
 

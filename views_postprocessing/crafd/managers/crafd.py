@@ -56,16 +56,24 @@ class _ContractStorePort:
         # the claim; its line number moves between releases). It never raises, so a
         # caller that discards the result ships an invisible orphan: run-0's historical
         # artifact, 2026-07-27. This check is the whole mechanism.
-        # (Until 2026-08-03 this comment said the store "only LOGS": false, and
-        # self-defeating — if it only logged, `success` would be True.)
+        #
+        # **Refuse unless success is explicitly True** (register C-79). The earlier
+        # `if success is False` failed OPEN: a result that was None, or lacked the
+        # attribute, or carried a non-bool, sailed through as though the upload had
+        # worked. Today `upload_data` has a single return path and `success` is a
+        # `bool` dataclass field, so the two polarities agree — but the moment that
+        # stops being true is exactly this entry's trigger, and fail-open is the wrong
+        # side to be on when the subject is "did the delivery actually land".
+        #
+        # The old `to_dict()` fallback is gone with it: dead on the real path, and an
+        # unrecognised result should be refused and named, not adapted to silently.
         success = getattr(result, "success", None)
-        if success is None and hasattr(result, "to_dict"):
-            success = result.to_dict().get("success")
-        if success is False:
+        if success is not True:
             error = getattr(result, "error", None) or "unknown store error"
             raise RuntimeError(
-                f"upload of {filename!r} did not fully succeed (file may be an "
-                f"orphan without a metadata document): {error}"
+                f"upload of {filename!r} did not fully succeed (file may be an orphan "
+                f"without a metadata document): {error}. The store reported "
+                f"success={success!r} (result type {type(result).__name__})."
             )
 
 
@@ -118,9 +126,13 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         """
         # Declaration first: the check reads the queryset, not the loader, so a
         # refused config must not pay for loader construction.
-        launch_config.assert_frame_native_historical(
-            declared_data_format(self._model_path.get_queryset())
-        )
+        #
+        # Read ONCE, and distinguish "could not import it" from "it declares the wrong
+        # thing" (register C-83). Passing None straight into `declared_data_format`
+        # turns a failed import into a confident, wrong claim about the config.
+        queryset = self._model_path.get_queryset()
+        launch_config.assert_queryset_was_importable(queryset)
+        launch_config.assert_frame_native_historical(declared_data_format(queryset))
         self._initialize_data_loader()
         self._read_historical_frame()
 
