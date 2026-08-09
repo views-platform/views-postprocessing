@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-08-04
-**Deciders:** Project maintainers (PRIO MD&D Team)
+**Decider:** Simon Polichinel von der Maase
 **Arises from:** issue [#146](https://github.com/views-platform/views-postprocessing/issues/146),
 recorded at the request of the þing-02 ratification
 **Related:** [ADR-002](002_topology_and_dependency_rules.md) (dependency direction),

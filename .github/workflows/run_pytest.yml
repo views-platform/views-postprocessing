@@ -27,35 +27,46 @@ jobs:
     # is normal. The consequence was that CI verified strictly LESS than a developer's
     # laptop, and precisely on the guards that matter most across a repo boundary.
     #
-    # Measured 2026-08-03 (402 collected in all three runs, so the delta is entirely
-    # skips):
-    #   local, all siblings present   362 passed / 40 xfailed /  0 skipped
-    #   CI, bare checkout             347 passed / 38 xfailed / 17 skipped
-    #   CI, with the checkout below   348 passed / 38 xfailed / 16 skipped
+    # WHICH siblings are checked out is NOT decided here. It is declared in
+    # `tests/conftest.py::SIBLINGS`, and `tests/test_ci_sibling_coverage.py` fails if
+    # this file and that declaration disagree — in either direction. ADR-016.
     #
-    # So this recovers exactly ONE test — the cross-seam consumer-name check for CRAF'd.
-    # That is worth having (it is the §4.1a pin, whose failure mode is a delivery nobody
-    # can find) but it is one, not seventeen. The other sixteen are below.
+    # The prose that used to live here said views-appwrite was PRIVATE. It went public
+    # on 2026-08-08 and the comment did not, so seven checks stayed dark for no reason.
+    # That is why the fact now lives in a declaration carrying the date it was checked,
+    # rather than in a paragraph.
     #
-    # Only views-crafdapi is checked out, and the choice is deliberate:
+    # `ref: main` is deliberate on every sibling and is not a default. Without it
+    # `actions/checkout` takes the sibling's OWN default branch — which for
+    # views-appwrite is `development` — while ADR-014 §3 says the authority for a claim
+    # about another repository is that repository's `main`. Two checks in
+    # test_env_declaration read the working tree and a third demands reachability from
+    # `main`; pointed at `development` they would eventually demand contradictory things.
     #
-    #   views-crafdapi   PUBLIC, and its check reads source text -> enabled here.
-    #   views-datafactory  PUBLIC, but its 8 tests need the producer's raw GAUL
-    #                    parquets (`data/raw/gaul_admin/*.parquet`), which are NOT in
-    #                    its git repository. Checking it out converts an honest skip
-    #                    into a FileNotFoundError. Measured, not assumed — it was tried.
-    #   views-appwrite   PRIVATE. The registry-drift detectors live here and are the
-    #   views-faoapi     most valuable of the lot; enabling them needs a token, which
-    #                    is an operator decision. Register C-46 and C-57 both carry
-    #                    that as their standing residual, and it is still open.
     # `actions/checkout` refuses a path outside $GITHUB_WORKSPACE, so the siblings go
     # inside it and are pointed at by the declared env vars instead of the conventional
     # `../<name>` location. `sibling_repo` checks $VIEWS_<NAME> first, precisely so the
-    # location can be declared rather than assumed.
+    # location can be declared rather than assumed. `_siblings/` specifically: it is
+    # excluded from ruff in pyproject.toml, and the Lint step reported 745 findings in
+    # someone else's test suite the first time a sibling landed outside it.
+    #
+    # No `token:` on any step below, and that is load-bearing rather than an omission:
+    # the default GITHUB_TOKEN is scoped to THIS repository, so a tokenless checkout of
+    # a repo declared public FAILS if it is actually private. That is what verifies the
+    # `public` field — no test does, because nothing in this suite touches the network.
+    - name: Checkout views-appwrite (sibling)
+      uses: actions/checkout@v3
+      with:
+        repository: views-platform/views-appwrite
+        ref: main
+        path: _siblings/views-appwrite
+        fetch-depth: 0
+
     - name: Checkout views-crafdapi (sibling)
       uses: actions/checkout@v3
       with:
         repository: views-platform/views-crafdapi
+        ref: main
         path: _siblings/views-crafdapi
         fetch-depth: 0
 
@@ -80,6 +91,7 @@ jobs:
 
     - name: Run tests
       env:
+        VIEWS_APPWRITE: ${{ github.workspace }}/_siblings/views-appwrite
         VIEWS_CRAFDAPI: ${{ github.workspace }}/_siblings/views-crafdapi
       run: |
         set -e

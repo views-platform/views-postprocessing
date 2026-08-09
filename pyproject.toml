@@ -29,6 +29,14 @@ pyarrow = ">=16.1.0,<17.0.0"
 pytest = ">=8.0,<10.0"   # the suite runs on 9.x today; 8.x still works
 ruff = ">=0.6,<1.0"
 
+# Declared for the same reason the pytest comment above exists. `tests/test_ci_sibling_
+# coverage.py` parses `.github/workflows/*.yml` to check that CI checks out exactly the
+# siblings `tests/conftest.py::SIBLINGS` declares. pyyaml already arrives transitively
+# (it is in the lock as a main-group dependency), and relying on that is precisely how
+# this repository lost pytest. The alternative — `pytest.importorskip("yaml")` — would
+# make the guard skip itself whenever the parser is absent, which is decoration.
+pyyaml = ">=6.0,<7.0"
+
 # Ruff's default rule selection is NOT stable across ruff versions, and inheriting a
 # moving default is the inference ADR-003 forbids applied to tooling. Measured
 # 2026-08-03: ruff 0.14.13 reported 0 findings on this tree; 0.16.1 reported **815**,

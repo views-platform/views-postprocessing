@@ -4,7 +4,7 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-05                           |
+| Last Updated      | 2026-08-10                           |
 | Total Concerns    | 85                                   |
 | Open Concerns     | 12                                   |
 | Resolved Concerns | 73                                   |
@@ -114,7 +114,7 @@ Plus, outside the register: #158's rename finished and the **broken URL it creat
 **What the epic did NOT do, stated because a closeout that reports only successes is the defect this epic exists to fix:**
 
 1. **Cluster M is untouched and correctly so.** Six entries, two of them Tier 2, all resolving on one upstream publish. No engineering here moves them.
-2. **The CI question is decided in writing but not implemented.** Three gated cross-repo checks run nowhere automatic. C-46's residual carries the argued recommendation — *do not couple per-PR CI to another repo's default branch; if wanted, a weekly scheduled check that opens an issue on divergence* — with a named trigger. **It is a decision awaiting an owner, not a task awaiting effort.**
+2. **The CI question is decided in writing but not implemented.** Three gated cross-repo checks run nowhere automatic. *(Largely implemented 2026-08-10 — ADR-016. Two of the three groups now run in CI; the datafactory group still cannot, because it needs raw data absent from that repository's git, which no CI change can supply.)* C-46's residual carries the argued recommendation — *do not couple per-PR CI to another repo's default branch; if wanted, a weekly scheduled check that opens an issue on divergence* — with a named trigger. **It is a decision awaiting an owner, not a task awaiting effort.**
 3. **Withdrawal of a bad delivery is the chosen policy and is not built.** Supersession is in force because it is what the wire does. Deliberately not started: it needs an ADR-013 amendment plus views-faoapi work, and FAO's answer on audit requirements (Pre-Release Note 07, B.2) decides whether it is wanted at all.
 4. **Two questions are with the UN FAO**, not with us — recipients and notification timing (B.1), withdrawal versus supersession (B.2).
 5. **`test_datafactory_deploy_readiness`'s `xfail` tuning was left alone**, deliberately: S7 fixed how the checkout is found, not what the gate asserts. If it needs re-pinning now that datafactory has moved past `v1.4.0`, that is a separate judgement.
@@ -519,13 +519,27 @@ Nine of the seventeen are **new in this arc**, including both registry-drift det
 Where each sibling stands, after trying them:
 - **views-crafdapi** — public, its check reads source text. **Now checked out in CI**, recovering **one** test: the cross-seam consumer-document-name pin for CRAF'd.
 - **views-datafactory** — public, but its eight tests need the producer's raw GAUL parquets, which are **not in its git repository**. Checking it out converts an honest skip into a `FileNotFoundError`; tried and reverted.
-- **views-appwrite**, **views-faoapi** — **private**. The most valuable checks live here. Closing this needs a token in CI.
+- **views-appwrite** — was private when this was written; **made public 2026-08-08** (`views-appwrite@9d80b75`) and **now checked out in CI**, recovering **seven** tests including both registry-drift detectors. No credential was needed for any of them, and none was ever the obstacle after 2026-08-08 — the obstacle was that this line went on saying "private" for two days after it stopped being true.
+- **views-faoapi** — **private**, and the only one. Its single check is dark. Closing it needs either a credential or FAO's consent to make that repository public; the second is being pursued, and ADR-016 §8 carries the trigger for falling back to the first.
 
 **Enforcement.** `main` is **not branch-protected**: `gh api .../branches/main/protection` returns `404 Branch not protected`, and `gh api .../rules/branches/main` returns `[]`. The `protect_main` ruleset exists and is `active`, but its `ref_name` include-list is **empty**, so it matches nothing — and it declares no `required_status_checks` rule in any case. **A red `Run Pytest` would not block a merge to `main`.** This repository's own `tests/test_falsification_campaign_4_1.py` carries the question as an unverifiable xfail probe; it is verifiable through the API, and the answer is no.
 
 The two compound: a suite that checks less than you think, and no requirement that even that much passes. Neither is caused by this sync — both are pre-existing — but this sync is the first time `main` receives an epic whose value is largely the guards themselves.
 
 Cross-refs: **C-46** and **C-57** (both RESOLVED; this is the residual each recorded as *"a CI-cost and cross-repo-coupling decision"* and *"worth deciding once for both"* — it now has a live home and a concrete answer per sibling), **C-80** (the other verification gap found in the same audit), #188.
+**Partial mitigation 2026-08-10 (ADR-016) — the coverage half is mostly closed; the enforcement half is untouched.**
+
+The coverage half rested on a claim nobody could check. This entry, and the workflow comment it drew on, said `views-appwrite` was **private**, so its seven checks needed a credential. It went public on **2026-08-08** (`views-appwrite@9d80b75`, a deliberate and recorded act), and the claim here went on being made for two days afterwards. No credential was required, and none had been the obstacle since that date.
+
+CI now checks that repository out and those seven run on every pull request — including both registry-drift detectors, which is what this entry called *"the most valuable of the lot"*. **Measured on the merge run, not derived:** CI went from 16 skips to **9** (`398 passed / 9 skipped / 38 xfailed`, PR #229), the remainder being 8 views-datafactory and 1 views-faoapi. One test also changes character rather than merely un-skipping: the scan refusing registry **values** in this public repository's markdown now runs on the merge rather than only on a maintainer's machine.
+
+**What remains, and it is two different things:**
+
+1. **One dark check.** `views-faoapi` is genuinely private — the consumer-name pin is still laptop-only. That is one test, not seven, and it is the one whose failure mode is invisible rather than loud. ADR-016 §8 defers the credential and names the trigger: FAO declining the request to make that repository public, or a second private sibling appearing.
+2. **The enforcement half is entirely untouched.** `protect_main`'s ref-name include-list was empty; it now targets the default branch, but **no status check is required**, so a pull request with a red CI can still be merged to `main`. Since merging to `main` *is* the production release, this is the half that matters most and the half that has not moved.
+
+**The lesson this entry should carry.** The blocker was not a missing credential. It was a fact about another repository recorded in prose, with no date, that nothing could check — and it survived a console session, an ADR draft and a register entry, all of which repeated it. ADR-016 replaces the prose with a declaration carrying the date it was verified, and a test that fails when CI and the declaration disagree.
+
 **Update 2026-08-05 — the operator session happened, and neither half of this entry moved.** Simon read the Appwrite console that morning (views-appwrite v1.4.4). It answered two *other* þing-02 questions definitively — there is **no non-production project**, and both platform keys expire 2026-11-17 (now **C-84**) — but the console read is a different action from issuing a token and a different console from GitHub's. So both halves stand: the two private siblings still have no CI credential, and `protect_main`'s ref-name include-list is still empty.
 
 Recorded rather than left implicit because "the operator did a console session" is exactly the kind of adjacent fact that gets mistaken for progress on this entry. It is not. What it does establish is that the session is a thing that happens, and these two items are small enough to ride along with the next one.
@@ -1289,6 +1303,10 @@ Verified 2026-08-02: `grep -rn "/home/" tests/ scripts/ views_postprocessing/ --
 | Trigger | When treating `test_datafactory_deploy_readiness` as a release gate (it never runs in CI), or when a contributor's local `pytest` fails on it — re-promote / re-pin the strict-xfail now that views-datafactory has advanced to `1.5.0`-dev past its `v1.4.0` tag |
 | Location | `tests/test_datafactory_deploy_readiness.py` (`_DF = Path("/home/simon/.../views-datafactory")`, `skipif(not _DF.exists())`) |
 
+**Overridden 2026-08-10 (ADR-016), and the objection was designed around rather than dismissed.** Sibling checkouts *were* added to the per-PR workflow. The recommendation's argument was specific — *"it couples this repo's CI to another repo's **default branch**, so an unrelated upstream commit turns this repo red"* — and every sibling checkout declares **`ref: main`** for exactly that reason. A commit on someone's feature branch, or on a default branch that is not `main` (views-appwrite's default is `development`), cannot reach us. `test_ci_sibling_coverage.py` makes `ref: main` a rule rather than a habit.
+
+**What is genuinely accepted, and should not be glossed:** a change merged to a sibling's `main` — a registry edition bump, say — *can* turn this repository red and block merges here until someone re-pins. That is not a defect being tolerated; it is the drift detector working, and the alternative is the state this entry was open about, where the drift was noticed only when a maintainer happened to run the suite. The cost is real and the trade is deliberate.
+
 The cross-repo deploy-readiness gates introduced under C-36 are guarded by `skipif` on a **hardcoded local datafactory checkout path**, so they are **skipped in CI** and only ever execute on one developer's machine. There, `test_version_bumped_past_latest_tag` is currently **failing**: it is an `xfail(strict)` that flipped to XPASS because datafactory moved to `1.5.0`-dev past its `v1.4.0` tag — exactly the auto-flip C-36's resolution anticipated, but because of the hardcoded path the flip surfaces as a **local red** rather than a CI signal, and breaks local `pytest` runs (the suite is run with this test deselected). No correctness/reliability impact on the delivery → **Tier 4** (test hygiene). C-36 (resolved) converted these gates to strict-xfail but did not capture the local-path / CI-skip dimension.
 
 See also C-36 (the resolved strict-xfail conversion this extends), C-44 (the datafactory version-state coupling).
@@ -1326,7 +1344,7 @@ The right axis was **exact equality on string constants**, not statement shape. 
 
 **Gated, and honestly so.** The checks need a views-appwrite checkout and skip without one, naming `VIEWS_APPWRITE` and the conventional sibling path so a contributor can run them rather than merely watch them skip. The would-catch-a-rename proof runs in CI with no checkout at all. Resolution helper shared with **C-46** (S7) in `tests/conftest.py` — the second incident, which is this repo's named trigger for extracting.
 
-**Residual — now tracked as C-81.** The gated half does not run in CI, which needs a views-appwrite checkout in the workflow. That was recorded here and in **C-46** as *"a CI-cost and cross-repo-coupling decision, not a code fix … worth deciding once for both"*, and it sat as a residual on two RESOLVED entries, which is where residuals go to be forgotten. It now has a live entry with a measured cost (17 tests, 9 of them new in this arc), a per-sibling answer, and an owner: **C-81**. views-appwrite is private, so it needs a token — an operator decision.
+**Residual — RESOLVED 2026-08-10 (ADR-016).** The gated half did not run in CI, which needed a views-appwrite checkout in the workflow. It has one: that repository went public on 2026-08-08 and the workflow now fetches it, so these checks run on every pull request. That was recorded here and in **C-46** as *"a CI-cost and cross-repo-coupling decision, not a code fix … worth deciding once for both"*, and it sat as a residual on two RESOLVED entries, which is where residuals go to be forgotten. It now has a live entry with a measured cost (17 tests, 9 of them new in this arc), a per-sibling answer, and an owner: **C-81**. views-appwrite is private, so it needs a token — an operator decision.
 
 A second, smaller instance of the same shape: these checks parse TOML with `tomllib`, stdlib from Python 3.11, and `pyproject` declares `>=3.11`. CI runs 3.11 and executes them. The maintainer's box runs **3.10**, below the declared floor, so they skip there — the local suite is quietly weaker than a green `pytest -q` suggests. Not a repo defect and not worth its own entry; recorded because "a gate that does not run" is exactly what C-46 is open for, and the CI decision should cover both. |
 | Tier | 3 |

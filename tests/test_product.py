@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import CONSUMER_REPO, PARTNER_PACKAGES, SIBLING_ENV, require_sibling
+from tests.conftest import CONSUMER_REPO, PARTNER_PACKAGES, SIBLINGS, require_sibling
 
 #: partner -> the document name its consumer filters on, DECLARED here rather than
 #: read back from the module under test.
@@ -170,9 +170,9 @@ def test_every_partner_has_a_declared_consumer_repository():
         f"{sorted(set(PARTNER_PACKAGES) - set(CONSUMER_REPO))}. Without one, that "
         "partner's consumer-name pin is never checked against the consumer."
     )
-    undeclared = sorted(r for r in CONSUMER_REPO.values() if r not in SIBLING_ENV)
+    undeclared = sorted(r for r in CONSUMER_REPO.values() if r not in SIBLINGS)
     assert not undeclared, (
-        f"consumer repositories with no SIBLING_ENV entry: {undeclared}. "
+        f"consumer repositories with no SIBLINGS entry: {undeclared}. "
         "require_sibling() raises KeyError rather than skipping for those, so the "
         "check would fail confusingly instead of skipping cleanly."
     )

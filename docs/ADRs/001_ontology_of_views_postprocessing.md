@@ -3,7 +3,7 @@
 
 **Status:** Superseded by [ADR-012](012_revised_ontology.md) (2026-06-27)  
 **Date:** 2026-06-02  
-**Deciders:** Project maintainers (PRIO MD&D Team)  
+**Decider:** Simon Polichinel von der Maase  
 
 ---
 
