@@ -266,12 +266,32 @@ def _g7_siblings_are_taken_from_main(
     ]
 
 
+#: How far ahead of "today" a check date may sit before it is an error rather than a
+#: clock difference. See `_g8_the_visibility_fact_carries_a_usable_date`.
+_CLOCK_SKEW = dt.timedelta(days=1)
+
+
 def _g8_the_visibility_fact_carries_a_usable_date(
     workflow: dict, siblings: dict[str, Sibling]
 ) -> list[str]:
-    """``public_checked`` parses, and is not in the future."""
+    """``public_checked`` parses, and is not meaningfully in the future.
+
+    **One day of slack, and it is not laziness — this rule failed CI on its first run.**
+    The dates were stamped from a maintainer's machine in CEST at 01:25 on 2026-08-10;
+    the runner was in UTC, where it was still 23:25 on 2026-08-09. A date recorded
+    truthfully today read as tomorrow two hours away, and the guard called it a lie.
+
+    "Today" is not a fact a date alone determines — it depends on where the reader is —
+    so comparing a bare ISO date against `date.today()` is comparing two different
+    questions. A full day of tolerance covers every real timezone offset, and a date more
+    than a day ahead is still what this rule is for: a fact nobody actually checked.
+
+    Recorded here rather than fixed silently, because the alternative repair a hurried
+    reader would reach for is deleting the rule (ADR-014 §3: when a guard cries wolf,
+    check the matching before the scope).
+    """
     problems = []
-    today = dt.date.today()
+    horizon = dt.date.today() + _CLOCK_SKEW
     for name, sibling in siblings.items():
         try:
             checked = dt.date.fromisoformat(sibling.public_checked)
@@ -281,9 +301,10 @@ def _g8_the_visibility_fact_carries_a_usable_date(
                 "A fact with an unreadable date is a fact with no date."
             )
             continue
-        if checked > today:
+        if checked > horizon:
             problems.append(
-                f"{name}: public_checked={sibling.public_checked} is in the future."
+                f"{name}: public_checked={sibling.public_checked} is more than a day "
+                "ahead of today — that is not clock skew, it is a date nobody checked."
             )
     return problems
 
@@ -440,7 +461,7 @@ _MUTANTS = [
          "takes a branch that is not the authority"),
         ("G8 the visibility fact carries a usable date",
          _workflow(), _replace("views-appwrite", public_checked="2099-01-01"),
-         "the fact was checked in the future"),
+         "the fact was checked far in the future"),
         ("G8 the visibility fact carries a usable date",
          _workflow(), _replace("views-appwrite", public_checked="last tuesday"),
          "unparseable date"),
@@ -509,3 +530,23 @@ def test_the_repos_own_checkout_is_not_mistaken_for_a_sibling():
     own_checkout_only = {"jobs": {"test": {"steps": [{"uses": "actions/checkout@v3"}]}}}
     assert not _g2_every_checkout_is_declared(own_checkout_only, SIBLINGS)
     assert not _sibling_steps(own_checkout_only)
+
+
+def test_g8_tolerates_a_timezone_but_not_a_fiction():
+    """The boundary either side of `_CLOCK_SKEW`, pinned.
+
+    A rule with a tolerance needs its tolerance tested, or the number drifts into being
+    whatever made the last failure go away. Tomorrow is a clock difference; the day after
+    is a claim about a check that has not happened.
+    """
+    today = dt.date.today()
+    for offset, should_object in ((0, False), (1, False), (2, True), (400, True)):
+        siblings = _replace(
+            "views-appwrite",
+            public_checked=(today + dt.timedelta(days=offset)).isoformat(),
+        )
+        violations = _g8_the_visibility_fact_carries_a_usable_date(_workflow(), siblings)
+        assert bool(violations) is should_object, (
+            f"a check date {offset} day(s) ahead of today: expected "
+            f"{'an objection' if should_object else 'no objection'}, got {violations}"
+        )
