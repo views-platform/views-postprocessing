@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-07-15
-**Deciders:** Project maintainer (PRIO MD&D Team) — explicit sign-off, views-models#149
+**Decider:** Simon Polichinel von der Maase — explicit sign-off, views-models#149
 **Supersedes:** the "platform ADR-046" that platform issues cited as the format authority — no such *format* document ever existed (a pipeline-core ADR-046 exists but covers storage infrastructure only; see Erratum E2 in the Post-adoption record) — and the v1 proposal comment on views-models#149 (2026-07-02).
 
 ---

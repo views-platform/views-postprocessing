@@ -2,7 +2,7 @@
 
 **Status:** Accepted — amended 2026-06-27 (see [Amendment](#amendment-2026-06-27))  
 **Date:** 2026-06-02  
-**Deciders:** Project maintainers (PRIO MD&D Team)  
+**Decider:** Simon Polichinel von der Maase  
 
 ---
 

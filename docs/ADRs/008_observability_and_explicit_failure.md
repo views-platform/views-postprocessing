@@ -3,7 +3,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-06-02  
-**Deciders:** Project maintainers (PRIO MD&D Team)  
+**Decider:** Simon Polichinel von der Maase  
 
 ---
 

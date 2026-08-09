@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-08-02
-**Deciders:** Project maintainers (PRIO MD&D Team)
+**Decider:** Simon Polichinel von der Maase
 **Arises from:** epic [#181](https://github.com/views-platform/views-postprocessing/issues/181)
 **Related:** [ADR-003](003_authority_of_declarations_over_inference.md) (declarations over
 inference), [ADR-005](005_testing_as_mandatory_critical_infrastructure.md) (testing as

@@ -4,6 +4,12 @@
 This repository uses Architectural Decision Records (ADRs) to govern
 structural, semantic, and operational behavior.
 
+> **On the `Deciders` field (2026-08-10).** ADRs 000–015 originally recorded
+> *"Project maintainers (PRIO MD&D Team)"*. That team no longer exists, and a decider
+> field naming a body that cannot be asked anything is worse than useless to a future
+> reader. All of them now name the sole decider, Simon Polichinel von der Maase.
+> ADR-013's line keeps its original sign-off reference alongside the name.
+
 ADRs are divided into two categories:
 
 1. **Constitutional ADRs (000–009)**  
@@ -87,6 +93,16 @@ These ADRs form the architectural constitution of the repository.
   `_ContractStorePort` DIP port, a framework-contract test), and the two-part condition —
   demand and supply — under which it is revisited. Arises from #146 and the þing-02
   ratification, which asked that the reasoning live here rather than in an issue.
+
+- **ADR-016** — Cross-Repository Checks in CI, and How Siblings Declare Their Visibility
+  A handful of tests here verify claims this repo makes about *other* repos — chiefly that the
+  coordinate-registry edition we pinned is the one that exists. They need the sibling on disk,
+  so they skipped in CI and ran only on a laptop. Each sibling is now declared with its
+  visibility, the date that was checked, and whether CI fetches it; a test fails when the
+  workflow and the declaration disagree either way. Written after the workflow's comment
+  asserted a repository was private for two days after it went public — which is the argument
+  for a dated declaration rather than prose. The credential for the one genuinely private
+  sibling is deferred with a named trigger.
 
 ADRs numbered 010 and above define:
 

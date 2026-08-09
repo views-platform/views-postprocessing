@@ -2,7 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-06-27  
-**Deciders:** Project maintainers (PRIO MD&D Team)  
+**Decider:** Simon Polichinel von der Maase  
 **Supersedes:** [ADR-001](001_ontology_of_views_postprocessing.md)
 
 ---

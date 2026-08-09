@@ -4,7 +4,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-06-02  
-**Deciders:** Project maintainers (PRIO MD&D Team)  
+**Decider:** Simon Polichinel von der Maase  
 **Consulted:** FAO-FSFC (via Pre-release Note 02 and Release Note 02 confirmation)  
 **Informed:** All contributors, UN FAO operational team  
 

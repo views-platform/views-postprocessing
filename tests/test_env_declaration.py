@@ -720,10 +720,14 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     # sibling repositories out into the workspace, and their documents are not this
     # repo's to police; an rglob would scan them and fail on someone else's prose.
     #
-    # **This half cannot run in CI**, and that is worth stating rather than discovering.
-    # The registry values come from the views-appwrite checkout, which is private and
-    # deliberately not checked out — so the whole test skips there. It guards a
-    # maintainer's commit, not the merge. Closing that is C-81's token decision.
+    # **This half runs in CI as of 2026-08-10** (ADR-016), and the change is worth
+    # noting because it inverts what this comment said for weeks. The registry values
+    # come from the views-appwrite checkout, which was private and deliberately absent —
+    # so the whole test skipped there, guarding a maintainer's commit but not the merge.
+    # views-appwrite went public on 2026-08-08 and CI now checks it out, so this scan
+    # runs on every pull request. It is the one test here whose CI behaviour went from
+    # "skip" to "runs a security-adjacent scan", and it is worth having: README.md
+    # carried four real coordinate values once already.
     tracked = subprocess.run(
         ["git", "-C", str(_REPO), "ls-files", "-z", "*.md"],
         capture_output=True, text=True, check=False, timeout=30,
