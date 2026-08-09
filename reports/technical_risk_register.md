@@ -531,7 +531,7 @@ Cross-refs: **C-46** and **C-57** (both RESOLVED; this is the residual each reco
 
 The coverage half rested on a claim nobody could check. This entry, and the workflow comment it drew on, said `views-appwrite` was **private**, so its seven checks needed a credential. It went public on **2026-08-08** (`views-appwrite@9d80b75`, a deliberate and recorded act), and the claim here went on being made for two days afterwards. No credential was required, and none had been the obstacle since that date.
 
-CI now checks that repository out and those seven run on every pull request — including both registry-drift detectors, which is what this entry called *"the most valuable of the lot"*. One test also changes character rather than merely un-skipping: the scan refusing registry **values** in this public repository's markdown now runs on the merge rather than only on a maintainer's machine.
+CI now checks that repository out and those seven run on every pull request — including both registry-drift detectors, which is what this entry called *"the most valuable of the lot"*. **Measured on the merge run, not derived:** CI went from 16 skips to **9** (`398 passed / 9 skipped / 38 xfailed`, PR #229), the remainder being 8 views-datafactory and 1 views-faoapi. One test also changes character rather than merely un-skipping: the scan refusing registry **values** in this public repository's markdown now runs on the merge rather than only on a maintainer's machine.
 
 **What remains, and it is two different things:**
 
