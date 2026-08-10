@@ -1,6 +1,6 @@
 # ADR-017: Facts shared with a repository we cannot read
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-10
 **Decider:** Simon Polichinel von der Maase
 **Scope:** what this repository does when it depends on a fact held in a repository it
@@ -104,6 +104,12 @@ Concretely, for the delivery label:
    is required, so the check runs in CI on the change that could break it.
 3. **The consuming API checks its own code against the same declaration.** It needs no
    access to us either — this repository is public — so that half is free for it too.
+
+**None of those three is in place yet**, and the present tense above describes the decided
+end state rather than today's behaviour. Today the check still reads the consumer's source
+and still skips in CI. The order the three land in, and what is blocked on what, is
+Appendix B. Said here because a decision record that reads as a description of the code is
+how this repository has repeatedly ended up believing work was done.
 
 **"But you rejected copying."** [ADR-016](016_ci_read_access_to_private_siblings.md) turns
 down keeping a local copy of the shared registry, on the grounds that a test reading a copy

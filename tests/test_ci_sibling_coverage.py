@@ -253,7 +253,7 @@ def test_the_workflow_this_file_scans_actually_parses():
     """A YAML restructure would empty every scan below and report success.
 
     This is by far the most likely way this file becomes decoration: rename the job, nest
-    `steps` differently, move the workflow, and eight rules find nothing to complain
+    `steps` differently, move the workflow, and every rule below finds nothing to complain
     about. So assert there is something to scan before trusting that there was nothing
     wrong.
     """

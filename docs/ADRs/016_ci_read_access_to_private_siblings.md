@@ -5,9 +5,7 @@
 **Decider:** Simon Polichinel von der Maase
 **Scope:** repositories CI **can** download — that is, public ones. What to do when a
 repository **cannot** be downloaded is a different decision, taken in
-[ADR-017](017_facts_across_a_private_boundary.md) — **which is Proposed, not yet accepted.**
-Nothing below depends on that proposal being adopted: if it is rejected, the private case
-returns here as an open question, and the only thing this document loses is a pointer.
+[ADR-017](017_facts_across_a_private_boundary.md) and accepted alongside this one.
 **Related:** [ADR-014](014_claims_and_the_guards_that_carry_them.md) §2 (a guard nobody has
 watched fail is decoration) and §4 (a deferral names a trigger and an owner)
 
@@ -111,9 +109,10 @@ to prove it objects. A rule only ever tried against a correct file is a rule nob
 watched fail.
 
 **One of these downloads is temporary, and it is worth knowing which.** `views-crafdapi` is
-fetched for exactly one test. [ADR-017](017_facts_across_a_private_boundary.md) §7 proposes
-replacing that test with one that reads a public declaration instead — at which point this
-download would buy nothing and should go. That is a decision this document cannot make on its own, which
+fetched for exactly one test. [ADR-017](017_facts_across_a_private_boundary.md) §7 replaces
+that test with one that reads a public declaration instead — at which point this download
+buys nothing and goes. That has been decided and is not yet done; it waits on the
+declaration landing in the registry. That is a decision this document cannot make on its own, which
 is why it is recorded there and cross-referenced here.
 
 ### §6 A repository CI expects but cannot find turns the build red
@@ -158,10 +157,12 @@ not run here.
 
 **No credential is issued to work around that**, and that is a decision rather than an
 omission. Where that question *is* decided is
-[ADR-017](017_facts_across_a_private_boundary.md), currently proposed: it argues the fact
-should be declared somewhere public that both sides can read, so that neither needs access
-to the other. Should that proposal not be adopted, the position here reverts to a stated
-gap with a named owner — never a check that appears to cover it and does not.
+[ADR-017](017_facts_across_a_private_boundary.md): the fact gets declared somewhere public
+that both sides can read, so that neither needs access to the other.
+
+**That decision is accepted but not yet implemented** — it depends on a declaration being
+added to the platform registry, which is another repository's work. Until then the affected
+check runs on a maintainer's machine and not in CI, and the sibling's `note` says so.
 
 Until that declaration exists, the affected check runs on a maintainer's machine and not
 in CI. That is stated in the sibling's `note`, which rule G4 requires and which must name
