@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-10                           |
-| Total Concerns    | 85                                   |
-| Open Concerns     | 12                                   |
+| Total Concerns    | 87                                   |
+| Open Concerns     | 14                                   |
 | Resolved Concerns | 73                                   |
 
 ---
@@ -160,6 +160,54 @@ that indexes only deleted code is noise.
 ---
 
 ## Open Concerns
+
+### C-86: The release path now depends on two other repositories, and there is no way past a red build
+
+| Field | Value |
+|-------|-------|
+| ID | C-86 |
+| Tier | 2 — no wrong data ships and nothing is silent. What is at risk is the ability to *ship at all* on a day when someone else's repository has moved, on the path that is this project's production release. Latent today, live the moment a status check becomes required. |
+| Source | External review of ADR-016 by the views-appwrite and views-faoapi seats (#231, #233), 2026-08-10 |
+| Trigger | **Two, and the first is the one to watch.** (a) A status check becomes required on `main` — at that moment this stops being latent. (b) An upstream merge to a sibling's `main` reddens this repository while a delivery fix is waiting. |
+| Owner | Simon. Both available responses are console actions: add a bypass actor to `protect_main`, or accept the coupling as written. |
+| Location | `.github/workflows/run_pytest.yml` — the two sibling checkout steps; ADR-016 §7, §7a, §7b. |
+
+ADR-016 has CI check out `views-appwrite` and `views-crafdapi` so that cross-repository checks run on every change rather than on a maintainer's habits. That is the right trade and the entry does not dispute it. What it records is the cost, which was accepted in the ADR on a justification that turned out to be false.
+
+**The false justification.** ADR-016 §7 originally said the maintainer could merge over a failing check when something was urgent. Two reviewers challenged it independently. Measured 2026-08-10: `protect_main` lists **zero bypass actors**, and a GitHub ruleset applies to everyone except the actors it names — so administrator status confers no exemption. There is no classic branch protection either, so no `enforce_admins` route. The claim is withdrawn in the ADR; the risk it papered over is this entry.
+
+**Why this is latent rather than live.** `protect_main` currently requires **no status check at all** (C-81's enforcement half). So today a red build blocks nothing and this coupling costs nothing. The instant a required check is added — which C-81 asks for, correctly — the coupling becomes real and unbypassable in the same change. **Two open items that each look independently sensible combine into something neither of them says.**
+
+**The rate is not hypothetical.** views-appwrite reports five registry editions in four days (v1.4.0 2026-08-02 through v1.4.4 2026-08-05), **four of them observation-driven** — recording console facts, correcting a key's scopes — carrying no obligation for any consumer. Each would have reddened this repository and blocked a release.
+
+**What would resolve it, in order of preference:** views-appwrite#76 makes the obligation-carrying distinction machine-readable, so observation-only bumps stop firing the check at all — filed, and that seat volunteered it. Failing that, a bypass actor restores the escape. Failing both, the coupling stands as ADR-016 §7 describes, which is defensible but should be chosen rather than discovered.
+
+Cross-refs: **C-81** (the enforcement half, whose fix activates this), **C-46** (whose recommendation against per-PR sibling checkouts this overrode, with the reasoning recorded there), ADR-016 §7/§7a/§7b, views-appwrite#76.
+
+---
+
+### C-87: The delivery label will be checked against a declaration, and nothing will check the declaration against the consumer
+
+| Field | Value |
+|-------|-------|
+| ID | C-87 |
+| Tier | 2 — the failure mode is invisible by construction. The upload succeeds, the storage is paid for, the consumer's endpoint returns empty, and nothing anywhere raises. That is the shape ADR-013 §4.1a calls *"invisible to the consumer, not merely degraded"*. |
+| Source | ADR-017 §8, sharpened by external review (#232, #234), 2026-08-10 |
+| Trigger | **Either half going missing.** (a) `views-faoapi#379` or `views-crafdapi#39` is closed without the check being written. (b) A private API operated by a **third party** becomes a consumer — at which point the second half cannot be required at all and this becomes permanent. |
+| Owner | The consumer-side seats own the check; this repository owns noticing that it exists. |
+| Location | `views_postprocessing/<partner>/product.py::CONSUMER_DOCUMENT_NAME`; the check in `tests/test_product.py`; ADR-017 §5, §8, Appendix B. |
+
+ADR-017 decides that the delivery label is declared in the public coordinate registry and that each side verifies **itself** against that declaration, so neither repository reads the other's source. That is the right rule and this entry does not dispute it.
+
+Its residual is stated plainly in §8 and belongs here rather than only in a document: **we will verify our copy against the declaration, not the consumer's code against it.** If a consumer quietly starts filtering on something else, our check passes and the delivery is invisible exactly as before.
+
+**Why this is a risk and not merely a note.** The second half is real work in repositories this project does not control. `views-faoapi#379` has a willing owner. `views-crafdapi#39` is blocked on that partner's data contract and could sit for a long time. Until both land, the label's agreement with reality rests on the source-reading check — which ADR-017's sequencing deliberately keeps alive for exactly this reason, and which someone could remove believing the registry check replaced it.
+
+**What was already prevented.** A reviewer caught that the obvious sequence created a window where the source-reading check was deleted before the consumer-side check existed, leaving a green build proving only that two values this platform authored agreed with each other. ADR-017 now forbids that ordering. This entry exists so the ordering constraint has a home outside the document that states it.
+
+Cross-refs: **C-77** (the same field's producer-side half, resolved), ADR-013 §4.1a, ADR-017 §5/§8/Appendix B, views-appwrite#75, views-faoapi#379, views-crafdapi#39.
+
+---
 
 ### C-85: A cross-repo ask is adopted on its stated terms without anyone measuring the current state
 
@@ -537,6 +585,8 @@ CI now checks that repository out and those seven run on every pull request — 
 
 1. **One dark check.** `views-faoapi` is genuinely private — the consumer-name pin is still laptop-only. That is one test, not seven, and it is the one whose failure mode is invisible rather than loud. ADR-016 §8 defers the credential and names the trigger: FAO declining the request to make that repository public, or a second private sibling appearing.
 2. **The enforcement half is entirely untouched.** `protect_main`'s ref-name include-list was empty; it now targets the default branch, but **no status check is required**, so a pull request with a red CI can still be merged to `main`. Since merging to `main` *is* the production release, this is the half that matters most and the half that has not moved.
+
+**And it no longer stands alone — read C-86 before closing this.** Measured 2026-08-10: `protect_main` also lists **zero bypass actors**, so once a status check *is* required, nobody can merge past it, administrator or otherwise. Meanwhile ADR-016 made this repository's CI depend on two other repositories. Adding the required check therefore does two things at once: it closes this entry, and it makes an unbypassable external dependency live on the release path. Both are defensible; doing them in one unremarked step is not. If the escape is wanted, a bypass actor is the same console session.
 
 **The lesson this entry should carry.** The blocker was not a missing credential. It was a fact about another repository recorded in prose, with no date, that nothing could check — and it survived a console session, an ADR draft and a register entry, all of which repeated it. ADR-016 replaces the prose with a declaration carrying the date it was verified, and a test that fails when CI and the declaration disagree.
 
