@@ -99,14 +99,47 @@ must decide for the category, not for today's instance.
 Concretely, for the delivery label:
 
 1. The value is declared once, in the platform's public coordinate registry
-   (`views-appwrite`, `docs/ADRs/platform/coordinate_registry.toml`).
+   (`views-appwrite`, `docs/ADRs/platform/coordinate_registry.toml`) — **subject to
+   views-appwrite accepting the registry as the home; the request is views-appwrite#75.**
+   A store-document name is a contract fact rather than a coordinate, so admitting it
+   widens that registry's charter, and that is not this repository's call to make. (That
+   seat has since reviewed this document and agreed to implement it. The wording stands
+   anyway: the decision should rest on its own reasoning, not on assent presumed in
+   advance.)
 2. **This repository checks its copy against that declaration.** No access to the consumer
    is required, so the check runs in CI on the change that could break it.
 3. **The consuming API checks its own code against the same declaration.** It needs no
-   access to us either — this repository is public — so that half is free for it too.
+   access to us either — **because the registry is public**, not because this repository
+   is. The consumer never reads us at all, which is the symmetry the rule is really about:
+   neither side reads the other; both read a public third place.
+
+### The order these land in is part of the decision, not an afterthought
 
 **None of those three is in place yet**, and the present tense above describes the decided
-end state rather than today's behaviour. Today the check still reads the consumer's source
+end state rather than today's behaviour.
+
+**The obvious sequence has a hole, and it is green.** If step 1 lands, then step 2 replaces
+the source-reading check with a registry read, and step 3 has not happened yet, the state
+is: the registry declares a string a human typed; we check our copy against that string and
+pass; the consumer checks nothing; and the check that *did* consult the consumer's real
+source has been deleted. The build is green and what it proves is that **two values this
+platform authored agree with each other.** That is strictly weaker than today, and it is
+precisely the objection ADR-016 raises against copies — during that window the registry is
+not an authority, it is a third copy, and nothing closes the loop.
+
+So the sequence is constrained: **step 2 adds the registry check but does not remove the
+source-reading one. The source-reading check is removed only when step 3 lands**, and until
+then it keeps running wherever it can — in CI for the public partner, on a maintainer's
+machine for the private one. Slightly redundant for a while, and redundancy is the correct
+price for not having a window where the only thing verifying a delivery label is our own
+typing.
+
+**One assumption worth stating rather than relying on.** The registry is versioned, so the
+two sides could in principle read it at different editions and both pass while disagreeing.
+That is not a live risk here because the label is contract-immutable — changing it is an
+amendment, which produces a new edition both sides re-pin to, and our pin's reachability is
+already checked. Recorded because an unstated assumption carrying a silent-failure mode is
+what §1 is about. Today the check still reads the consumer's source
 and still skips in CI. The order the three land in, and what is blocked on what, is
 Appendix B. Said here because a decision record that reads as a description of the code is
 how this repository has repeatedly ended up believing work was done.
@@ -190,6 +223,19 @@ otherwise would be the exact failure ADR-014 §1 exists to prevent.
   is information about the fact, not a reason to build a second surface.
 - **No abstraction over "how to reach a private repository."** There is one such
   repository, and the decision above is that we do not reach it.
+
+**Scope of the prohibition, narrowed after review.** Everything above is about **declarable
+facts** — short values that can sit in a registry row. There is a second kind of shared
+thing this rule does not reach: agreement about **behaviour**, such as whether two
+independently written readers interpret a reserved entry the same way. You cannot put a
+program's behaviour in a row, so §5's mechanism does not transfer, and a blanket "never a
+credential" would leave that case with no answer at all.
+
+The rule does extend, but one level up: **declare the semantics rather than the code** —
+state in the contract what a reader must do, and each repository tests its own reader
+against that statement. Still no repository reads another's source, and still no
+credential. That question is live elsewhere as views-models#327 / D-05, and this document is
+an argument for settling it there rather than here.
 
 ### §10 When to revisit
 
@@ -283,12 +329,30 @@ visibility can be inferred for future APIs.
 
 1. **views-appwrite** — declare the label for each partner in the coordinate registry.
    Filed as views-appwrite#75. Nothing here can proceed before it.
+
+   **The two partners are not equally ready, and the halves should land separately.** The
+   FAO label is fully specified — `un_fao`, in force, evidenced in ADR-013 §4.1a. The
+   CRAF'd label is **not a value anyone has decided yet**: that partner serves a different
+   dataset whose targets, columns and entity model are still an open data-contract question
+   on the consumer side. Bundling both into one edit stalls the ready half behind the
+   blocked one, so **the FAO row should land on its own** and the CRAF'd row should follow
+   its data contract.
 2. **views-postprocessing** — switch the check to read the registry rather than the
    consumer's source, for both partners. Ours, blocked on step 1. **In the same change**,
    stop fetching `views-crafdapi` in CI: §7 shows that fetch then serves nothing, and
    ADR-016's rules require a sibling that is not fetched to say why.
 3. **views-faoapi** — verify its own served label against the declaration; §8's other half.
-   Filed as views-faoapi#379.
+   Filed as views-faoapi#379, and the consumer-side maintainer has accepted it.
 
-Step 3 is not a precondition for steps 1 and 2, and the sequence is safe to interrupt: the
-existing check keeps running on a maintainer's machine throughout.
+4. **views-crafdapi** — the same self-check for the other partner. **Not yet filed at the
+   time of writing, and that gap matters**: §7 retires the crafdapi fetch, so without this
+   leg the CRAF'd label would end up checked against a registry row that nobody checks
+   against CRAF'd's actual code — no verification against reality at all, which is worse
+   than the status quo. §7 argues the rule must apply uniformly; uniform application means
+   uniformly filing the third leg. Sequenced after that partner's data contract settles,
+   per step 1.
+
+**Step 3 is a precondition for removing the old check**, though not for adding the new one
+— see the sequencing note in §5. The order is safe to interrupt at any point: until step 3
+lands for a partner, that partner's source-reading check stays, so no window exists in which
+the label is verified only against our own typing.
