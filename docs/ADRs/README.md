@@ -94,7 +94,7 @@ These ADRs form the architectural constitution of the repository.
   demand and supply — under which it is revisited. Arises from #146 and the þing-02
   ratification, which asked that the reasoning live here rather than in an issue.
 
-- **ADR-016** — Cross-Repository Checks in CI, and How Siblings Declare Their Visibility
+- **ADR-016** — Which Sibling Repositories CI Downloads
   A handful of tests here verify claims this repo makes about *other* repos — chiefly that the
   coordinate-registry edition we pinned is the one that exists. They need the sibling on disk,
   so they skipped in CI and ran only on a laptop. Each sibling is now declared with its
@@ -103,6 +103,16 @@ These ADRs form the architectural constitution of the repository.
   asserted a repository was private for two days after it went public — which is the argument
   for a dated declaration rather than prose. The credential for the one genuinely private
   sibling is deferred with a named trigger.
+
+- **ADR-017** — Facts Shared With a Repository We Cannot Read
+  The delivery label this repository writes is owned by the consuming API and mirrored here;
+  if the two drift the upload succeeds, the file is stored, and the consumer's endpoint is
+  empty with no error anywhere. Verifying the mirror currently means reading the consumer's
+  source, which is impossible in CI when that consumer is private — and private consumer APIs
+  are a standing category, not a one-off. Decides that such a fact is declared in the public
+  coordinate registry and each side verifies itself against it, so neither reads the other's
+  source. No credential, for any number of private APIs. States plainly the half it does not
+  cover: the consumer's own code against its own declaration.
 
 ADRs numbered 010 and above define:
 
