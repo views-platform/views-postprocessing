@@ -1,206 +1,222 @@
-# ADR-016: Cross-repository checks in CI, and how siblings declare their visibility
+# ADR-016: CI checks out the sibling repositories our tests read
 
 **Status:** Accepted
 **Date:** 2026-08-10
 **Decider:** Simon Polichinel von der Maase
-**Arises from:** register **C-46**, **C-57**, **C-81**, which all carried the same standing
-residual: the cross-repository drift detectors ran only on a maintainer's laptop
-**Related:** [ADR-003](003_authority_of_declarations_over_inference.md) (declarations over
-inference), [ADR-014](014_claims_and_the_guards_that_carry_them.md) §2 (a guard nobody has
+**Related:** [ADR-014](014_claims_and_the_guards_that_carry_them.md) §2 (a guard nobody has
 watched fail is decoration) and §4 (a deferral names a trigger and an owner)
+
+---
+
+## The decision in four sentences
+
+A few of this repository's tests read **other** repositories to check that things we say
+about them are still true. Those tests only work when the other repository is on disk, so
+they ran on a developer's laptop and skipped in CI.
+
+**CI now downloads the repositories those tests need**, and a test fails if CI stops
+downloading one that the code says it should. The single repository we cannot download —
+because it is private — is named, with the reason, and a decision about it is deferred.
 
 ---
 
 ## Context
 
-### §1 Some of this repository's tests are about other repositories
+### §1 What these tests actually do
 
-Most tests here check our own code. A few check something else: whether **claims this code
-makes about other repositories are still true**.
+Most tests here check our own code. A few check something different: whether a **claim
+this repository makes about a different repository** is still true.
 
-The clearest case is the shared Appwrite coordinate registry. Each partner's
-`appwrite_env.py` declares, in two constants, which edition of that registry it was written
-against. That is a claim about a *different repository*. A test opens that repository, reads
-the real edition, and compares.
+The clearest example. Each partner's `appwrite_env.py` says, in effect, *"we were written
+against edition 1.4.4 of the shared configuration registry."* That registry lives in
+another repository. A test opens that repository and checks the edition is still 1.4.4.
 
-This is not theoretical maintenance. On 2026-08-05 the check failed: the registry had moved
-from v1.4.1 to v1.4.4 while nobody here was looking. Two days earlier, the same family of
-checks fired **twice in one day**. A claim about another repository goes stale at *that*
-repository's pace, and nothing in this repository's own code can notice.
+This is not hypothetical housekeeping. On 2026-08-05 that test failed — the registry had
+moved to a new edition while nobody here was looking. Two days earlier, the same family of
+checks fired **twice in one day**.
 
-### §2 They only run where the other repository is on disk
+### §2 Why they were not running
 
-`tests/conftest.py::sibling_repo` resolves a sibling by a declared environment variable and
-falls back to the conventional `../<name>` directory. When neither resolves it returns
-`None` and the test **skips** — correctly, because on a laptop a missing sibling is normal.
+A test like that needs the other repository present. On a laptop all the platform
+repositories sit in one folder, so it runs. A GitHub Actions job gets **one** repository,
+so it skipped.
 
-A GitHub Actions job gets a checkout of **one** repository. So in CI they skipped, and
-**continuous integration verified strictly less than a laptop did, precisely on the checks
-that cross a repository boundary**.
+The result: **CI verified less than a laptop did, exactly on the checks that span two
+repositories** — the ones no single repository can replace.
 
-### §3 Why they stayed dark, which is the more interesting failure
+### §3 Why nobody noticed for so long
 
-Four siblings, and until now the decision about which ones CI could fetch lived in a
-**comment** in the workflow file. That comment said `views-appwrite` was private.
+Which repositories CI could download was recorded in a **comment** in the workflow file.
+That comment said `views-appwrite` was private, so its seven checks were assumed to need
+an access credential nobody had issued.
 
-It is not. It was made public on **2026-08-08** — a deliberate, recorded act in that
-repository (`views-appwrite@9d80b75`, *"docs: record going public"*). The comment did not
-change with it, so seven checks went on skipping in CI for no reason whatsoever.
+It had gone public on **2026-08-08**. The comment had not changed with it. Seven checks
+stayed switched off for no reason at all, and the first draft of this very document
+proposed issuing a credential to reach them — written one day after the thing that
+justified it stopped being true.
 
-The first draft of this very document, written on 2026-08-09, proposed issuing a credential
-to reach those seven — **one day after the fact that justified it had ceased to be true**.
-That is not an embarrassing footnote to the decision below; it *is* the argument for it. A
-fact about another repository, recorded in prose, with no date and nothing able to check it,
-will be wrong and nobody will find out.
+**That is the whole lesson.** A fact about another repository, written in prose, with
+nothing able to check it, will eventually be wrong and nobody will find out.
 
 ---
 
 ## Decision
 
-### §4 Every sibling is declared, and the declaration separates fact from decision
+### §4 The list of siblings is code, not a comment
 
-`tests/conftest.py` declares each sibling repository with four fields:
+`tests/conftest.py` holds one entry per sibling repository, and each entry says:
 
-| field | kind | meaning |
+- **`env`** — the environment variable that overrides where to find it;
+- **`ci_checkout`** — whether CI downloads it;
+- **`note`** — why not, when the answer is no.
+
+That is all. It replaces a comment with something a test can read.
+
+### §5 CI downloads exactly what that list says, and a test enforces it
+
+The workflow downloads every sibling marked `ci_checkout=True`.
+`tests/test_ci_sibling_coverage.py` fails if the workflow and the list disagree — in
+either direction: a repository the list expects and CI does not fetch, or one CI fetches
+that the list never mentions.
+
+Six rules, and each exists because of something that has actually gone wrong:
+
+| | rule | the incident behind it |
 |---|---|---|
-| `env` | declaration | the environment variable that overrides its location |
-| `public` | **fact** | its visibility on GitHub — not ours to decide |
-| `public_checked` | **fact** | the ISO date that visibility was last verified |
-| `ci_checkout` | **decision** | whether CI fetches it |
-| `note` | reasoning | why not, required whenever `ci_checkout` is false |
+| G1 | a listed repository is downloaded, and the tests are pointed at it | the tests looked in the wrong place and skipped silently |
+| G2 | anything CI downloads appears in the list | the list is the thing people read; CI is not |
+| G4 | a repository we skip says why, naming a record | silent non-coverage reads as "nothing to see here" |
+| G5 | a download step may not be marked "ignore failures" | one setting and a failed download stops failing the build |
+| G6 | downloads land in `_siblings/` | a sibling put elsewhere made the linter report 745 errors in someone else's code |
+| G7 | download the sibling's `main` branch | without it you get *their* default branch — which for `views-appwrite` is `development`, not `main` |
 
-Separating `public` from `ci_checkout` is the point. One is a fact about the world, the
-other is a choice we make; §3 is what happens when a single sentence tries to be both. And
-`public_checked` is not decoration — every measured claim in this repository carries a date,
-and a bare boolean is a fact with no expiry.
+Each rule is a plain function, so each is also run against a deliberately broken example
+to prove it objects. A rule only ever tried against a correct file is a rule nobody has
+watched fail.
 
-### §5 CI fetches exactly what the declaration says, and a test enforces the agreement
+### §6 A repository CI expects but cannot find turns the build red
 
-`.github/workflows/run_pytest.yml` checks out every sibling declared `ci_checkout=True`, into
-`_siblings/`, pointed at by the declared environment variable.
+Skipping is right on a laptop, where a missing sibling is normal. It is wrong in CI once
+we have said the repository should be there — a silent skip puts us back in §2 while
+looking fixed. So CI names the repositories explicitly, and a missing one is a failure.
 
-`tests/test_ci_sibling_coverage.py` fails when the workflow and the declaration disagree **in
-either direction** — a declared checkout that is missing, or a checkout nobody declared. Each
-rule is a pure function of `(workflow, siblings)` so it can be run against a synthetic broken
-world; a rule that can only be demonstrated by editing CI is one nobody ever watches fail.
+That guard existed already
+(`tests/test_env_declaration.py::test_no_sibling_override_points_at_a_missing_path`) and
+had a hole, closed here: it treated a variable set to an **empty string** as unset, which
+is exactly what a mis-typed CI setting produces. So the likeliest misconfiguration was the
+one case it could not see.
 
-Today that means `views-appwrite` and `views-crafdapi` are fetched. `views-datafactory` is
-public but is **not** fetched: its checks need raw GAUL parquet files that are not in its git
-repository, so checking it out replaces an honest skip with a crash — measured, tried and
-reverted. `views-faoapi` is the one genuinely private sibling.
+### §7 A broken sibling can block merging here, and that is accepted
 
-### §6 A missing sibling that CI declared must turn the build red
+This is the real cost, and it should not be buried. CI now depends on two other
+repositories. If one of them changes in a way that fails a check — say the configuration
+registry moves again — **this repository's builds go red and merges are blocked until
+someone updates the pin.** Since merging to `main` here *is* the release to FAO, that
+matters.
 
-Skipping is right on a laptop and wrong in CI once we have declared the repository should be
-there. If a checkout silently fails, the checks skip, the build stays green, and we are back
-to §2's blindness while looking fixed.
+It is accepted for three reasons:
 
-The mechanism already existed:
-`tests/test_env_declaration.py::test_no_sibling_override_points_at_a_missing_path` fails when
-a declared variable is set but resolves to nothing. Because the workflow sets those variables
-unconditionally, a failed checkout is a **red build**. Naming it here so nobody deletes it
-believing it to be tidiness.
+1. The problem being fixed was that these checks were **invisible**. A check that reports
+   but cannot block is invisible again, just more politely.
+2. A red build in that situation is *correct*. It says "re-pin before you ship", and the
+   fix is minutes.
+3. There is an escape. The maintainer administers this repository and can merge over a
+   failing check when something genuinely urgent is blocked.
 
-That guard had a hole, closed in the same change: it treated a variable set to the **empty
-string** as unset, which is exactly what a YAML interpolation resolving to nothing produces —
-so the likeliest CI misconfiguration was the one case it could not see. (`Path("").exists()`
-is `True`, so the obvious fix makes it worse.)
+This overrides an earlier recommendation in the risk register (**C-46**) not to couple
+per-PR CI to another repository. That recommendation's stated objection was coupling to
+another repository's *default branch*, which G7 removes. The remaining coupling is real,
+and is the trade above.
 
-### §7 `public` is verified by CI doing it, not by a test — and two rules keep that true
+### §8 One repository stays out, and the decision about it is deferred
 
-No test in this suite touches the network. That is a deliberate convention, not an oversight:
-what these tests locate is a working copy on disk.
+`views-faoapi` is private. Downloading it needs a credential, and that is **not** done
+here.
 
-So `public` is verified by **the checkout itself**. The default `GITHUB_TOKEN` is scoped to
-this repository, so a tokenless fetch of a sibling declared public *fails the build* if it is
-actually private.
-
-Two rules exist solely to keep that argument load-bearing, and both look like fussiness until
-you see what they protect:
-
-- a checkout of a **public** sibling must **not** pass a credential — add one to dodge a rate
-  limit and the field silently becomes an unchecked claim;
-- no sibling checkout may carry `continue-on-error` — one key and a failed fetch stops
-  failing the build.
-
-**The reverse case is not detected.** A private sibling that quietly becomes public will go on
-being declared private, and nobody here will notice. That is stated rather than papered over;
-it costs a stale `note` and an unnecessary skip, not a wrong result.
-
-### §8 The credential for the one private sibling is deferred
-
-`views-faoapi` is private, and reaching it needs a credential. That is **not** done here.
-
-The cost/benefit is thin: it is **one** test. It is, admittedly, the most valuable single one
-— it checks that our delivery is filed under the name the consumer actually filters for, and
-that failure produces *no error anywhere*: the upload succeeds, storage is paid for, and the
-consumer's endpoint is simply empty. But one test does not justify a credential tied to one
-person, with an expiry somebody must track, while a better answer is pending.
+It buys **one** test. That one is admittedly the most valuable of the set — it checks our
+delivery is filed under the name the consumer looks for, and when that is wrong nothing
+raises an error anywhere: the upload succeeds, storage is paid for, and the consumer's
+endpoint is simply empty. But one test does not justify a credential tied to one person,
+with an expiry someone must remember, while a better answer is pending.
 
 **The better answer being pursued:** asking FAO to consent to that repository being made
-public, which removes the need entirely. An audit of its full history found no credentials of
-any kind and no partner staff email addresses; it already carries an MIT licence. Two items
-remain open — internal storage identifiers appear in 21 tracked files, and whether GAUL 2024's
-terms permit redistribution.
+public, which removes the need entirely. Its full history has been examined — no
+credentials of any kind, no partner staff email addresses, and an MIT licence already in
+place. Two items remain open: internal storage identifiers appear in about twenty files,
+and whether the GAUL 2024 boundary data included there may be redistributed.
 
-**Named trigger (ADR-014 §4).** Issue the credential when **either**: FAO declines, or a
-**second** private sibling appears. **Owner:** the maintainer. Should it ever be issued, the
-scope floor is one repository, read-only, with a deliberately chosen expiry — the default of
-30 days would put this repository back in the dark within a month, with a green build
-throughout.
+**Trigger for revisiting (ADR-014 §4):** issue the credential if FAO declines, or if a
+**second** private sibling appears. **Owner:** the maintainer.
 
 ---
 
 ## Consequences
 
-**What this buys.** Seven cross-repository checks move from *"run when a maintainer happens to
-run them"* to *"run on every change"*. Two of them fired in anger in the week before this was
-written. One test also changes character: the scan refusing registry **values** in this public
-repository's markdown now runs on every pull request rather than only on a maintainer's
-machine — worth having, since README.md carried four such values once already.
+**What this buys.** Seven cross-repository checks move from *"run when someone happens to
+run them"* to *"run on every change"*. Two of them fired in earnest the week this was
+written. Separately, the scan that refuses configuration **values** in this public
+repository's documentation now runs on every pull request rather than only on a
+maintainer's machine — worth having, since the README carried four such values once.
 
-**What it costs.** CI now depends on two other repositories being fetchable, so an outage or a
-visibility change there turns this repository's build red. That is the intended trade: a red
-build is the honest signal, and §6 exists to make sure it is what happens.
+**What it costs.** §7: another repository can block merging here. And the list of siblings
+is now something a contributor must keep in step with the workflow, enforced by tests they
+may not have read.
 
-**Where this will go wrong first.** Somebody debugging a red CI adds `continue-on-error` to a
-sibling checkout, or a `token:` to make a rate limit go away. Either quietly dismantles §7.
-Both are rules in `test_ci_sibling_coverage.py` for that reason.
+**Where this will go wrong first.** Someone debugging a red build marks a download step
+"ignore failures", or moves it out of `_siblings/`. Both are rules for that reason.
 
-**Second most likely.** A sibling checkout is added to a different workflow file and escapes a
-rule scoped to `run_pytest.yml`. The declaration check scans every workflow, not one.
+---
+
+## What was tried and removed
+
+An earlier version of this design also recorded, for each sibling, whether it was
+**public** and the date that was last checked — with a rule pairing visibility against
+whether the download used a credential.
+
+A review found the pair circular. The `public` field was read by exactly one rule, and
+that rule existed to protect the `public` field's verifiability. Nothing else consulted
+either. Both were deleted on 2026-08-10 and no behaviour changed. The date field was worse
+than useless: nothing could confirm the check had happened, so it manufactured confidence
+rather than recording a fact.
+
+Visibility now lives in a sibling's `note` — prose, where it belongs, because no test here
+can verify it in any case. What still holds without the flag is simpler and needs no
+field: a repository CI cannot read fails to download, and G5 keeps that failure loud.
+
+Recorded because the removed design is more tempting than it looks, and because this
+document once argued for it.
 
 ---
 
 ## Alternatives considered
 
-**Leave it, and rely on running the suite by hand.** The status quo, and what registers C-46
-and C-57 carried as an open residual for weeks. It works exactly as well as one person's
-habits, which is not a property a safety check should have.
+**Leave it and rely on running the suite by hand.** The status quo for weeks. It works
+exactly as well as one person's habits, which is not a property a safety check should have.
 
-**Vendor the facts instead of reading them.** Copy the registry edition into this repository
-and check the copy. Rejected outright: copies of that registry were the platform's original
-failure, and the standing rule is that it is referenced by pinned URL and never copied. A test
-reading a local copy compares a thing to itself.
+**Copy the facts here instead of reading them.** Rejected outright: copies of that
+configuration registry were the platform's original failure, and the standing rule is that
+it is referenced and never copied. A test reading a local copy compares a thing to itself.
 
-**Check `public` against the GitHub API from a test.** Rejected. It would be the only network
-call in the suite, would need a credential to answer for private repositories — the very thing
-under discussion — and would be flaky in exactly the conditions where a green build matters.
-Verification-by-doing (§7) is weaker but honest, and its limits are written down.
+**Ask GitHub whether a repository is public, from a test.** Rejected. It would be the only
+network call in the suite, would need a credential to answer for private repositories —
+the very thing in question — and would be unreliable exactly when a green build matters.
 
-**Issue the credential now and fetch all four siblings.** Rejected on the arithmetic in §8: it
-buys one test, and a decision that may make it unnecessary is outstanding.
+**Issue the credential now and download all four siblings.** Rejected on §8's arithmetic:
+it buys one test, and a decision that may make it unnecessary is outstanding.
 
 ---
 
-## Appendix — reproducing the measurement
-
-Counts drift as tests are added; the command does not. From the repository root:
+## Appendix — checking it yourself
 
 ```
 pytest -q
-VIEWS_APPWRITE=/nonexistent pytest -q -rs
 ```
 
-The first, with the sibling repositories present, is the full suite. The second is what CI
-would see without the checkout — and it must **fail**, not merely skip. That is §6.
+with the sibling repositories present is the full suite. Then:
+
+```
+VIEWS_APPWRITE=/nonexistent pytest -q
+```
+
+is what CI would see without the download — and it must **fail**, not merely skip. That is
+§6.

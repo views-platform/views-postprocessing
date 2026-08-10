@@ -65,27 +65,24 @@ MACHINERY_PACKAGES = ("contract", "delivery")
 class Sibling:
     """What this repository declares about one views-platform sibling (ADR-016).
 
-    Two of these fields are different kinds of thing and the distinction is the point.
-    ``public`` is a **fact about the world** that this repository does not control.
-    ``ci_checkout`` is a **decision** this repository makes. Conflating them is how the
-    workflow ended up asserting, in a comment, that ``views-appwrite`` was private for
-    days after it went public — and how seven checks stayed dark in CI for no reason.
+    Two fields, and the second is the one that matters. ``ci_checkout`` says whether CI
+    fetches this repository; ``note`` says why not, whenever the answer is no.
 
-    ``public_checked`` is the date the fact was last verified, and it is not decoration:
-    every measured claim in this repository carries one. A bare boolean is a fact with no
-    expiry, which is precisely what went wrong.
+    **An earlier version also carried ``public`` and ``public_checked``.** They were
+    removed on 2026-08-10 after a review found them circular: ``public`` was read by
+    exactly one rule, and that rule existed to protect ``public``'s verifiability.
+    Nothing else consulted either field, and deleting both changed no behaviour. Whether
+    a sibling is public is now simply part of ``note`` — prose, where it belongs, because
+    nothing here could verify it anyway.
 
-    **Keyword-only and frozen, deliberately.** Two adjacent booleans are a one-token slip
-    between "public, not checked out" and "private, checked out" — the second being the
-    combination rule G3 exists to forbid. A plain dict would let a missing ``ci_checkout``
-    read as ``None``, silently exempting that sibling from every guard; that is the
-    failure mode this repository has registered more often than any other (C-47, C-57,
-    #211). Here the omission is a ``TypeError`` at import.
+    **Keyword-only and frozen.** A plain dict would let a missing ``ci_checkout`` read as
+    ``None`` and silently exempt that sibling from every rule; that is the failure this
+    repository has registered more often than any other. Here the omission is a
+    ``TypeError`` at import.
 
     **No validation in ``__post_init__``.** See ``broken_sibling_overrides`` below for
     what raising at import time costs: one typo became three collection errors and zero
-    tests run. The rules live in ``tests/test_ci_sibling_coverage.py``, where a violation
-    is one clean failure and the other four hundred tests still report.
+    tests run. The rules live in ``tests/test_ci_sibling_coverage.py``.
     """
 
     #: The environment variable that overrides this sibling's location. Declared, never
@@ -93,15 +90,10 @@ class Sibling:
     #: but a future sibling need not follow the pattern and guessing it would be the
     #: inference ADR-003 forbids.
     env: str
-    #: Visibility on GitHub — a fact about the world, not a decision of ours.
-    public: bool
-    #: ISO date ``public`` was last verified. See the class docstring.
-    public_checked: str
-    #: Whether CI checks this sibling out. A decision, and the reason for it belongs in
-    #: ``note`` whenever the answer is no.
+    #: Whether CI fetches this sibling.
     ci_checkout: bool
-    #: Why this sibling is not checked out. Required when ``ci_checkout`` is False, and
-    #: must name a record, so the non-coverage has an owner rather than a shrug.
+    #: Why not, when it is not fetched. Required in that case, and must name a record so
+    #: the non-coverage has an owner rather than a shrug.
     note: str = ""
 
 
@@ -114,11 +106,9 @@ class Sibling:
 SIBLINGS = {
     "views-datafactory": Sibling(
         env="VIEWS_DATAFACTORY",
-        public=True,
-        public_checked="2026-08-10",
         ci_checkout=False,
         note=(
-            "public, but its checks need the producer's raw GAUL parquets "
+            "PUBLIC, but its checks need the producer's raw GAUL parquets "
             "(data/raw/gaul_admin/*.parquet), which are NOT in its git repository. "
             "Checking it out converts an honest skip into a FileNotFoundError — measured "
             "2026-08-03, tried and reverted. Closing this needs the data published "
@@ -127,17 +117,14 @@ SIBLINGS = {
     ),
     "views-appwrite": Sibling(
         env="VIEWS_APPWRITE",
-        public=True,
-        public_checked="2026-08-10",
         ci_checkout=True,
     ),
     "views-faoapi": Sibling(
         env="VIEWS_FAOAPI",
-        public=False,
-        public_checked="2026-08-10",
         ci_checkout=False,
         note=(
-            "the only private sibling. Checking it out needs a credential, which is an "
+            "PRIVATE — the only one, and that is why it is not fetched. Checking it "
+            "out needs a credential, which is an "
             "operator decision deferred pending a request to FAO to make the repository "
             "public. One check is dark meanwhile — the consumer-name pin, whose failure "
             "mode is a delivery nobody can find. See ADR-016 and register C-81."
@@ -145,8 +132,6 @@ SIBLINGS = {
     ),
     "views-crafdapi": Sibling(
         env="VIEWS_CRAFDAPI",
-        public=True,
-        public_checked="2026-08-10",
         ci_checkout=True,
     ),
 }

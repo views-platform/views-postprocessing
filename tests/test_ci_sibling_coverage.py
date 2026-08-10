@@ -10,14 +10,17 @@ The fix is not a better comment. It is that **which siblings CI checks out is de
 once**, in `tests/conftest.py::SIBLINGS`, and this file fails when the workflow and that
 declaration disagree — in either direction.
 
-**What verifies the `public` field, since no test here does.** Nothing in this suite
-touches the network; that is a hard convention (`conftest`'s docstring: what is located
-is a working copy on disk). `public` is verified by CI *doing it*: the default
-`GITHUB_TOKEN` is scoped to this repository, so a tokenless checkout of a sibling
-declared public fails the build if it is actually private. Rules G3 and G5 exist to keep
-that true — one `token:` or one `continue-on-error:` and the claim silently stops being
-checked. The reverse case (a private sibling quietly becoming public) is **not** detected
-here, and ADR-016 §7 says so rather than implying coverage it does not have.
+**Whether a sibling is public is not modelled here, and that is deliberate.** An earlier
+version carried a `public` flag and a rule pairing it with the presence of a checkout
+token. A review found the pair circular — the field was read by exactly one rule, and
+that rule existed to protect the field's verifiability — so both were removed on
+2026-08-10 without any change in behaviour. Visibility now lives in a sibling's `note`,
+as prose, because nothing here could verify it in any case: no test in this suite touches
+the network.
+
+What still holds without the flag: a checkout of a repository CI cannot read simply fails
+the build, because the default `GITHUB_TOKEN` is scoped to this repository. Rule G5 keeps
+that failure loud.
 
 **Every rule is a pure function of (workflow, siblings)**, so each can be run against a
 synthetic mutant rather than only against the real file. A guard that can only be
@@ -28,7 +31,6 @@ already answers that three times over (`test_the_drift_check_would_catch_a_renam
 
 from __future__ import annotations
 
-import datetime as dt
 from pathlib import Path
 
 import pytest
@@ -154,39 +156,6 @@ def _g2_every_checkout_is_declared(
     return problems
 
 
-def _g3_tokens_match_visibility(
-    workflow: dict, siblings: dict[str, Sibling]
-) -> list[str]:
-    """Private ⇒ must pass a token. Public ⇒ must NOT.
-
-    The second half is the one that matters and the one that looks pointless. It is what
-    keeps ``public`` verified-by-doing: a tokenless checkout of a private repo fails the
-    build. Add a token to a public sibling — to dodge a rate limit, say — and the field
-    becomes an unchecked claim with nothing anywhere to catch it.
-    """
-    problems = []
-    for step in _sibling_steps(workflow):
-        name = _repo_name(step)
-        sibling = siblings.get(name)
-        if sibling is None:
-            continue  # G2's business
-        has_token = "token" in step["with"] or "ssh-key" in step["with"]
-        if not sibling.public and not has_token:
-            problems.append(
-                f"{name}: declared private but checked out with no credential — the "
-                "step will fail. Either it is public now (update the declaration and its "
-                "date) or it needs a token."
-            )
-        if sibling.public and has_token:
-            problems.append(
-                f"{name}: declared public but the checkout passes a credential. That "
-                "removes the only thing verifying the `public` field — a tokenless "
-                "checkout failing when a repo is private. Drop the token, or the claim "
-                "is unverified."
-            )
-    return problems
-
-
 def _g4_non_coverage_is_explained(
     workflow: dict, siblings: dict[str, Sibling]
 ) -> list[str]:
@@ -220,9 +189,10 @@ def _g5_no_step_swallows_its_own_failure(
 ) -> list[str]:
     """No sibling checkout may carry ``continue-on-error``.
 
-    One key, and the entire verification-by-doing argument becomes false: the checkout of
-    a repo that turned private fails, the build stays green, and the checks it enables
-    skip. It is also exactly the key someone reaches for while debugging a red CI.
+    One key and a failed fetch stops failing the build: the checks that sibling enables
+    go back to skipping, silently, on a green run. That is the state this whole file
+    exists to leave behind, and it is exactly the key someone reaches for while debugging
+    a red CI.
     """
     return [
         f"{_repo_name(step)}: sibling checkout carries continue-on-error, so a failed "
@@ -266,58 +236,13 @@ def _g7_siblings_are_taken_from_main(
     ]
 
 
-#: How far ahead of "today" a check date may sit before it is an error rather than a
-#: clock difference. See `_g8_the_visibility_fact_carries_a_usable_date`.
-_CLOCK_SKEW = dt.timedelta(days=1)
-
-
-def _g8_the_visibility_fact_carries_a_usable_date(
-    workflow: dict, siblings: dict[str, Sibling]
-) -> list[str]:
-    """``public_checked`` parses, and is not meaningfully in the future.
-
-    **One day of slack, and it is not laziness — this rule failed CI on its first run.**
-    The dates were stamped from a maintainer's machine in CEST at 01:25 on 2026-08-10;
-    the runner was in UTC, where it was still 23:25 on 2026-08-09. A date recorded
-    truthfully today read as tomorrow two hours away, and the guard called it a lie.
-
-    "Today" is not a fact a date alone determines — it depends on where the reader is —
-    so comparing a bare ISO date against `date.today()` is comparing two different
-    questions. A full day of tolerance covers every real timezone offset, and a date more
-    than a day ahead is still what this rule is for: a fact nobody actually checked.
-
-    Recorded here rather than fixed silently, because the alternative repair a hurried
-    reader would reach for is deleting the rule (ADR-014 §3: when a guard cries wolf,
-    check the matching before the scope).
-    """
-    problems = []
-    horizon = dt.date.today() + _CLOCK_SKEW
-    for name, sibling in siblings.items():
-        try:
-            checked = dt.date.fromisoformat(sibling.public_checked)
-        except ValueError:
-            problems.append(
-                f"{name}: public_checked={sibling.public_checked!r} is not an ISO date. "
-                "A fact with an unreadable date is a fact with no date."
-            )
-            continue
-        if checked > horizon:
-            problems.append(
-                f"{name}: public_checked={sibling.public_checked} is more than a day "
-                "ahead of today — that is not clock skew, it is a date nobody checked."
-            )
-    return problems
-
-
 _RULES = {
     "G1 declared checkouts are present and pointed at": _g1_declared_checkouts_are_present_and_pointed_at,
     "G2 every checkout is declared": _g2_every_checkout_is_declared,
-    "G3 tokens match visibility": _g3_tokens_match_visibility,
     "G4 non-coverage is explained": _g4_non_coverage_is_explained,
     "G5 no step swallows its own failure": _g5_no_step_swallows_its_own_failure,
     "G6 siblings land under the excluded path": _g6_siblings_land_under_the_excluded_path,
     "G7 siblings are taken from main": _g7_siblings_are_taken_from_main,
-    "G8 the visibility fact carries a usable date": _g8_the_visibility_fact_carries_a_usable_date,
 }
 
 
@@ -437,34 +362,26 @@ def _replace(name: str, **changes) -> dict[str, Sibling]:
 
 
 _MUTANTS = [
-        ("G1 declared checkouts are present and pointed at",
-         {"jobs": {"test": {"steps": [{"run": "poetry run pytest tests/", "env": {}}]}}},
-         _ONE, "declared ci_checkout=True but the checkout step is gone"),
-        ("G2 every checkout is declared", _workflow(), {}, "checked out but undeclared"),
-        ("G3 tokens match visibility",
-         _workflow(**{"with": {"token": "${{ secrets.X }}"}}), _ONE,
-         "public sibling fetched with a credential — kills verification-by-doing"),
-        ("G4 non-coverage is explained",
-         _workflow(), _replace("views-appwrite", ci_checkout=False, note=""),
-         "not checked out and no note"),
-        ("G4 non-coverage is explained",
-         _workflow(), _replace("views-appwrite", ci_checkout=False, note="because reasons"),
-         "note explains but names no record"),
-        ("G5 no step swallows its own failure",
-         _workflow(**{"continue-on-error": True}), _ONE,
-         "a failed fetch would not fail the build"),
-        ("G6 siblings land under the excluded path",
-         _workflow(**{"with": {"path": "vendor/views-appwrite"}}), _ONE,
-         "outside _siblings/, so ruff would lint it"),
-        ("G7 siblings are taken from main",
-         _workflow(**{"with": {"ref": "development"}}), _ONE,
-         "takes a branch that is not the authority"),
-        ("G8 the visibility fact carries a usable date",
-         _workflow(), _replace("views-appwrite", public_checked="2099-01-01"),
-         "the fact was checked far in the future"),
-        ("G8 the visibility fact carries a usable date",
-         _workflow(), _replace("views-appwrite", public_checked="last tuesday"),
-         "unparseable date"),
+    ("G1 declared checkouts are present and pointed at",
+     {"jobs": {"test": {"steps": [{"run": "poetry run pytest tests/", "env": {}}]}}},
+     _ONE, "declared ci_checkout=True but the checkout step is gone"),
+    ("G2 every checkout is declared",
+     _workflow(), {}, "checked out but undeclared"),
+    ("G4 non-coverage is explained",
+     _workflow(), _replace("views-appwrite", ci_checkout=False, note=""),
+     "not checked out and no note"),
+    ("G4 non-coverage is explained",
+     _workflow(), _replace("views-appwrite", ci_checkout=False, note="because reasons"),
+     "note explains but names no record"),
+    ("G5 no step swallows its own failure",
+     _workflow(**{"continue-on-error": True}), _ONE,
+     "a failed fetch would not fail the build"),
+    ("G6 siblings land under the excluded path",
+     _workflow(**{"with": {"path": "vendor/views-appwrite"}}), _ONE,
+     "outside _siblings/, so ruff would lint it"),
+    ("G7 siblings are taken from main",
+     _workflow(**{"with": {"ref": "development"}}), _ONE,
+     "takes a branch that is not the authority"),
 ]
 
 
@@ -530,23 +447,3 @@ def test_the_repos_own_checkout_is_not_mistaken_for_a_sibling():
     own_checkout_only = {"jobs": {"test": {"steps": [{"uses": "actions/checkout@v3"}]}}}
     assert not _g2_every_checkout_is_declared(own_checkout_only, SIBLINGS)
     assert not _sibling_steps(own_checkout_only)
-
-
-def test_g8_tolerates_a_timezone_but_not_a_fiction():
-    """The boundary either side of `_CLOCK_SKEW`, pinned.
-
-    A rule with a tolerance needs its tolerance tested, or the number drifts into being
-    whatever made the last failure go away. Tomorrow is a clock difference; the day after
-    is a claim about a check that has not happened.
-    """
-    today = dt.date.today()
-    for offset, should_object in ((0, False), (1, False), (2, True), (400, True)):
-        siblings = _replace(
-            "views-appwrite",
-            public_checked=(today + dt.timedelta(days=offset)).isoformat(),
-        )
-        violations = _g8_the_visibility_fact_carries_a_usable_date(_workflow(), siblings)
-        assert bool(violations) is should_object, (
-            f"a check date {offset} day(s) ahead of today: expected "
-            f"{'an objection' if should_object else 'no objection'}, got {violations}"
-        )
