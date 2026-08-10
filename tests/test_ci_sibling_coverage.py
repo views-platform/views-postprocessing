@@ -156,30 +156,42 @@ def _g2_every_checkout_is_declared(
     return problems
 
 
-def _g4_non_coverage_is_explained(
+def _g4_every_note_names_a_record(
     workflow: dict, siblings: dict[str, Sibling]
 ) -> list[str]:
-    """Every sibling NOT checked out says why, and names a record.
+    """A sibling NOT checked out must say why, and **every** note must name a record.
 
     A deferral needs a trigger and an owner (ADR-014 §4). Requiring the note to cite a
     `C-nn` or an `ADR-nnn` is what makes the citation non-optional, so declared
     non-coverage stays attached to something a reader can follow.
+
+    **Widened 2026-08-10 after external review.** The rule used to look only at siblings
+    with ``ci_checkout=False``, which left a hole in exactly the place ADR-016 calls out:
+    `views-crafdapi` is fetched *temporarily*, until the check it serves moves to a
+    registry read, and that fact lived in a note **no rule examined**. A claim about
+    another repository, in prose, that nothing can check — which is the failure ADR-016
+    §3 diagnoses, reintroduced for the one download the document itself calls temporary.
+
+    So the note requirement now follows the *note*, not the flag: whenever a sibling
+    carries one, it must cite the record that owns it, whether it explains an exclusion
+    or a temporary inclusion. Siblings with no note and `ci_checkout=True` are unaffected
+    — a permanent, unremarkable fetch needs no justification.
     """
     problems = []
     for name, sibling in siblings.items():
-        if sibling.ci_checkout:
-            continue
-        if not sibling.note.strip():
+        if not sibling.ci_checkout and not sibling.note.strip():
             problems.append(
                 f"{name}: not checked out in CI and no note says why. Silent "
                 "non-coverage reads as 'nothing to see here'."
             )
-        elif not any(
-            token in sibling.note for token in ("C-", "ADR-")
+            continue
+        if sibling.note.strip() and not any(
+            token in sibling.note for token in ("C-", "ADR-", "#")
         ):
             problems.append(
-                f"{name}: its note explains the non-coverage but names no record. Cite "
-                "the register entry or ADR that owns it, so the deferral has an owner."
+                f"{name}: its note explains something but names no record. Cite the "
+                "entry, ADR or issue that owns it — a note nothing points at is the "
+                "prose this file exists to replace."
             )
     return problems
 
@@ -239,7 +251,7 @@ def _g7_siblings_are_taken_from_main(
 _RULES = {
     "G1 declared checkouts are present and pointed at": _g1_declared_checkouts_are_present_and_pointed_at,
     "G2 every checkout is declared": _g2_every_checkout_is_declared,
-    "G4 non-coverage is explained": _g4_non_coverage_is_explained,
+    "G4 every note names a record": _g4_every_note_names_a_record,
     "G5 no step swallows its own failure": _g5_no_step_swallows_its_own_failure,
     "G6 siblings land under the excluded path": _g6_siblings_land_under_the_excluded_path,
     "G7 siblings are taken from main": _g7_siblings_are_taken_from_main,
@@ -367,10 +379,10 @@ _MUTANTS = [
      _ONE, "declared ci_checkout=True but the checkout step is gone"),
     ("G2 every checkout is declared",
      _workflow(), {}, "checked out but undeclared"),
-    ("G4 non-coverage is explained",
+    ("G4 every note names a record",
      _workflow(), _replace("views-appwrite", ci_checkout=False, note=""),
      "not checked out and no note"),
-    ("G4 non-coverage is explained",
+    ("G4 every note names a record",
      _workflow(), _replace("views-appwrite", ci_checkout=False, note="because reasons"),
      "note explains but names no record"),
     ("G5 no step swallows its own failure",

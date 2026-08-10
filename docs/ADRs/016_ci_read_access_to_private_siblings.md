@@ -99,10 +99,10 @@ Six rules, and each exists because of something that has actually gone wrong:
 |---|---|---|
 | G1 | a listed repository is downloaded, and the tests are pointed at it | the tests looked in the wrong place and skipped silently |
 | G2 | anything CI downloads appears in the list | the list is the thing people read; CI is not |
-| G4 | a repository we skip says why, naming a record | silent non-coverage reads as "nothing to see here" |
+| G4 | a repository we skip says why, and **every** note names a record | silent non-coverage reads as "nothing to see here" — and a note nothing points at is the prose this file replaces, whether it explains an exclusion or a temporary inclusion |
 | G5 | a download step may not be marked "ignore failures" | one setting and a failed download stops failing the build |
 | G6 | downloads land in `_siblings/` | a sibling put elsewhere made the linter report 745 errors in someone else's code |
-| G7 | download the sibling's `main` branch | without it you get *their* default branch — which for `views-appwrite` is `development`, not `main` |
+| G7 | download the sibling's `main` branch | a sibling's default branch is not ours to rely on — views-appwrite's was `development` as of 2026-08-10, and is theirs to change again |
 
 Each rule is a plain function, so each is also run against a deliberately broken example
 to prove it objects. A rule only ever tried against a correct file is a rule nobody has
@@ -135,17 +135,65 @@ registry moves again — **this repository's builds go red and merges are blocke
 someone updates the pin.** Since merging to `main` here *is* the release to FAO, that
 matters.
 
-It is accepted for three reasons:
+It is accepted for two reasons:
 
 1. The problem being fixed was that these checks were **invisible**. A check that reports
    but cannot block is invisible again, just more politely.
 2. A red build in that situation is *correct*. It says "re-pin before you ship", and the
-   fix is minutes.
-3. There is an escape. The maintainer administers this repository and can merge over a
-   failing check when something genuinely urgent is blocked.
+   fix is a small edit rather than an investigation.
 
-This overrides an earlier internal recommendation not to couple per-pull-request CI to
-another repository at all. That recommendation's stated objection was coupling to another
+**A third reason was offered and withdrawn, because it was not true.** An earlier draft
+said the maintainer administers this repository and can therefore merge over a failing
+check when something is genuinely urgent. Two external reviewers challenged it, and it does
+not survive measurement: the `protect_main` ruleset lists **zero bypass actors**, and a
+ruleset applies to everyone except the actors named there — so administrator status confers
+no exemption. There is no classic branch protection either, hence no `enforce_admins` route.
+
+So **there is currently no escape hatch**, and the coupling here is accepted without one.
+That is defensible — the two reasons above stand on their own — but it should be a chosen
+position rather than a surprise on the day it matters. Adding a bypass actor is a console
+change and would restore the third reason; it has not been made. And an override of that
+kind would be one person's judgement, available only while that person is — the same
+habit-dependence this document criticises in its own alternatives.
+
+### §7a How often this actually bites
+
+*"A small edit"* reads differently at once a quarter than at once a day, so the rate
+belongs here rather than in a reader's imagination.
+
+views-appwrite reports its registry moved through **five editions in four days** — v1.4.0
+on 2026-08-02 through v1.4.4 on 2026-08-05. **Four of the five were observation-driven**,
+recording what a console showed or correcting a key's scopes, and carried no obligation for
+any consumer. Under this section each would have reddened this repository and blocked a
+release until someone re-pinned.
+
+That is not an argument against the decision; it is the honest size of it. It also points
+at a better shape, which that repository has volunteered to make usable: pin against the
+contract **version** and treat observation-only bumps as non-blocking, rather than pinning
+a commit and blocking on every edit — the upstream amendment log already marks which bumps
+carry obligations. **Not adopted here**, because it needs the upstream side first and this
+document should not decide another repository's format.
+
+### §7b Two kinds of coupling, and only one is a tripwire
+
+A reader could take G7 as *"always track the moving tip of `main`"*, which would sit oddly
+beside the rest of the platform, where consumers pin the seam contract by tag and never by
+branch. Both live here, and they answer different questions:
+
+- **Drift tripwires** read the sibling's `main` *because* movement is the signal. The
+  registry-edition check is one: if the registry moved and our pin did not, we want to know,
+  and a red build is the entire point.
+- **Reachability checks** verify that a *pinned* commit is an ancestor of the sibling's
+  `main`. Here movement is noise; what matters is that what we pinned was ratified rather
+  than taken from someone's unmerged branch.
+
+G7 makes both read `main` rather than a default branch. It does not make either of them
+track the tip for its own sake.
+
+---
+
+This section overrides an earlier internal recommendation not to couple per-pull-request CI
+to another repository at all. That recommendation's stated objection was coupling to another
 repository's *default branch* — which G7 removes, by naming `main` explicitly instead of
 accepting whatever default the other repository happens to be set to. The coupling that
 remains is real, and is the trade described above.

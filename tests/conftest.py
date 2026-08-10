@@ -118,6 +118,13 @@ SIBLINGS = {
     "views-appwrite": Sibling(
         env="VIEWS_APPWRITE",
         ci_checkout=True,
+        note=(
+            "PUBLIC. Fetched, and the fetch is load-bearing rather than convenient: it "
+            "carries the coordinate-registry drift checks, and under ADR-017 it becomes "
+            "the authority source for the delivery-label check too. Pruning it as an "
+            "unused sibling would disable both and leave a green build — the invisible "
+            "skip ADR-016 §6 exists to prevent."
+        ),
     ),
     "views-faoapi": Sibling(
         env="VIEWS_FAOAPI",
@@ -135,6 +142,12 @@ SIBLINGS = {
     "views-crafdapi": Sibling(
         env="VIEWS_CRAFDAPI",
         ci_checkout=True,
+        note=(
+            "PUBLIC, and fetched **temporarily**. Measured: this fetch serves exactly one "
+            "test, the consumer-name pin. ADR-017 §7 replaces that test with a read of "
+            "the public registry, at which point this fetch buys nothing and should be "
+            "removed along with it. Until then it is real coverage, not decoration."
+        ),
     ),
 }
 
