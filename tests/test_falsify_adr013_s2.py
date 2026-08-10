@@ -79,3 +79,48 @@ def test_s2_2a_is_not_secretly_in_force():
         "The field shipped and the amendment was never marked adopted — which leaves the "
         "§10 golden fixture, three repos' vendored copies, and this document disagreeing."
     )
+
+
+def test_e3s_claim_about_unreleased_behaviour_is_still_true():
+    """Erratum E3 says a pipeline-core fix is in no released version. That expires.
+
+    E3 lifts §2.2's `pipeline_core_version` caveat in two halves. The second — that an
+    editable install reports ``"unknown"`` rather than a stale number — landed in
+    pipeline-core on 2026-08-04, a day and a half *after* 3.0.0 was uploaded to PyPI. So
+    the erratum states plainly that **no released version contains it**, and that it
+    becomes true of producers at the next release.
+
+    That is a dated claim about someone else's release history, in the document that
+    punishes those hardest. It stops being true the moment pipeline-core publishes again,
+    and nothing about this repository would change to signal it.
+
+    So: if the pipeline-core we are running is a **released distribution** (not an
+    editable checkout) and its version is past 3.0.0, the next release has happened and
+    E3's wording is stale. CI installs from PyPI, so this is live there even though a
+    maintainer's editable environment leaves it inert — which is stated rather than
+    discovered, because a guard that only ever runs in one place is half a guard.
+    """
+    pytest.importorskip("views_pipeline_core", reason="a declared dependency")
+    from importlib.metadata import PackageNotFoundError, version as dist_version
+
+    import views_pipeline_core
+
+    source = Path(views_pipeline_core.__file__).resolve()
+    if "site-packages" not in str(source):
+        pytest.skip(
+            "pipeline-core is an editable checkout here, so its recorded version says "
+            "nothing about what has been released. This check is live in CI, which "
+            "installs from PyPI."
+        )
+    try:
+        installed = dist_version("views-pipeline-core")
+    except PackageNotFoundError:  # pragma: no cover - not a distribution at all
+        pytest.skip("pipeline-core is not installed as a distribution")
+
+    parts = tuple(int(p) for p in installed.split(".")[:3] if p.isdigit())
+    assert parts <= (3, 0, 0), (
+        f"pipeline-core {installed} is released and past 3.0.0, so Erratum E3's claim "
+        "that the editable-install fix is 'not yet in any released version' is out of "
+        "date. Re-read E3 against that release: the second half of the lift is probably "
+        "now in force, and the sentence saying it is not must go."
+    )

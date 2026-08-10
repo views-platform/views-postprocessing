@@ -352,11 +352,10 @@ identifier arrays mean (`time` is the VIEWS month-id; `unit` is the `priogrid_id
 this platform has already paid once for leaving id vocabulary implicit (the gid/id
 epic: a past platform-wide cleanup needed just to disambiguate what its integer
 identifier columns meant). `provenance` is exactly the three keys shown (strings/bool). **Caveat:**
-`pipeline_core_version` is self-reported and will be unreliable until pipeline-core's
-release train (their #261) cuts real releases (status at adoption, 2026-07-15: none
-yet) — consumers must not treat it as authoritative before then. The lift of this
-caveat is tracked as a reminder in pipeline-core: their issue #279 (filed
-2026-07-19) fires when the first real release ships.
+`pipeline_core_version` is self-reported. It was declared unreliable at adoption
+(2026-07-15) because pipeline-core's release train had cut no real releases yet, and
+consumers were told not to treat it as authoritative. **That caveat is lifted in part —
+see Erratum E3 below, which also explains why "in part" is the accurate word.**
 
 **§2.2a Amendment A2 — run maturity, drafted 2026-08-05, NOT YET IN FORCE.**
 
@@ -932,6 +931,41 @@ runs can therefore never touch the live bucket by accident.
 
 Dated events after adoption. Errata correct errors in this document; other entries
 record execution progress against it.
+
+- **2026-08-10 — Erratum E3 (§2.2, `pipeline_core_version`; `contract_version` stays
+  1.5):** the adoption-time caveat said this field would be unreliable until pipeline-core
+  cut a real release. **views-pipeline-core 3.0.0 shipped to PyPI on 2026-08-03**, so the
+  condition is met — but the honest lift is narrower than "the field is now reliable", and
+  splits by how the *producing* pipeline-core was installed.
+
+  **Authoritative when the producer ran a released distribution.** A wheel's recorded
+  version is written by the release that built it, so it cannot disagree with the code
+  beside it. In force now, for 3.0.0 onward.
+
+  **`"unknown"` when the producer ran an editable install** — and this half is **not yet in
+  any released version**, which is the part the originating request (#228) stated too
+  strongly. An editable install's recorded version is fixed at the moment `pip install -e`
+  last ran and never tracks the source afterwards; pipeline-core#403 makes that case report
+  `"unknown"` instead of a stale number. That fix merged **2026-08-04**, a day and a half
+  *after* 3.0.0 was uploaded (2026-08-03 02:06 UTC), so **no released version contains it.**
+  It becomes true of producers at pipeline-core's next release.
+
+  Verified here rather than taken on trust, 2026-08-10: in this repository's development
+  environment `importlib.metadata` reports pipeline-core **2.3.0** while the source beside
+  it is **3.0.0** — a full major version stale, exactly the value that would have been
+  stamped into published provenance. With the fix present, `_pipeline_core_version()`
+  returns `"unknown"` instead.
+
+  **What consumers must do, and it is the operational point.** Treat `"unknown"` as *"do
+  not infer the producing version"*, never as an error. The set of runs producing
+  `"unknown"` will **widen** at pipeline-core's next release, because every developer run
+  joins it. A consumer that starts rejecting `"unknown"` on the strength of this lift would
+  break exactly those runs.
+
+  This repository does not produce the value — Hop-B re-embeds the Hop-A header untouched
+  (`contract/wire/sink.py`) — so nothing here changes. The field is declared by this
+  contract, which is why the lift is recorded here. Arises from #228; pipeline-core #279
+  (closed), #403, and their register C-280.
 
 - **2026-08-05 — Amendment A2 drafted, not in force (§2.2a; `contract_version` stays
   1.5):** views-postprocessing #133 asked for three declared fields on the run manifest —
