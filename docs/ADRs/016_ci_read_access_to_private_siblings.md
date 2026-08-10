@@ -4,8 +4,10 @@
 **Date:** 2026-08-10
 **Decider:** Simon Polichinel von der Maase
 **Scope:** repositories CI **can** download — that is, public ones. What to do when a
-repository **cannot** be downloaded is a different decision and is
-[ADR-017](017_facts_across_a_private_boundary.md).
+repository **cannot** be downloaded is a different decision, taken in
+[ADR-017](017_facts_across_a_private_boundary.md) — **which is Proposed, not yet accepted.**
+Nothing below depends on that proposal being adopted: if it is rejected, the private case
+returns here as an open question, and the only thing this document loses is a pointer.
 **Related:** [ADR-014](014_claims_and_the_guards_that_carry_them.md) §2 (a guard nobody has
 watched fail is decoration) and §4 (a deferral names a trigger and an owner)
 
@@ -109,9 +111,9 @@ to prove it objects. A rule only ever tried against a correct file is a rule nob
 watched fail.
 
 **One of these downloads is temporary, and it is worth knowing which.** `views-crafdapi` is
-fetched for exactly one test. [ADR-017](017_facts_across_a_private_boundary.md) §7 replaces
-that test with one that reads a public declaration instead — at which point this download
-buys nothing and should go. That is a decision this document cannot make on its own, which
+fetched for exactly one test. [ADR-017](017_facts_across_a_private_boundary.md) §7 proposes
+replacing that test with one that reads a public declaration instead — at which point this
+download would buy nothing and should go. That is a decision this document cannot make on its own, which
 is why it is recorded there and cross-referenced here.
 
 ### §6 A repository CI expects but cannot find turns the build red
@@ -155,10 +157,11 @@ remains is real, and is the trade described above.
 not run here.
 
 **No credential is issued to work around that**, and that is a decision rather than an
-omission — see [ADR-017](017_facts_across_a_private_boundary.md), which settles what this
-repository does about facts held in repositories it cannot read. In short: the fact gets
-declared somewhere public that both sides can read, so neither side needs access to the
-other.
+omission. Where that question *is* decided is
+[ADR-017](017_facts_across_a_private_boundary.md), currently proposed: it argues the fact
+should be declared somewhere public that both sides can read, so that neither needs access
+to the other. Should that proposal not be adopted, the position here reverts to a stated
+gap with a named owner — never a check that appears to cover it and does not.
 
 Until that declaration exists, the affected check runs on a maintainer's machine and not
 in CI. That is stated in the sibling's `note`, which rule G4 requires and which must name
@@ -190,7 +193,12 @@ An earlier version of this design also recorded, for each sibling, whether it wa
 whether the download used a credential.
 
 A review found the pair circular. The `public` field was read by exactly one rule, and
-that rule existed to protect the `public` field's verifiability. Nothing else consulted
+that rule existed to protect the `public` field's verifiability.
+
+**This is why §5's table runs G1, G2, G4, G5, G6, G7 with two numbers missing.** The
+removed rules were **G3** (visibility must match whether a credential was used) and **G8**
+(the date must be a plausible one). The remaining rules keep their original names rather
+than being renumbered, so that anything written about "G6" still means G6. Nothing else consulted
 either. Both were deleted on 2026-08-10 and no behaviour changed. The date field was worse
 than useless: nothing could confirm the check had happened, so it manufactured confidence
 rather than recording a fact.

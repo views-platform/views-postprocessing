@@ -162,7 +162,7 @@ against the declaration.
 So if the registry says `un_fao`, and we write `un_fao`, and the consuming API quietly
 starts filtering on something else — our check passes, and the delivery is still invisible.
 
-That half is genuinely the consumer's to verify, and cheap for it (see §5.3). But it is
+That half is genuinely the consumer's to verify, and cheap for it — it is the third item in §5's list, and needs no access to us because this repository is public. But it is
 outside this repository's control, and there is a case where it may never exist: **a
 private API operated by a third party**, who has no obligation to run any test of ours.
 
