@@ -1,22 +1,36 @@
-# ADR-016: CI checks out the sibling repositories our tests read
+# ADR-016: Which sibling repositories CI downloads
 
 **Status:** Accepted
 **Date:** 2026-08-10
 **Decider:** Simon Polichinel von der Maase
+**Scope:** repositories CI **can** download — that is, public ones. What to do when a
+repository **cannot** be downloaded is a different decision and is
+[ADR-017](017_facts_across_a_private_boundary.md).
 **Related:** [ADR-014](014_claims_and_the_guards_that_carry_them.md) §2 (a guard nobody has
 watched fail is decoration) and §4 (a deferral names a trigger and an owner)
 
 ---
 
-## The decision in four sentences
+## The decision in three sentences
 
 A few of this repository's tests read **other** repositories to check that things we say
 about them are still true. Those tests only work when the other repository is on disk, so
-they ran on a developer's laptop and skipped in CI.
+they ran on a developer's laptop and skipped in CI. **CI now downloads the repositories
+those tests need**, and a test fails if CI stops downloading one that the code says it
+should.
 
-**CI now downloads the repositories those tests need**, and a test fails if CI stops
-downloading one that the code says it should. The single repository we cannot download —
-because it is private — is named, with the reason, and a decision about it is deferred.
+*Throughout, a "sibling" is another repository in the views-platform organisation that sits
+beside this one in a developer's folder — never a dependency we install.*
+
+## What this document does not cover
+
+Downloading a repository requires being able to read it, so **everything here applies only
+to repositories that are public.** A private one cannot be downloaded by our CI at all,
+and no amount of workflow configuration changes that.
+
+That is not a gap in this decision; it is a different problem with a different answer, and
+that answer is [ADR-017](017_facts_across_a_private_boundary.md). This document stops at
+the boundary and says so, rather than implying a coverage it does not have.
 
 ---
 
@@ -94,6 +108,12 @@ Each rule is a plain function, so each is also run against a deliberately broken
 to prove it objects. A rule only ever tried against a correct file is a rule nobody has
 watched fail.
 
+**One of these downloads is temporary, and it is worth knowing which.** `views-crafdapi` is
+fetched for exactly one test. [ADR-017](017_facts_across_a_private_boundary.md) §7 replaces
+that test with one that reads a public declaration instead — at which point this download
+buys nothing and should go. That is a decision this document cannot make on its own, which
+is why it is recorded there and cross-referenced here.
+
 ### §6 A repository CI expects but cannot find turns the build red
 
 Skipping is right on a laptop, where a missing sibling is normal. It is wrong in CI once
@@ -123,30 +143,26 @@ It is accepted for three reasons:
 3. There is an escape. The maintainer administers this repository and can merge over a
    failing check when something genuinely urgent is blocked.
 
-This overrides an earlier recommendation in the risk register (**C-46**) not to couple
-per-PR CI to another repository. That recommendation's stated objection was coupling to
-another repository's *default branch*, which G7 removes. The remaining coupling is real,
-and is the trade above.
+This overrides an earlier internal recommendation not to couple per-pull-request CI to
+another repository at all. That recommendation's stated objection was coupling to another
+repository's *default branch* — which G7 removes, by naming `main` explicitly instead of
+accepting whatever default the other repository happens to be set to. The coupling that
+remains is real, and is the trade described above.
 
-### §8 One repository stays out, and the decision about it is deferred
+### §8 One repository stays out, and why that is not this document's problem
 
-`views-faoapi` is private. Downloading it needs a credential, and that is **not** done
-here.
+`views-faoapi` is private. Our CI cannot download it, so the one check that reads it does
+not run here.
 
-It buys **one** test. That one is admittedly the most valuable of the set — it checks our
-delivery is filed under the name the consumer looks for, and when that is wrong nothing
-raises an error anywhere: the upload succeeds, storage is paid for, and the consumer's
-endpoint is simply empty. But one test does not justify a credential tied to one person,
-with an expiry someone must remember, while a better answer is pending.
+**No credential is issued to work around that**, and that is a decision rather than an
+omission — see [ADR-017](017_facts_across_a_private_boundary.md), which settles what this
+repository does about facts held in repositories it cannot read. In short: the fact gets
+declared somewhere public that both sides can read, so neither side needs access to the
+other.
 
-**The better answer being pursued:** asking FAO to consent to that repository being made
-public, which removes the need entirely. Its full history has been examined — no
-credentials of any kind, no partner staff email addresses, and an MIT licence already in
-place. Two items remain open: internal storage identifiers appear in about twenty files,
-and whether the GAUL 2024 boundary data included there may be redistributed.
-
-**Trigger for revisiting (ADR-014 §4):** issue the credential if FAO declines, or if a
-**second** private sibling appears. **Owner:** the maintainer.
+Until that declaration exists, the affected check runs on a maintainer's machine and not
+in CI. That is stated in the sibling's `note`, which rule G4 requires and which must name
+the record that owns it.
 
 ---
 
@@ -201,8 +217,10 @@ it is referenced and never copied. A test reading a local copy compares a thing 
 network call in the suite, would need a credential to answer for private repositories —
 the very thing in question — and would be unreliable exactly when a green build matters.
 
-**Issue the credential now and download all four siblings.** Rejected on §8's arithmetic:
-it buys one test, and a decision that may make it unnecessary is outstanding.
+**Issue an access credential and download the private one too.** Rejected, and the
+reasoning is [ADR-017](017_facts_across_a_private_boundary.md) §9 rather than anything here:
+a credential is the wrong shape of answer to a standing category, and there is a route that
+needs no credential at all.
 
 ---
 

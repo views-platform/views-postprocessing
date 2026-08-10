@@ -127,7 +127,9 @@ SIBLINGS = {
             "out needs a credential, which is an "
             "operator decision deferred pending a request to FAO to make the repository "
             "public. One check is dark meanwhile — the consumer-name pin, whose failure "
-            "mode is a delivery nobody can find. See ADR-016 and register C-81."
+            "mode is a delivery nobody can find. ADR-017 decides what happens instead "
+            "of a credential: the fact moves to the public coordinate registry, and "
+            "neither side reads the other. See also register C-81."
         ),
     ),
     "views-crafdapi": Sibling(
