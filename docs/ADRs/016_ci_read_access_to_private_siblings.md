@@ -250,10 +250,15 @@ So the two categories above become three:
   sibling's `main` as the comparison — and fire when something *we declare* differs between
   them, or when a coordinate arrives in a table we read. This is the shape the registry
   check now has. It catches a rotation, which is invisible to the other two, and it is
-  silent through prose edits and version bumps. *(Corrected 2026-08-11: the first
-  implementation compared against the sibling's **working tree**, so a developer whose
-  clone sat on a feature branch was grading this repository against unreviewed content —
-  #196's shape. It reads `origin/main` now.)*
+  silent through prose edits and version bumps.
+
+*(Corrected twice on 2026-08-11, and the second time is the instructive one. The first
+implementation compared against the sibling's **working tree** — so a developer whose clone
+sat on a feature branch graded this repository against unreviewed content, which is #196's
+shape. The first correction moved **one** check onto `origin/main` and this paragraph then
+claimed all of them did; three others were still reading the working tree. All four read
+`origin/main` now. A sentence written to describe a fix, one fix ahead of the code, is the
+same defect §3 diagnoses.)*
 
 The third kind exists because the no-copy rule forbids writing expected coordinate values
 into this repository. A pinned edition is the only lawful place to keep a baseline for

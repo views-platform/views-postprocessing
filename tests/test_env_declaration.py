@@ -477,15 +477,6 @@ def test_every_declared_name_is_classified_here(partner):
     )
 
 
-def _load_registry(repo: Path) -> dict:
-    tomllib = pytest.importorskip(
-        "tomllib",
-        reason="tomllib is stdlib from Python 3.11; pyproject declares >=3.11, so a "
-               "conforming environment has it. CI runs 3.11.",
-    )
-    return tomllib.loads((repo / _REGISTRY_RELPATH).read_text())
-
-
 #: Sentinel for "this row carries no value", distinct from any string a registry
 #: could legitimately hold.
 _ABSENT = object()
@@ -603,7 +594,7 @@ def _registry_at(repo: Path, ref: str) -> dict:
             "commit: an empty ref reads the index, a branch name reads a moving tip, and "
             "either would make the comparison below compare the registry to itself."
         )
-    if ref not in ("origin/main", "main") and not resolved.stdout.strip().startswith(ref):
+    if not resolved.stdout.strip().startswith(ref):
         raise _RegistryReadError(
             f"{ref!r} resolves to commit {resolved.stdout.strip()[:12]}, which does not "
             f"start with it. That happens when the pin names an annotated TAG rather than "
@@ -670,16 +661,30 @@ def _registry_current(repo: Path) -> dict:
     the suite locally was comparing against something else entirely, and ADR-016's erratum
     claimed otherwise.
     """
+    head = ""
     for ref in ("origin/main", "main"):
-        try:
-            return _registry_at(repo, ref)
-        except _RegistryReadError:
-            continue
-    raise _RegistryReadError(
-        f"neither origin/main nor main resolves in {repo}. The comparison is against that "
-        "repository's ratified content, so there is nothing to compare against — run "
-        "`git fetch` there."
-    )
+        resolved = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+        if resolved.returncode == 0 and resolved.stdout.strip():
+            head = resolved.stdout.strip()
+            break
+    if not head:
+        raise _RegistryReadError(
+            f"neither origin/main nor main resolves in {repo}. The comparison is against "
+            "that repository's ratified content, so there is nothing to compare against — "
+            "run `git fetch` there."
+        )
+    # Resolved to a SHA before reading, deliberately. `_registry_at` refuses any ref that
+    # is not a frozen commit, and that guard must have no exceptions: an earlier version
+    # exempted "main"/"origin/main" so this function could call it — which meant a pin
+    # literally set to ``"main"`` was accepted, reopening the hole the guard exists for.
+    # Resolving here keeps the guard absolute at the cost of one extra rev-parse.
+    #
+    # Read errors propagate unchanged: a registry that is corrupt or anchorless ON MAIN
+    # must say so, not be reported as "neither ref resolves".
+    return _registry_at(repo, head)
 
 
 def _describe_changes(then: dict, now: dict, names: set[str]) -> dict[str, str]:
@@ -727,7 +732,7 @@ def _declared_classes(registry: dict) -> dict[str, str]:
 def test_every_declared_name_exists_in_the_registry_with_the_class_we_treat_it_as(partner):
     """C-57: a rename or reclassification upstream must not be silent here."""
     repo = require_sibling("views-appwrite")
-    declared = _declared_classes(_load_registry(repo))
+    declared = _declared_classes(_registry_current(repo))
     _, _, expected_class = _PARTNER_ENV[partner]
 
     missing = sorted(n for n in expected_class if n not in declared)
@@ -802,7 +807,7 @@ def test_every_table_in_the_registry_is_classified_here():
     would have been a red build demanding classification, not a silent pass.)*
     """
     repo = require_sibling("views-appwrite")
-    registry = _load_registry(repo)
+    registry = _registry_current(repo)
 
     unclassified = _unclassified_tables(registry)
     assert not unclassified, (
@@ -1143,7 +1148,7 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     repo = sibling_repo("views-appwrite")
     if repo is None:
         pytest.skip("views-appwrite checkout not found — set VIEWS_APPWRITE")
-    registry = _load_registry(repo)
+    registry = _registry_current(repo)
     # Scoped by the declared partition, NOT by an inline tuple — so a new table cannot
     # be swept in by a one-word edit, and `contract` cannot be swept in at all.
     #
