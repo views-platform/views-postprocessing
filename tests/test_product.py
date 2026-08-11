@@ -178,17 +178,125 @@ def test_every_partner_has_a_declared_consumer_repository():
     )
 
 
+#: The platform registry, relative to a views-appwrite checkout.
+#:
+#: Loaded locally rather than imported from ``tests/test_env_declaration.py``: a test
+#: module importing another test module is a dependency nobody declared, and the two read
+#: different things — that file reads coordinate sections, this one reads one contract
+#: row. Two four-line readers that are understood beat one shared one that has to serve
+#: both (WET before DRY).
+_REGISTRY_RELPATH = Path("docs") / "ADRs" / "platform" / "coordinate_registry.toml"
+
+
+def _registry(repo: Path) -> dict:
+    tomllib = pytest.importorskip("tomllib", reason="stdlib from 3.11; pyproject requires it")
+    return tomllib.loads((repo / _REGISTRY_RELPATH).read_text())
+
+
+#: partner -> the registry row that is the AUTHORITY for its delivery label.
+#:
+#: Declared, never derived from the partner name: `unfao` -> `UNFAO_...` is mechanical,
+#: `crafd` -> `UNCRAFD_...` is not, and guessing it would be the inference ADR-003 forbids.
+_CONTRACT_ROW = {
+    "unfao": "UNFAO_CONSUMER_DOCUMENT_NAME",
+    "crafd": "UNCRAFD_CONSUMER_DOCUMENT_NAME",
+}
+
+
+def test_every_partner_has_a_declared_contract_row():
+    """Assert this file's declared scope is the real one (ADR-014 §2).
+
+    A partner missing from ``_CONTRACT_ROW`` is a partner whose delivery label is checked
+    against nothing, and the suite stays green — which is exactly how ``crafd`` arrived
+    the first time.
+    """
+    assert set(_CONTRACT_ROW) == set(PARTNER_PACKAGES), (
+        f"partners with no declared contract row: "
+        f"{sorted(set(PARTNER_PACKAGES) - set(_CONTRACT_ROW))}; declared but no longer a "
+        f"partner: {sorted(set(_CONTRACT_ROW) - set(PARTNER_PACKAGES))}."
+    )
+
+
 @pytest.mark.parametrize("partner", PARTNER_PACKAGES)
-def test_the_declared_consumer_name_still_matches_the_consumer(partner):
-    """§4.1a across the seam — the half a local literal cannot carry.
+def test_the_declared_consumer_name_matches_the_registry(partner):
+    """ADR-017 §5, the producer half: our mirror against the public declaration.
 
-    The consumer decides what it filters on. This repository declares what it writes.
-    Agreement between the two is the whole of §4.1a, and it is not a fact this
-    repository owns — so it is checked against the consumer's checkout, exactly as the
-    coordinate registry is checked against views-appwrite's.
+    **What this replaces, and why.** Until 2026-08-11 this check read the *consumer's
+    source* — a regex over `managers/api.py` looking for the argument to an
+    `APIPathManager(...)` construction. That worked on a laptop and never in CI for the
+    private partner, and it broke on 2026-08-11 when views-faoapi tidied that file into a
+    named constant. Their code got better and our check went looking for something that
+    had moved. ADR-017 §7: we were never entitled to depend on another repository's file
+    layout.
 
-    Gated: skips without the sibling, naming the variable to set. The always-on pin
-    above still runs everywhere, so CI is never left with nothing.
+    Now both sides read one public declaration and neither reads the other. The registry
+    lives in views-appwrite, which is public, so this needs no credential even for the
+    private partner — that is the whole of ADR-017 §5 in one assertion.
+
+    The value it guards is the one whose failure is silent: a delivery filed under a name
+    the consumer does not ask for is uploaded, stored, billed, and invisible — no error
+    anywhere (ADR-013 §4.1a).
+    """
+    repo = require_sibling("views-appwrite")
+    registry = _registry(repo)
+
+    contract = registry.get("contract") or {}
+    row = _CONTRACT_ROW[partner]
+    assert row in contract, (
+        f"[{partner}] the registry has no `[contract.{row}]` row. That row is the "
+        "authority this package's CONSUMER_DOCUMENT_NAME mirrors (ADR-017 §5); without "
+        "it there is nothing to check the mirror against. Either it was retired upstream "
+        "or this file names the wrong row."
+    )
+    declared = contract[row].get("value")
+    ours = _product(partner).CONSUMER_DOCUMENT_NAME
+    assert declared == ours, (
+        f"[{partner}] this package writes every delivery under {ours!r}, but the platform "
+        f"registry declares {declared!r} in `[contract.{row}]`. The registry is the "
+        "authority — the consumer owns this name and changing it is a contract amendment. "
+        "A delivery under a name the consumer does not ask for is uploaded, stored, and "
+        "invisible (ADR-013 §4.1a)."
+    )
+    assert declared == _CONSUMER_DOCUMENT_NAME[partner], (
+        f"[{partner}] the pin in this file disagrees with the registry — the local "
+        "always-on test above should have caught a mismatch with the module first."
+    )
+
+
+#: Partners whose consumer-side self-check has NOT landed yet, so this repository still
+#: reads their source as well as the registry (ADR-017 §5's sequencing constraint).
+#:
+#: Declared rather than inferred, and deliberately a *shrinking* list: an entry leaves it
+#: when that partner's own check lands, and the day it empties this whole mechanism goes.
+_CONSUMER_SELF_CHECK_PENDING = {
+    "crafd": "views-crafdapi#53",
+}
+
+
+def test_the_pending_list_names_only_real_partners():
+    """A stale name here would keep a retired mechanism alive against nothing."""
+    unknown = sorted(set(_CONSUMER_SELF_CHECK_PENDING) - set(PARTNER_PACKAGES))
+    assert not unknown, f"not partners: {unknown}"
+
+
+@pytest.mark.parametrize("partner", sorted(_CONSUMER_SELF_CHECK_PENDING))
+def test_the_consumer_still_filters_on_the_name_until_it_checks_itself(partner):
+    """The source-read, kept ONLY for partners whose own check does not exist yet.
+
+    ADR-017 §5 constrains the order: this repository stops reading a consumer's source
+    when *that consumer* starts checking itself against the registry. Otherwise there is
+    a window where the registry row is a string a human typed, our check compares our
+    copy to it, and nothing anywhere consults what the consumer actually does — a green
+    build proving only that two values this platform authored agree.
+
+    views-faoapi#379 landed on 2026-08-11, so the FAO half of this check is gone.
+    views-crafdapi#53 has not, so CRAF'd's stays — and with it the crafd sibling fetch,
+    whose ``note`` in ``tests/conftest.py`` records that it lives or dies with this one
+    check.
+
+    **This test is meant to be deleted.** When #53 lands, remove that partner from
+    ``_CONSUMER_SELF_CHECK_PENDING``; when the map empties, remove this test, the regexes
+    it uses, and the fetch.
     """
     repo = require_sibling(CONSUMER_REPO[partner])
     pkg = _consumer_package(repo)
@@ -197,25 +305,20 @@ def test_the_declared_consumer_name_still_matches_the_consumer(partner):
     found = _CONSUMER_PATH_MANAGER.findall(api)
     assert len(found) == 1, (
         f"expected exactly one APIPathManager(...) construction in "
-        f"{CONSUMER_REPO[partner]}'s managers/api.py, found {found}. More than one "
-        "means the consumer serves several document names and this check no longer "
-        "knows which one is ours."
+        f"{CONSUMER_REPO[partner]}'s managers/api.py, found {found}. This is the fragile "
+        "half ADR-017 retires — a layout change there breaks a check here, which is what "
+        "happened to the FAO half on 2026-08-11. It survives only until "
+        f"{_CONSUMER_SELF_CHECK_PENDING[partner]} lands."
     )
     assert found[0] == _CONSUMER_DOCUMENT_NAME[partner], (
         f"{CONSUMER_REPO[partner]} filters on {found[0]!r}; this repository declares "
-        f"{_CONSUMER_DOCUMENT_NAME[partner]!r} and writes it as "
-        f"{partner}/product.py's CONSUMER_DOCUMENT_NAME. A delivery under a name the "
-        "consumer does not ask for is uploaded, stored, and invisible (ADR-013 §4.1a)."
-    )
-    assert found[0] == _product(partner).CONSUMER_DOCUMENT_NAME, (
-        "the declared pin in this file and the module's constant disagree — the "
-        "always-on test above should have caught this first"
+        f"{_CONSUMER_DOCUMENT_NAME[partner]!r}. A delivery under a name the consumer does "
+        "not ask for is uploaded, stored, and invisible (ADR-013 §4.1a)."
     )
 
     manager = (pkg / "managers" / "prediction" / "manager.py").read_text()
     assert _CONSUMER_FILTER in manager, (
-        f"{CONSUMER_REPO[partner]} no longer selects by "
-        f"{_CONSUMER_FILTER!r}. The name may still match while the consumer filters on "
-        "something else entirely — same invisibility, different cause. Re-read its "
-        "selection path before assuming this repository's deliveries are reachable."
+        f"{CONSUMER_REPO[partner]} no longer selects by {_CONSUMER_FILTER!r}. The name "
+        "may still match while the consumer filters on something else entirely — same "
+        "invisibility, different cause."
     )

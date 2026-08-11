@@ -497,7 +497,8 @@ _TABLE_ROLE = {
     "connection": "CONSUMED",   # parsed by _declared_classes; coordinates we read
     "target": "CONSUMED",       # parsed by _declared_classes; coordinates we read
     "secret": "CONSUMED",       # parsed by _declared_classes; the operator's slots
-    "contract": "MIRRORED",     # values legitimately live in our source — ADR-017; see below
+    "contract": "MIRRORED",     # values live in our source by design (ADR-017 §5);
+    #                             checked by tests/test_product.py, not by _declared_classes
     "excluded": "IGNORED",      # names the registry records as deliberately NOT coordinates
     "test_environment": "IGNORED",  # a fact about the platform, not about this package
     "meta": "METADATA",         # the edition and its amendment log
@@ -937,9 +938,22 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     if repo is None:
         pytest.skip("views-appwrite checkout not found — set VIEWS_APPWRITE")
     registry = _load_registry(repo)
+    # Scoped by the declared partition, NOT by an inline tuple — so a new table cannot
+    # be swept in by a one-word edit, and `contract` cannot be swept in at all.
+    #
+    # `[contract.*]` values are MIRRORED: ADR-017 §5 requires them to appear in this
+    # package's source, because we write them onto every upload. Banning them here would
+    # forbid the thing the contract obliges. That is not an exception to "never copy a
+    # coordinate" — it is a different class, declared upstream: the registry's own header
+    # says no reader scans `[contract.*]`, so no value there ever reaches a process
+    # environment. The no-copy rule protects values the launcher supplies; a mirror is
+    # the inverse by construction.
+    scanned_sections = tuple(
+        name for name, role in _TABLE_ROLE.items() if role == "CONSUMED" and name != "secret"
+    )
     values = {
         body["value"]
-        for section in ("connection", "target")
+        for section in scanned_sections
         for body in registry.get(section, {}).values()
         if isinstance(body.get("value"), str) and len(body["value"]) > 6
     }
