@@ -51,9 +51,14 @@ jobs:
     # someone else's test suite the first time a sibling landed outside it.
     #
     # No `token:` on any step below, and that is load-bearing rather than an omission:
-    # the default GITHUB_TOKEN is scoped to THIS repository, so a tokenless checkout of
-    # a repo declared public FAILS if it is actually private. That is what verifies the
-    # `public` field — no test does, because nothing in this suite touches the network.
+    # the default GITHUB_TOKEN is scoped to THIS repository, so a tokenless checkout of a
+    # private repository simply fails, loudly, at this step.
+    #
+    # An earlier version of this comment said that "verifies the `public` field". There is
+    # no such field: `public` was deleted from `SIBLINGS` on 2026-08-10 because nothing
+    # could verify it, and ADR-016 §4 now says so explicitly. A comment in THIS file
+    # asserting a fact about another repository that nothing checks is the founding
+    # incident of ADR-016 §3, and it had reappeared here.
     - name: Checkout views-appwrite (sibling)
       uses: actions/checkout@v3
       with:

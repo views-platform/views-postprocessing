@@ -32,6 +32,14 @@ from pathlib import Path
 
 import pytest
 
+from tests.seam_registry import (
+    ABSENT as _ABSENT,
+    REGISTRY_RELPATH as _REGISTRY_RELPATH,
+    RegistryReadError as _RegistryReadError,
+    registry_at as _registry_at,
+    registry_current as _registry_current,
+    rows as _rows,
+)
 from tests.conftest import (
     PARTNER_PACKAGES,
     broken_sibling_overrides,
@@ -433,7 +441,7 @@ def test_secret_env_names_follow_the_seam_contract_naming_rule():
 # and copying one into a test is the same violation as copying it into code. These
 # compare names, declared classes, and the edition — nothing else.
 
-_REGISTRY_RELPATH = Path("docs") / "ADRs" / "platform" / "coordinate_registry.toml"
+
 
 #: How this module treats each declared name, vs. the registry's own `class` field.
 #:
@@ -479,8 +487,6 @@ def test_every_declared_name_is_classified_here(partner):
 
 #: Sentinel for "this row carries no value", distinct from any string a registry
 #: could legitimately hold.
-_ABSENT = object()
-
 #: Every top-level table the registry may carry, and what this repository does with it.
 #:
 #: **Declared, and asserted against the live registry** — a table appearing upstream that
@@ -497,6 +503,13 @@ _TABLE_ROLE = {
     #                             checked by tests/test_product.py, not by _declared_classes
     "excluded": "IGNORED",      # names the registry records as deliberately NOT coordinates
     "test_environment": "IGNORED",  # a fact about the platform, not about this package
+    #: Arrived at registry v1.6.0, and it is views-appwrite#76 delivered — each edition
+    #: marked ``obliges_consumers = true|false``, so a consumer can tell a console
+    #: observation from a change it must act on. IGNORED only because nothing here reads
+    #: it YET: adopting it is the follow-up that lets the drift check below stop caring
+    #: about editions that oblige nobody. Caught by this very partition on its first
+    #: encounter, which is what the partition is for.
+    "edition": "IGNORED",
     "meta": "METADATA",         # the edition and its amendment log
 }
 
@@ -538,103 +551,6 @@ def _missing_dependencies(registry: dict) -> list[str]:
     return sorted(n for n in _TABLES_WE_DEPEND_ON if n not in registry)
 
 
-def _rows(registry: dict, sections: tuple) -> dict[str, tuple]:
-    """``name -> (section, class, value-or-absent)`` across ``sections``.
-
-    The single reader the class check, the drift projection and the no-copy scan share.
-    Two hand-copied versions had already diverged on null handling: one used
-    ``registry.get(s, {})`` and raised ``AttributeError`` on a null section, the other
-    used ``(registry.get(s) or {})`` and did not.
-    """
-    return {
-        name: (section, body.get("class"), body.get("value", _ABSENT))
-        for section in sections
-        for name, body in (registry.get(section) or {}).items()
-    }
-
-
-class _RegistryReadError(RuntimeError):
-    """The registry could not be read at a pinned commit — never a silent empty dict."""
-
-
-def _registry_at(repo: Path, ref: str) -> dict:
-    """The registry as it stood at ``ref``, or raise. Never returns ``{}`` quietly.
-
-    **Why not ``conftest.git_output``.** That helper turns any failure into ``""``, and
-    ``tomllib.loads("")`` returns ``{}``. An empty registry compared against an empty
-    projection passes — forever, silently. That is the vanished-directory shape ADR-014
-    §2 exists for, and building it into the fix for a drift detector would be the joke
-    writing itself. So this distinguishes a non-zero exit from an empty file, and
-    refuses a parse that lacks the anchors every real edition has.
-
-    Module-local rather than in ``conftest.py``: register C-88 records that file already
-    holding four unrelated groups, and its trigger is a fifth. There is one consumer.
-    """
-    tomllib = pytest.importorskip("tomllib", reason="stdlib from 3.11; pyproject requires it")
-
-    # The ref must name a FROZEN commit, and must be the one we asked for.
-    #
-    # Without this, `git show ":<path>"` reads the INDEX and `git show "main:<path>"`
-    # reads a branch — both exit 0, both parse, both pass every anchor below. A pin
-    # blanked by a bad edit or set to "main" by someone who thinks that is what a pin
-    # means would make the differential compare the current registry against itself and
-    # report green against every future edition. That is the same silent-baseline trap
-    # this reader exists to close, wearing a different hat.
-    #
-    # ``^{commit}`` also peels an annotated TAG. That matters here: a tag object is not
-    # a commit, is reachable only through refs/tags, and — measured 2026-08-11 — yields
-    # a 404 from the pinned blob URL these modules publish. So this refuses one.
-    resolved = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
-        capture_output=True, text=True, check=False, timeout=30,
-    )
-    if resolved.returncode != 0 or not resolved.stdout.strip():
-        raise _RegistryReadError(
-            f"{ref!r} does not resolve to a commit in {repo}. A pin must name a frozen "
-            "commit: an empty ref reads the index, a branch name reads a moving tip, and "
-            "either would make the comparison below compare the registry to itself."
-        )
-    if not resolved.stdout.strip().startswith(ref):
-        raise _RegistryReadError(
-            f"{ref!r} resolves to commit {resolved.stdout.strip()[:12]}, which does not "
-            f"start with it. That happens when the pin names an annotated TAG rather than "
-            "a commit — git peels it silently, every check here passes, and the blob URL "
-            "these modules publish returns 404. Pin the commit."
-        )
-
-    result = subprocess.run(
-        ["git", "-C", str(repo), "show", f"{ref}:{_REGISTRY_RELPATH.as_posix()}"],
-        capture_output=True, text=True, check=False, timeout=30,
-    )
-    if result.returncode != 0:
-        raise _RegistryReadError(
-            f"cannot read the registry at {ref!r} in {repo}: git exited "
-            f"{result.returncode} ({result.stderr.strip()[:200]}). A pinned commit that "
-            "cannot be read is not a baseline — run `git fetch` in that checkout."
-        )
-    if not result.stdout.strip():
-        raise _RegistryReadError(
-            f"the registry is EMPTY at {ref!r} in {repo}. Treating that as a registry "
-            "with no coordinates would make every comparison below pass."
-        )
-    try:
-        registry = tomllib.loads(result.stdout)
-    except Exception as exc:  # TOMLDecodeError, and whatever a non-TOML blob raises
-        raise _RegistryReadError(
-            f"the registry at {ref!r} in {repo} did not parse as TOML: {exc}. A raw "
-            "traceback from a helper whose justification is failing legibly would be its "
-            "own defeat — this happens when the path names a directory, or the blob is "
-            "not the file we think it is."
-        ) from exc
-    if not registry.get("meta", {}).get("version") or not registry.get("connection"):
-        raise _RegistryReadError(
-            f"the registry at {ref!r} parsed but carries no meta.version or no "
-            "connection rows. Every real edition has both, so this is not the file we "
-            "think it is — refusing rather than comparing against it."
-        )
-    return registry
-
-
 def _projection(registry: dict, names: set[str]) -> dict[str, tuple]:
     """``name -> (section, class, value-or-absent)`` for the names we declare.
 
@@ -649,42 +565,6 @@ def _projection(registry: dict, names: set[str]) -> dict[str, tuple]:
     lawful place a baseline for that comparison can live.
     """
     return {n: row for n, row in _rows(registry, _CONSUMED_TABLES).items() if n in names}
-
-
-def _registry_current(repo: Path) -> dict:
-    """The registry as the sibling's ``main`` has it — not its working tree.
-
-    A sibling clone normally sits on whatever branch its own agent last worked on.
-    Comparing against that grades us on unreviewed content, or reddens on a branch nobody
-    merged — #196 verbatim, the case that cost this platform a withdrawn pull request.
-    The ``ref: main`` discipline lived only inside the CI workflow, so a developer running
-    the suite locally was comparing against something else entirely, and ADR-016's erratum
-    claimed otherwise.
-    """
-    head = ""
-    for ref in ("origin/main", "main"):
-        resolved = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
-            capture_output=True, text=True, check=False, timeout=30,
-        )
-        if resolved.returncode == 0 and resolved.stdout.strip():
-            head = resolved.stdout.strip()
-            break
-    if not head:
-        raise _RegistryReadError(
-            f"neither origin/main nor main resolves in {repo}. The comparison is against "
-            "that repository's ratified content, so there is nothing to compare against — "
-            "run `git fetch` there."
-        )
-    # Resolved to a SHA before reading, deliberately. `_registry_at` refuses any ref that
-    # is not a frozen commit, and that guard must have no exceptions: an earlier version
-    # exempted "main"/"origin/main" so this function could call it — which meant a pin
-    # literally set to ``"main"`` was accepted, reopening the hole the guard exists for.
-    # Resolving here keeps the guard absolute at the cost of one extra rev-parse.
-    #
-    # Read errors propagate unchanged: a registry that is corrupt or anchorless ON MAIN
-    # must say so, not be reported as "neither ref resolves".
-    return _registry_at(repo, head)
 
 
 def _describe_changes(then: dict, now: dict, names: set[str]) -> dict[str, str]:
@@ -1166,7 +1046,10 @@ def test_no_coordinate_value_is_copied_into_this_repo():
         body["value"]
         for section in scanned_sections
         for body in registry.get(section, {}).values()
-        if isinstance(body.get("value"), str) and len(body["value"]) > 6
+        # No length floor: it excluded two five-character coordinates and,
+        # measured, removing it keeps the suite green — so it was buying nothing
+        # while narrowing a security check.
+        if isinstance(body.get("value"), str) and body["value"].strip()
     }
 
     copied = []
@@ -1197,8 +1080,17 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     # The copy is a value **assigned to its own coordinate name** — `APPWRITE_X=value` —
     # which is a reader's instruction to configure with that literal. That is precise
     # enough to have caught README.md and to ignore every legitimate mention.
+    # `(.+?)\s*$` used to swallow an inline comment into the captured value, so
+    # `NAME=value   # note` compared `'value   # note'` against the registry and matched
+    # nothing. README.md's own Configuration block is written in exactly that style, so
+    # the guard was blind in the house style of the document it was written for — proven
+    # by injecting two real coordinate values with trailing comments, both invisible.
+    #
+    # A `#` inside a quoted value is legitimate, so the quoted form is matched first and
+    # taken whole; only an unquoted value is truncated at a comment.
     assignment = re.compile(
-        r"^\s*(?:export\s+)?(" + "|".join(sorted(_EXPECTED_NAMES)) + r")\s*=\s*(.+?)\s*$"
+        r"^\s*(?:export\s+)?(" + "|".join(sorted(_EXPECTED_NAMES)) + r")\s*="
+        r"""\s*(?:"([^"]*)"|'([^']*)'|([^#]*?))\s*(?:#.*)?$"""
     )
     # This repository's OWN tracked markdown — `git ls-files`, not `rglob`. CI checks
     # sibling repositories out into the workspace, and their documents are not this
@@ -1225,10 +1117,11 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     for doc in sorted(scanned):
         for number, line in enumerate(doc.read_text().splitlines(), 1):
             match = assignment.match(line)
-            if match and match.group(2).strip('"\'') in values:
+            captured = next((g for g in match.groups()[1:] if g is not None), None) if match else None
+            if captured is not None and captured.strip() in values:
                 copied.append(
-                    f"{doc.relative_to(_REPO)}:{number} = {match.group(2)!r} "
-                    f"(assigned to {match.group(1)})"
+                    f"{doc.relative_to(_REPO)}:{number} assigns a registry value to "
+                    f"{match.group(1)}"
                 )
 
     assert not copied, (

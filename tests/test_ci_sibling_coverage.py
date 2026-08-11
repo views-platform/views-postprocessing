@@ -450,10 +450,15 @@ def test_each_rule_bites_on_a_broken_world(label, workflow, siblings, why):
         "This means the RULE has stopped working — the real workflow is not involved "
         "and is probably fine. Fix the rule, not run_pytest.yml."
     )
-    assert any("views-appwrite" in v for v in violations), (
-        f"[{label}] objected, but its message does not name the offending sibling: "
-        f"{violations}. A maintainer reading only the failure would not know which "
-        "repository to look at."
+    offender = next(iter(siblings), None) or "views-appwrite"
+    assert any(offender in v for v in violations), (
+        f"[{label}] objected, but its message does not name the offending sibling "
+        f"({offender!r}): {violations}. A maintainer reading only the failure would not "
+        "know which repository to look at.\n\n"
+        "The name is taken from the mutant's own sibling map rather than hardcoded — a "
+        "fixed \"views-appwrite\" was correct only by coincidence of today's fixtures, "
+        "and would have made a working rule fail for the next mutant about a different "
+        "repository, under this file's inverted semantics."
     )
 
 

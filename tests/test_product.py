@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import CONSUMER_REPO, PARTNER_PACKAGES, SIBLINGS, require_sibling
+from tests.seam_registry import registry_current
 
 #: partner -> the document name its consumer filters on, DECLARED here rather than
 #: read back from the module under test.
@@ -181,19 +182,15 @@ def test_every_partner_has_a_declared_consumer_repository():
     )
 
 
-#: The platform registry, relative to a views-appwrite checkout.
+#: The registry reader is shared with ``tests/test_env_declaration.py`` — see
+#: ``tests/seam_registry.py``.
 #:
-#: Loaded locally rather than imported from ``tests/test_env_declaration.py``: a test
-#: module importing another test module is a dependency nobody declared, and the two read
-#: different things — that file reads coordinate sections, this one reads one contract
-#: row. Two four-line readers that are understood beat one shared one that has to serve
-#: both (WET before DRY).
-_REGISTRY_RELPATH = Path("docs") / "ADRs" / "platform" / "coordinate_registry.toml"
-
-
-def _registry(repo: Path) -> dict:
-    tomllib = pytest.importorskip("tomllib", reason="stdlib from 3.11; pyproject requires it")
-    return tomllib.loads((repo / _REGISTRY_RELPATH).read_text())
+#: It began here as a local four-line copy, defended as WET. The copies immediately
+#: disagreed: that module was moved to read the sibling's ``main`` after a review found
+#: reading its working tree meant grading this repository against unreviewed content
+#: (#196's shape), and this copy was left behind still reading the working tree. Two
+#: copies of a rule are fine; two copies that answer the same question differently are
+#: the second incident, which is this repository's trigger for extracting.
 
 
 #: partner -> the registry row that is the AUTHORITY for its delivery label.
@@ -244,7 +241,7 @@ def test_the_declared_consumer_name_matches_the_registry(partner):
     anywhere (ADR-013 §4.1a).
     """
     repo = require_sibling("views-appwrite")
-    registry = _registry(repo)
+    registry = registry_current(repo)
 
     contract = registry.get("contract") or {}
     row = _CONTRACT_ROW[partner]

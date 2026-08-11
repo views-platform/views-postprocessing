@@ -210,6 +210,7 @@ ADR-016 has CI check out `views-appwrite` and `views-crafdapi` so that cross-rep
 **What would resolve it, in order of preference:** views-appwrite#76 makes the obligation-carrying distinction machine-readable, so observation-only bumps stop firing the check at all — filed, and that seat volunteered it. Failing that, a bypass actor restores the escape. Failing both, the coupling stands as ADR-016 §7 describes, which is defensible but should be chosen rather than discovered.
 
 Cross-refs: **C-81** (the enforcement half, whose fix activates this), **C-46** (whose recommendation against per-PR sibling checkouts this overrode, with the reasoning recorded there), ADR-016 §7/§7a/§7b, views-appwrite#76.
+
 **Partial mitigation 2026-08-11 — the false-alarm rate, not the coupling.** The check that
 kept firing compared registry *version strings*. It has been replaced by three that match
 on the facts this repository actually declares: the pinned commit must declare the pinned
@@ -240,7 +241,7 @@ required on `main`**, at which moment the coupling stops being latent.
 | ID | C-87 |
 | Tier | 2 — the failure mode is invisible by construction. The upload succeeds, the storage is paid for, the consumer's endpoint returns empty, and nothing anywhere raises. That is the shape ADR-013 §4.1a calls *"invisible to the consumer, not merely degraded"*. |
 | Source | ADR-017 §8, sharpened by external review (#232, #234), 2026-08-10 |
-| Trigger | **Either half going missing.** (a) `views-faoapi#379` or `views-crafdapi#39` is closed without the check being written. (b) A private API operated by a **third party** becomes a consumer — at which point the second half cannot be required at all and this becomes permanent. |
+| Trigger | **Either half going missing.** (a) `views-faoapi#379` or `views-crafdapi#53` is closed without the check being written. (b) A private API operated by a **third party** becomes a consumer — at which point the second half cannot be required at all and this becomes permanent. |
 | Owner | The consumer-side seats own the check; this repository owns noticing that it exists. |
 | Location | `views_postprocessing/<partner>/product.py::CONSUMER_DOCUMENT_NAME`; the check in `tests/test_product.py`; ADR-017 §5, §8, Appendix B. |
 
@@ -248,11 +249,11 @@ ADR-017 decides that the delivery label is declared in the public coordinate reg
 
 Its residual is stated plainly in §8 and belongs here rather than only in a document: **we will verify our copy against the declaration, not the consumer's code against it.** If a consumer quietly starts filtering on something else, our check passes and the delivery is invisible exactly as before.
 
-**Why this is a risk and not merely a note.** The second half is real work in repositories this project does not control. `views-faoapi#379` has a willing owner. `views-crafdapi#39` is blocked on that partner's data contract and could sit for a long time. Until both land, the label's agreement with reality rests on the source-reading check — which ADR-017's sequencing deliberately keeps alive for exactly this reason, and which someone could remove believing the registry check replaced it.
+**Why this is a risk and not merely a note.** The second half is real work in repositories this project does not control. `views-faoapi#379` has a willing owner. `views-crafdapi#53` is blocked on that partner's data contract and could sit for a long time. Until both land, the label's agreement with reality rests on the source-reading check — which ADR-017's sequencing deliberately keeps alive for exactly this reason, and which someone could remove believing the registry check replaced it.
 
 **What was already prevented.** A reviewer caught that the obvious sequence created a window where the source-reading check was deleted before the consumer-side check existed, leaving a green build proving only that two values this platform authored agreed with each other. ADR-017 now forbids that ordering. This entry exists so the ordering constraint has a home outside the document that states it.
 
-Cross-refs: **C-77** (the same field's producer-side half, resolved), ADR-013 §4.1a, ADR-017 §5/§8/Appendix B, views-appwrite#75, views-faoapi#379, views-crafdapi#39.
+Cross-refs: **C-77** (the same field's producer-side half, resolved), ADR-013 §4.1a, ADR-017 §5/§8/Appendix B, views-appwrite#75, views-faoapi#379, views-crafdapi#53.
 
 ---
 
@@ -622,6 +623,7 @@ Where each sibling stands, after trying them:
 The two compound: a suite that checks less than you think, and no requirement that even that much passes. Neither is caused by this sync — both are pre-existing — but this sync is the first time `main` receives an epic whose value is largely the guards themselves.
 
 Cross-refs: **C-46** and **C-57** (both RESOLVED; this is the residual each recorded as *"a CI-cost and cross-repo-coupling decision"* and *"worth deciding once for both"* — it now has a live home and a concrete answer per sibling), **C-80** (the other verification gap found in the same audit), #188.
+
 **Partial mitigation 2026-08-10 (ADR-016) — the coverage half is mostly closed; the enforcement half is untouched.**
 
 The coverage half rested on a claim nobody could check. This entry, and the workflow comment it drew on, said `views-appwrite` was **private**, so its seven checks needed a credential. It went public on **2026-08-08** (`views-appwrite@9d80b75`, a deliberate and recorded act), and the claim here went on being made for two days afterwards. No credential was required, and none had been the obstacle since that date.
