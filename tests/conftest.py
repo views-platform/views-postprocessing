@@ -1,7 +1,23 @@
-"""Shared test fixtures — currently just one: how to find a sibling repository.
+"""Facts several test modules share, and the helpers that read them.
 
-**Why this exists (S6 / #187, S7 / #188; register C-46, C-57).** Three places needed a
-views-platform sibling checkout and each found it differently:
+**Read this first if you are new.** Despite the name, almost nothing here is a pytest
+fixture. The file holds four separate things:
+
+1. **which packages exist** — ``PARTNER_PACKAGES`` and ``MACHINERY_PACKAGES``, the
+   two kinds of top-level package under ``views_postprocessing/``;
+2. **the sibling repositories** — ``Sibling``/``SIBLINGS`` plus three functions for
+   locating one on disk. A *sibling* is another repository in the views-platform
+   organisation that sits beside this one in a developer's folder — never something we
+   install;
+3. **which repository consumes which partner's delivery** — ``CONSUMER_REPO``;
+4. **two read-only git helpers** used by cross-repository checks.
+
+Those four are not obviously one file's worth of responsibility, and that is recorded
+rather than defended: register **C-88**, with the trigger for splitting it. Read it
+before adding a fifth thing here.
+
+**Why the sibling helpers exist.** Three places needed to locate a views-platform
+sibling checkout and each did it differently:
 
 - ``scripts/build_gaul_lookup.py`` resolved ``$VIEWS_DATAFACTORY``, then the sibling
   directory, with a ``--datafactory`` override and a fail-loud message naming both —
@@ -65,8 +81,8 @@ MACHINERY_PACKAGES = ("contract", "delivery")
 class Sibling:
     """What this repository declares about one views-platform sibling (ADR-016).
 
-    Two fields, and the second is the one that matters. ``ci_checkout`` says whether CI
-    fetches this repository; ``note`` says why not, whenever the answer is no.
+    Three fields. ``env`` says where to find this repository on disk; ``ci_checkout``
+    says whether CI fetches it; ``note`` says why not, whenever the answer is no.
 
     **An earlier version also carried ``public`` and ``public_checked``.** They were
     removed on 2026-08-10 after a review found them circular: ``public`` was read by
@@ -133,10 +149,11 @@ SIBLINGS = {
             "PRIVATE — the only one, and that is why it is not fetched. Checking it "
             "out needs a credential, which is an "
             "operator decision deferred pending a request to FAO to make the repository "
-            "public. One check is dark meanwhile — the consumer-name pin, whose failure "
-            "mode is a delivery nobody can find. ADR-017 decides what happens instead "
-            "of a credential: the fact moves to the public coordinate registry, and "
-            "neither side reads the other. See also register C-81."
+            "public. **Nothing is dark because of this any more** (2026-08-11): ADR-017 "
+            "moved the delivery-label check onto the public coordinate registry, which "
+            "needs no credential, so neither side reads the other. This entry stays "
+            "PRIVATE because the fact is still true, not because anything is blocked on "
+            "it. See ADR-017 and register C-81."
         ),
     ),
     "views-crafdapi": Sibling(

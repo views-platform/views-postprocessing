@@ -41,9 +41,12 @@ the boundary and says so, rather than implying a coverage it does not have.
 Most tests here check our own code. A few check something different: whether a **claim
 this repository makes about a different repository** is still true.
 
-The clearest example. Each partner's `appwrite_env.py` says, in effect, *"we were written
-against edition 1.4.4 of the shared configuration registry."* That registry lives in
-another repository. A test opens that repository and checks the edition is still 1.4.4.
+The clearest example. Each partner's `appwrite_env.py` records which edition of the
+shared configuration registry it was verified against, by naming a commit in another
+repository. Tests open that repository at that commit and ask whether anything this
+package reads has moved since — a rename, a reclassification, a rotated value, or a new
+coordinate that has arrived. *(Until 2026-08-11 they asked a cruder question — whether the
+edition **label** still matched — which fired on every upstream edit. See §7b's erratum.)*
 
 This is not hypothetical housekeeping. On 2026-08-05 that test failed — the registry had
 moved to a new edition while nobody here was looking. Two days earlier, the same family of
@@ -85,6 +88,41 @@ nothing able to check it, will eventually be wrong and nobody will find out.
 - **`note`** — why not, when the answer is no.
 
 That is all. It replaces a comment with something a test can read.
+
+**Where that code lives, and why the question is worth asking.** The declaration sits in
+`tests/conftest.py`, because that is where this repository already keeps facts several
+test modules share. It is not obviously the right home: `conftest.py` is pytest's fixture
+file, and none of these declarations is a fixture — they are statements about the platform
+that tests happen to read.
+
+The cost is already visible. `scripts/build_gaul_lookup.py` needs the same
+sibling-location fact and cannot import it, because a script importing from `tests/` is
+the dependency direction backwards. So it declares the variable name a second time. That
+duplication is defensible on its own merits — the two contracts genuinely differ — but it
+was not a free choice, and a reader should know that a structural constraint and a design
+decision happened to agree.
+
+**Named trigger for moving it (ADR-014 §4):** a second non-test consumer needing one of
+these declarations, or a fifth declaration arriving in that file. The shape it would move
+to is a small module owning the platform declarations, importable by tests and scripts
+alike. Not committed to here, because the second incident is what tells you whether that
+shape is right. Tracked as register **C-88**.
+
+Who is who, once and in one table:
+
+| repository | public? | fetched by CI? | why not, if not |
+|---|---|---|---|
+| **views-appwrite** | yes | **yes** | — carries the registry drift checks |
+| **views-crafdapi** | yes | **yes**, temporarily | — retires when views-crafdapi#53 lands, not before (ADR-017 §5 is per partner) |
+| **views-datafactory** | yes | no | its checks need raw data that is not in its git repository; fetching it turns an honest skip into a crash |
+| **views-faoapi** | **no** | no | private — no amount of workflow configuration reaches it. That case is [ADR-017](017_facts_across_a_private_boundary.md) |
+
+**What of this table is enforced, and what is not.** `ci_checkout` is: the workflow and
+`SIBLINGS` are compared by `tests/test_ci_sibling_coverage.py`, and disagreement fails.
+The **`public?` column is not, and cannot be** — which is why `public` was deleted from the
+`Sibling` record on 2026-08-10, after a review found nothing could verify it. It is here
+because a reader needs it to follow the argument. Nothing reads this table; if it drifts
+from `SIBLINGS`, only a human will notice.
 
 ### §5 CI downloads exactly what that list says, and a test enforces it
 
@@ -190,6 +228,53 @@ branch. Both live here, and they answer different questions:
 G7 makes both read `main` rather than a default branch. It does not make either of them
 track the tip for its own sake.
 
+**Erratum, 2026-08-11 — there is a third kind, and §7a's "not adopted here" is stale.**
+
+§7a recorded views-appwrite's suggestion — pin against the contract *version* and treat
+observation-only bumps as non-blocking — and marked it *not adopted here, because it needs
+the upstream side first*. That framing was wrong in a way worth correcting rather than
+quietly editing: it treated the noise as something only upstream could fix.
+
+The registry-edition check was matching on `meta.version`, a label meaning *"anything at
+all changed"*. What this repository actually depends on is a set of rows. Matching on the
+rows instead removes the false alarms **without needing anything from upstream** — which
+is ADR-014 §3 applied properly: when a guard fires on something legitimate, the first
+question is whether the matching is wrong, not whether the scope is too wide. The matching
+was wrong.
+
+So the two categories above become three:
+
+- **Drift tripwires** read the sibling's `main` because movement is the signal.
+- **Reachability checks** read a pinned commit; movement is noise.
+- **Differential tripwires** read **both** — a pinned edition as the baseline, the
+  sibling's `main` as the comparison — and fire when something *we declare* differs between
+  them, or when a coordinate arrives in a table we read. This is the shape the registry
+  check now has. It catches a rotation, which is invisible to the other two, and it is
+  silent through prose edits and version bumps.
+
+*(Corrected twice on 2026-08-11, and the second time is the instructive one. The first
+implementation compared against the sibling's **working tree** — so a developer whose clone
+sat on a feature branch graded this repository against unreviewed content, which is #196's
+shape. The first correction moved **one** check onto `origin/main` and this paragraph then
+claimed all of them did; three others were still reading the working tree. All four read
+`origin/main` now. A sentence written to describe a fix, one fix ahead of the code, is the
+same defect §3 diagnoses.)*
+
+The third kind exists because the no-copy rule forbids writing expected coordinate values
+into this repository. A pinned edition is the only lawful place to keep a baseline for
+comparing them.
+
+views-appwrite#76 has since been done. It shipped on 2026-08-11 as registry version 1.6.0,
+which adds a table naming each edition and saying whether that edition obliges the
+repositories that read the registry. This repository does not read it yet, and does not have
+to: the third kind of check above already tells us whether anything we depend on moved. What
+the new table would add is upstream's own answer to the same question, which is cheaper and
+does not require a pinned baseline at all. That is worth adopting, and it is not urgent.
+
+It is worth saying how we learned it had shipped. Nobody told us. The check that requires
+every table upstream to be classified here went red the first time it met the new one, which
+is what that check is for.
+
 ---
 
 This section overrides an earlier internal recommendation not to couple per-pull-request CI
@@ -215,6 +300,12 @@ check runs on a maintainer's machine and not in CI, and the sibling's `note` say
 Until that declaration exists, the affected check runs on a maintainer's machine and not
 in CI. That is stated in the sibling's `note`, which rule G4 requires and which must name
 the record that owns it.
+
+**Update 2026-08-11.** The declaration now exists (views-appwrite#75), views-faoapi
+checks itself against it (their #379), and this repository's check reads the registry
+rather than that repository's source. So the FAO half is no longer laptop-only, and no
+credential was issued. What remains is CRAF'd's consumer-side check (views-crafdapi#53);
+until it lands, that partner's source-read stays, and with it that partner's fetch.
 
 ---
 

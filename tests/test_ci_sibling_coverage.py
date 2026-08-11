@@ -22,6 +22,20 @@ What still holds without the flag: a checkout of a repository CI cannot read sim
 the build, because the default `GITHUB_TOKEN` is scoped to this repository. Rule G5 keeps
 that failure loud.
 
+**Why the rules run G1, G2, G4, G5, G6, G7 with two numbers missing.** G3 paired a
+sibling's visibility against whether its checkout used a credential; G8 checked that a
+recorded date was plausible. Both were deleted on 2026-08-10 after a review found them
+circular — each existed to protect a field that existed to feed it. The survivors keep
+their original names rather than being renumbered, so anything written about "G6"
+elsewhere still means this G6. The gap is deliberate; nothing is missing.
+
+**Two sections of this file have inverted failure semantics, and that trips people.**
+Everything above `── the rules, against the real workflow ──` fails when *the workflow or
+the declaration* is wrong. Everything below `── the rules, against synthetic mutants ──`
+fails when **the rule itself** is wrong — those tests feed a deliberately broken world to
+a rule and demand it complain. If one of those fails, do not go looking at
+`run_pytest.yml`; the workflow is fine and the guard has stopped guarding.
+
 **Every rule is a pure function of (workflow, siblings)**, so each can be run against a
 synthetic mutant rather than only against the real file. A guard that can only be
 demonstrated by editing CI is a guard nobody ever watches fail (ADR-014 §2) — this repo
@@ -373,27 +387,36 @@ def _replace(name: str, **changes) -> dict[str, Sibling]:
     return {name: replace(SIBLINGS[name], **changes)}
 
 
+#: ``(rule, broken workflow, broken declaration, the sibling the message must name, why)``
+#:
+#: **The offender is declared, not inferred.** It was briefly derived from the mutant's
+#: own sibling map — which reads as principled and is wrong for `G2`, whose whole premise
+#: is an EMPTY declaration: there is nothing in the map to derive from, so it fell back to
+#: a hardcoded ``"views-appwrite"`` while the assertion message claimed it had not. For G2
+#: the offender is a name in the *workflow*, and no amount of looking at the declaration
+#: will find it. Writing it out is this repository's own rule (ADR-003): declare the fact,
+#: do not let a helper guess it.
 _MUTANTS = [
     ("G1 declared checkouts are present and pointed at",
      {"jobs": {"test": {"steps": [{"run": "poetry run pytest tests/", "env": {}}]}}},
-     _ONE, "declared ci_checkout=True but the checkout step is gone"),
+     _ONE, "views-appwrite", "declared ci_checkout=True but the checkout step is gone"),
     ("G2 every checkout is declared",
-     _workflow(), {}, "checked out but undeclared"),
+     _workflow(), {}, "views-appwrite", "checked out but undeclared"),
     ("G4 every note names a record",
      _workflow(), _replace("views-appwrite", ci_checkout=False, note=""),
-     "not checked out and no note"),
+     "views-appwrite", "not checked out and no note"),
     ("G4 every note names a record",
      _workflow(), _replace("views-appwrite", ci_checkout=False, note="because reasons"),
-     "note explains but names no record"),
+     "views-appwrite", "note explains but names no record"),
     ("G5 no step swallows its own failure",
      _workflow(**{"continue-on-error": True}), _ONE,
-     "a failed fetch would not fail the build"),
+     "views-appwrite", "a failed fetch would not fail the build"),
     ("G6 siblings land under the excluded path",
      _workflow(**{"with": {"path": "vendor/views-appwrite"}}), _ONE,
-     "outside _siblings/, so ruff would lint it"),
+     "views-appwrite", "outside _siblings/, so ruff would lint it"),
     ("G7 siblings are taken from main",
      _workflow(**{"with": {"ref": "development"}}), _ONE,
-     "takes a branch that is not the authority"),
+     "views-appwrite", "takes a branch that is not the authority"),
 ]
 
 
@@ -416,12 +439,33 @@ def test_every_rule_has_a_mutant_that_proves_it_bites():
     )
 
 
-@pytest.mark.parametrize("label, workflow, siblings, why", _MUTANTS)
-def test_each_rule_bites_on_a_broken_world(label, workflow, siblings, why):
+@pytest.mark.parametrize("label, workflow, siblings, offender, why", _MUTANTS)
+def test_each_rule_bites_on_a_broken_world(label, workflow, siblings, offender, why):
+    """Feed a rule a deliberately broken world and demand that it complains.
+
+    **A failure here means the RULE is broken, not the workflow.** That inversion is the
+    one thing about this file worth knowing before you debug it: `run_pytest.yml` is not
+    involved, the world being fed in is a synthetic dict defined below, and a green real
+    workflow is entirely consistent with this failing. A guard that no longer objects to
+    a violation is a guard that has silently stopped working, which is the failure this
+    whole file exists to make loud (ADR-014 §2).
+
+    The second assertion is not pedantry: a rule that objects without naming which
+    sibling is at fault leaves a maintainer grepping a workflow file by hand.
+    """
     violations = _RULES[label](workflow, siblings)
-    assert violations, f"[{label}] did not object to: {why}"
-    assert any("views-appwrite" in v for v in violations), (
-        f"[{label}] objected but did not name the offending sibling: {violations}"
+    assert violations, (
+        f"[{label}] did not object to a world that is deliberately broken: {why}. "
+        "This means the RULE has stopped working — the real workflow is not involved "
+        "and is probably fine. Fix the rule, not run_pytest.yml."
+    )
+    assert any(offender in v for v in violations), (
+        f"[{label}] objected, but its message does not name the offending sibling "
+        f"({offender!r}): {violations}. A maintainer reading only the failure would not "
+        "know which repository to look at.\n\n"
+        "Each mutant declares the name its rule must produce, in _MUTANTS. If you have "
+        "changed which sibling a mutant breaks, change its declared offender in the same "
+        "edit — under this file's inverted semantics, a stale one fails a rule that works."
     )
 
 

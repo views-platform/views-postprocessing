@@ -96,6 +96,33 @@ must decide for the category, not for today's instance.
 > surface. Each side verifies itself against that declaration. Neither side reads the
 > other's source code.**
 
+The same thing as a picture:
+
+```
+                views-appwrite
+             the registry (public)
+                   "un_fao"
+
+            ▲                     ▲
+            │                     │
+  views-postprocessing      views-faoapi
+     writes the name        reads the name
+
+        these two never read each other
+```
+
+**The arrow that is missing is the point.** Neither repository reads the other, so it does
+not matter that one of them is private, and no credential is needed by anyone. Both arrows
+point at a third place that is public to everybody.
+
+Who does what, once and in one table:
+
+| repository | its role | what it checks | needs access to |
+|---|---|---|---|
+| **views-appwrite** | holds the fact | nothing — it is the authority | — |
+| **views-postprocessing** (here) | writes the name onto every upload | its own copy against the registry | the registry only |
+| **views-faoapi** (private) | opens files with that name | its own served name against the registry | the registry only |
+
 Concretely, for the delivery label:
 
 1. The value is declared once, in the platform's public coordinate registry
@@ -330,17 +357,29 @@ visibility can be inferred for future APIs.
 1. **views-appwrite** — declare the label for each partner in the coordinate registry.
    Filed as views-appwrite#75. Nothing here can proceed before it.
 
-   **The two partners are not equally ready, and the halves should land separately.** The
-   FAO label is fully specified — `un_fao`, in force, evidenced in ADR-013 §4.1a. The
-   CRAF'd label is **not a value anyone has decided yet**: that partner serves a different
-   dataset whose targets, columns and entity model are still an open data-contract question
-   on the consumer side. Bundling both into one edit stalls the ready half behind the
-   blocked one, so **the FAO row should land on its own** and the CRAF'd row should follow
-   its data contract.
+   **Superseded 2026-08-11 — both rows now exist and both are in force.** This step used
+   to say the CRAF'd label was "not a value anyone has decided yet" and should follow its
+   data contract. views-appwrite declared both rows in v1.5.0, and the CRAF'd row states
+   the correction itself: *"Both sides already use this value in code today — this row
+   DECLARES a standing fact, it does not decide a new one."* It cites both sides' source.
+
+   So step 1 is **done for both partners**, and step 2 covers both. What remains split is
+   step 3, which is per-partner and is what step 2's retirement half waits on.
 2. **views-postprocessing** — switch the check to read the registry rather than the
-   consumer's source, for both partners. Ours, blocked on step 1. **In the same change**,
-   stop fetching `views-crafdapi` in CI: §7 shows that fetch then serves nothing, and
-   ADR-016's rules require a sibling that is not fetched to say why.
+   consumer's source, for both partners. Ours, blocked on step 1.
+
+   **Erratum, 2026-08-11 — this step used to say "in the same change, stop fetching
+   `views-crafdapi` in CI", and that contradicted §5.** §5 constrains the order: a
+   partner's source-reading check is removed only once *that partner's* consumer-side
+   check exists. The crafd source-read is the sole consumer of the crafd fetch, so
+   retiring the fetch retires the check — before views-crafdapi#53 has landed. The
+   instruction and the constraint could not both be followed.
+
+   Corrected: **retirement is per partner, and follows that partner's step 3.** For FAO
+   that is now met (views-faoapi#379 merged 2026-08-11), so the FAO source-read goes. For
+   CRAF'd it is not (views-crafdapi#53 open), so the crafd source-read stays — and with
+   it the crafd fetch, whose `note` in `tests/conftest.py` already records that it lives
+   or dies with that one check.
 3. **views-faoapi** — verify its own served label against the declaration; §8's other half.
    Filed as views-faoapi#379, and the consumer-side maintainer has accepted it.
 

@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-10                           |
-| Total Concerns    | 87                                   |
-| Open Concerns     | 14                                   |
+| Last Updated      | 2026-08-11                           |
+| Total Concerns    | 88                                   |
+| Open Concerns     | 15                                   |
 | Resolved Concerns | 73                                   |
 
 ---
@@ -161,6 +161,33 @@ that indexes only deleted code is noise.
 
 ## Open Concerns
 
+### C-88: The platform declarations live in pytest's fixture file, so nothing outside the test tree can reach them
+
+| Field | Value |
+|-------|-------|
+| ID | C-88 |
+| Tier | 3 — no correctness risk and nothing silent. It is a boundary that has already forced one duplication for structural rather than design reasons, and it will force the next one the same way. |
+| Source | `falsify` against the SOLID / component-principle lens, 2026-08-11 |
+| Trigger | **Either.** (a) A second non-test consumer needs one of these declarations and has to copy it. (b) A fifth declaration is added to `tests/conftest.py` — the file is at four, and the threshold for "dumping ground" is not a number but the moment nobody can say in one sentence what the file is for. |
+| Owner | Whoever adds the next declaration, or the next non-test consumer. Not urgent; it gets more expensive slowly. |
+| Location | `tests/conftest.py` (grew again this week; `wc -l` for the number, which moves); `scripts/build_gaul_lookup.py:73`; ADR-016 §4. |
+
+`tests/conftest.py` is pytest's fixture file. It currently holds **four unrelated groups**: the package taxonomy (`PARTNER_PACKAGES`, `MACHINERY_PACKAGES`), the sibling repositories (`Sibling`, `SIBLINGS`, and three resolver functions), the consumer mapping (`CONSUMER_REPO`), and two git helpers (`git_output`, `commit_is_on_main`). None of those is a test fixture. They are declarations about the platform that happen to be consumed by tests.
+
+**The concrete cost, which has already been paid once.** `scripts/build_gaul_lookup.py` needs the same sibling-location fact and cannot have it: *"a script must not import from `tests/` — that is the dependency direction backwards."* So it hardcodes `"VIEWS_DATAFACTORY"` at `:73` while `SIBLINGS` declares the same string in `conftest.py`.
+
+That duplication is **defended on WET grounds and the defence is sound** — the two contracts genuinely differ (the script returns a `Path` even when the checkout is absent so it can raise its own message; the test helper returns `None` because a missing sibling is a normal skip), and a guard asserts the two resolve to the same place. This entry does not ask for that to be merged.
+
+**What it records is that the choice was not free.** The script could not have reused the declaration even if reuse had been right, because of where the declaration lives. A structural constraint and a design decision reached the same answer, and only one of them was examined.
+
+**Why this is Tier 3 and not higher.** Nothing is wrong today. Every guard works, the duplication is guarded, and moving the declarations would touch a dozen imports for no immediate gain. The risk is the slope: `conftest.py` is where a declaration goes when nobody asks where it belongs, and each addition makes the next one more natural.
+
+**What "fixed" would look like**, when the trigger fires: a small module that owns the platform declarations — importable by tests, scripts and, if ever needed, package code — with `conftest.py` reduced to what pytest actually needs from it. That is the shape, not a commitment; the point of the trigger is that the second incident tells you whether it is right.
+
+Cross-refs: **C-46** (which records the builder's separate resolver and the guard that they agree), ADR-016 §4, ADR-002 (dependency direction).
+
+---
+
 ### C-86: The release path now depends on two other repositories, and there is no way past a red build
 
 | Field | Value |
@@ -180,9 +207,64 @@ ADR-016 has CI check out `views-appwrite` and `views-crafdapi` so that cross-rep
 
 **The rate is not hypothetical.** views-appwrite reports five registry editions in four days (v1.4.0 2026-08-02 through v1.4.4 2026-08-05), **four of them observation-driven** — recording console facts, correcting a key's scopes — carrying no obligation for any consumer. Each would have reddened this repository and blocked a release.
 
-**What would resolve it, in order of preference:** views-appwrite#76 makes the obligation-carrying distinction machine-readable, so observation-only bumps stop firing the check at all — filed, and that seat volunteered it. Failing that, a bypass actor restores the escape. Failing both, the coupling stands as ADR-016 §7 describes, which is defensible but should be chosen rather than discovered.
+**What would resolve it, in order of preference:** views-appwrite#76 makes the obligation-carrying distinction machine-readable, so observation-only bumps stop firing the check at all — filed, and that seat volunteered it. Failing that, a bypass actor restores the escape. Failing both, the coupling stands as ADR-016 §7 describes, which is defensible but should be chosen rather than discovered. *(⚠ "filed" is stale as of 2026-08-11 — #76 has **landed**, as registry v1.6.0. See the amendment at the end of this entry; the sentence is left as written because what it asked for and what arrived are worth comparing.)*
 
 Cross-refs: **C-81** (the enforcement half, whose fix activates this), **C-46** (whose recommendation against per-PR sibling checkouts this overrode, with the reasoning recorded there), ADR-016 §7/§7a/§7b, views-appwrite#76.
+
+**Partial mitigation 2026-08-11 — the false-alarm rate, not the coupling.** The check that
+kept firing compared registry *version strings*. It has been replaced by three that match
+on the facts this repository actually declares: the pinned commit must declare the pinned
+version; every top-level table upstream must be classified here; and no row we read may
+differ between the pinned edition and the current one.
+
+Measured across the window that prompted this entry — v1.4.4 → v1.5.2, three editions in a
+week — the new checks are **green**, because none of those editions touched a row this
+package reads. Under the old check every one of them was a red build blocking a release.
+
+**This does not close the entry, and the distinction matters.** C-86 is about CI depending
+on two other repositories with no way past a red build. That dependency is untouched: the
+sibling checkout still happens, `protect_main` still has zero bypass actors, and a change
+upstream that *does* touch a row we read will still redden this repository and block a
+merge — correctly, and that is the point. What changed is that it now fires for reasons
+that carry an obligation.
+
+The entry's trigger is unchanged and remains a console action: **a status check becomes
+required on `main`**, at which moment the coupling stops being latent.
+
+**Amended 2026-08-11 — the first-preference resolution has LANDED, and this entry found out
+from a guard rather than from a notification.** views-appwrite#76 shipped as registry
+**v1.6.0**: a new `[edition."x.y.z"]` table marking each edition `obliges_consumers =
+true|false`, which is exactly the machine-readable distinction the paragraph above asks for.
+The sentence *"filed, and that seat volunteered it"* was true when written and is now stale.
+
+Two things are worth recording about how it arrived. The partition check added the same day
+went red on it unprompted, on its first live encounter with an upstream table nobody here
+had classified — which is the whole reason that check is directional. And the row-level
+drift check stayed **correctly silent**, because a new table this package does not read is
+not drift in anything it depends on. The two behaved exactly as designed on data neither
+was tested against.
+
+**Adoption is a follow-up, not part of the change that noticed it.** `[edition]` is
+classified `IGNORED` in `tests/test_env_declaration.py::_TABLE_ROLE` — declared, not
+silently unseen. Nothing here reads `obliges_consumers` yet, so the false-alarm rate is
+still carried by the row-level differential rather than by upstream's own flag.
+
+**Deferral, with the trigger ADR-014 §4 requires** — this was carried in a pull-request
+description, where deferrals go to be forgotten:
+
+- **What:** re-pin `SEAM_CONTRACT_VERSION` / `SEAM_CONTRACT_COMMIT` in both
+  `views_postprocessing/{unfao,crafd}/appwrite_env.py` (currently v1.5.2 / `c7b597e`), and
+  read `[edition].obliges_consumers` so an observation-only edition cannot fire anything.
+- **Trigger — both halves have now FIRED:** the partition fired on v1.6.0 (2026-08-11), and
+  views-appwrite#76 landed. The re-pin is therefore **due**, not deferred; what remains
+  deferred is reading the new flag.
+- **Owner:** whoever next touches an `appwrite_env.py`. Re-pinning is hygiene with no
+  safety consequence now that the differential exists — which is precisely why it needs a
+  written trigger rather than a good intention.
+
+Cross-refs for this amendment: **C-57** (the drift detector this rides on), ADR-016 §7a/§7b,
+views-appwrite#76 (**delivered**, registry v1.6.0).
+
 
 ---
 
@@ -193,7 +275,7 @@ Cross-refs: **C-81** (the enforcement half, whose fix activates this), **C-46** 
 | ID | C-87 |
 | Tier | 2 — the failure mode is invisible by construction. The upload succeeds, the storage is paid for, the consumer's endpoint returns empty, and nothing anywhere raises. That is the shape ADR-013 §4.1a calls *"invisible to the consumer, not merely degraded"*. |
 | Source | ADR-017 §8, sharpened by external review (#232, #234), 2026-08-10 |
-| Trigger | **Either half going missing.** (a) `views-faoapi#379` or `views-crafdapi#39` is closed without the check being written. (b) A private API operated by a **third party** becomes a consumer — at which point the second half cannot be required at all and this becomes permanent. |
+| Trigger | **Either half going missing.** (a) `views-faoapi#379` or `views-crafdapi#53` is closed without the check being written. (b) A private API operated by a **third party** becomes a consumer — at which point the second half cannot be required at all and this becomes permanent. |
 | Owner | The consumer-side seats own the check; this repository owns noticing that it exists. |
 | Location | `views_postprocessing/<partner>/product.py::CONSUMER_DOCUMENT_NAME`; the check in `tests/test_product.py`; ADR-017 §5, §8, Appendix B. |
 
@@ -201,11 +283,11 @@ ADR-017 decides that the delivery label is declared in the public coordinate reg
 
 Its residual is stated plainly in §8 and belongs here rather than only in a document: **we will verify our copy against the declaration, not the consumer's code against it.** If a consumer quietly starts filtering on something else, our check passes and the delivery is invisible exactly as before.
 
-**Why this is a risk and not merely a note.** The second half is real work in repositories this project does not control. `views-faoapi#379` has a willing owner. `views-crafdapi#39` is blocked on that partner's data contract and could sit for a long time. Until both land, the label's agreement with reality rests on the source-reading check — which ADR-017's sequencing deliberately keeps alive for exactly this reason, and which someone could remove believing the registry check replaced it.
+**Why this is a risk and not merely a note.** The second half is real work in repositories this project does not control. `views-faoapi#379` has a willing owner. `views-crafdapi#53` is blocked on that partner's data contract and could sit for a long time. Until both land, the label's agreement with reality rests on the source-reading check — which ADR-017's sequencing deliberately keeps alive for exactly this reason, and which someone could remove believing the registry check replaced it.
 
 **What was already prevented.** A reviewer caught that the obvious sequence created a window where the source-reading check was deleted before the consumer-side check existed, leaving a green build proving only that two values this platform authored agreed with each other. ADR-017 now forbids that ordering. This entry exists so the ordering constraint has a home outside the document that states it.
 
-Cross-refs: **C-77** (the same field's producer-side half, resolved), ADR-013 §4.1a, ADR-017 §5/§8/Appendix B, views-appwrite#75, views-faoapi#379, views-crafdapi#39.
+Cross-refs: **C-77** (the same field's producer-side half, resolved), ADR-013 §4.1a, ADR-017 §5/§8/Appendix B, views-appwrite#75, views-faoapi#379, views-crafdapi#53.
 
 ---
 
@@ -575,6 +657,7 @@ Where each sibling stands, after trying them:
 The two compound: a suite that checks less than you think, and no requirement that even that much passes. Neither is caused by this sync — both are pre-existing — but this sync is the first time `main` receives an epic whose value is largely the guards themselves.
 
 Cross-refs: **C-46** and **C-57** (both RESOLVED; this is the residual each recorded as *"a CI-cost and cross-repo-coupling decision"* and *"worth deciding once for both"* — it now has a live home and a concrete answer per sibling), **C-80** (the other verification gap found in the same audit), #188.
+
 **Partial mitigation 2026-08-10 (ADR-016) — the coverage half is mostly closed; the enforcement half is untouched.**
 
 The coverage half rested on a claim nobody could check. This entry, and the workflow comment it drew on, said `views-appwrite` was **private**, so its seven checks needed a credential. It went public on **2026-08-08** (`views-appwrite@9d80b75`, a deliberate and recorded act), and the claim here went on being made for two days afterwards. No credential was required, and none had been the obstacle since that date.
@@ -583,7 +666,7 @@ CI now checks that repository out and those seven run on every pull request — 
 
 **What remains, and it is two different things:**
 
-1. **One dark check.** `views-faoapi` is genuinely private — the consumer-name pin is still laptop-only. That is one test, not seven, and it is the one whose failure mode is invisible rather than loud. ADR-016 §8 defers the credential and names the trigger: FAO declining the request to make that repository public, or a second private sibling appearing.
+1. **~~One dark check.~~ CLOSED 2026-08-11, and not by a credential.** This read: *"views-faoapi is genuinely private — the consumer-name pin is still laptop-only. That is one test, and it is the one whose failure mode is invisible rather than loud."* ADR-017 moved that check onto the public coordinate registry, so it runs in CI for every partner and needs no access to any private repository. The credential ADR-016 §8 deferred was never issued and is no longer the route. What remains of this half is CRAF'd's consumer-side check (views-crafdapi#53), which is the other repository's work, not a dark check here.
 2. **The enforcement half is entirely untouched.** `protect_main`'s ref-name include-list was empty; it now targets the default branch, but **no status check is required**, so a pull request with a red CI can still be merged to `main`. Since merging to `main` *is* the production release, this is the half that matters most and the half that has not moved.
 
 **And it no longer stands alone — read C-86 before closing this.** Measured 2026-08-10: `protect_main` also lists **zero bypass actors**, so once a status check *is* required, nobody can merge past it, administrator or otherwise. Meanwhile ADR-016 made this repository's CI depend on two other repositories. Adding the required check therefore does two things at once: it closes this entry, and it makes an unbypassable external dependency live on the release path. Both are defensible; doing them in one unremarked step is not. If the escape is wanted, a bypass actor is the same console session.
@@ -1421,7 +1504,22 @@ This is ADR-014 §2 in its narrow form: a guard's *scope* is part of what has to
 
 PR #211 re-pins crafd to `1.4.1` / `90fc105` and parameterises **three** of the four checks over both partner declarations — names-and-class, pinned edition, commit reachability. The fourth, the value-copy scan, was never partner-scoped: it walks `_PKG.rglob("*.py")` and so covered `crafd/` from the day it landed. A third partner is now a one-line addition, and an unguarded one is a failure. This entry stays RESOLVED — the mechanism was right, its reach was not — but the residual below now has a companion: a detector that names its subject is a detector that will miss the next subject.
 
-Cross-refs: C-74 (the guard this paragraph vouched for), C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
+**⚠ AMENDED 2026-08-11 — the value-copy scan was blind in this repository's own house style, twice, and the second time is the general lesson.**
+
+The scan was extended to tracked markdown during the development→main sync, because README.md had carried four real coordinate values. Two reviews later, it was still missing two whole classes of copy — both of them ordinary markdown, both proven by injecting real registry values and watching the guard stay green:
+
+| form | why it was invisible | fixed |
+|---|---|---|
+| `NAME=value   # comment` | `(.+?)\s*$` swallowed the comment into the captured value, so nothing compared equal. **README.md's own Configuration block is written in exactly this form.** | 2026-08-11 (iteration 2) |
+| `` - `NAME=value` ``, `` \| NAME=value \| ``, `` set `NAME=value` before … `` | the pattern anchored the coordinate name at `^\s*`, so it saw only an assignment that *starts a line* | 2026-08-11 (iteration 3) |
+
+The shared cause is not a regex bug. **The pattern described one way of writing markdown — the way this repository happens to write it today — and a guard against publishing a value has to survive the next contributor writing a bullet instead of a fenced block.** The name may now be preceded by anything that is not part of an identifier, and the value ends at whatever terminates it in prose: a comment, a closing backtick, or a table pipe. Thirteen forms are proven caught; the four legitimate mentions that must stay silent are proven silent.
+
+**The residual, which is deliberate and should not be "fixed".** This remains a *syntax* match. A value merely named in a sentence — "the six stranded documents in `<bucket>`" — is not a copy and does not fire. An earlier draft that matched any occurrence fired on a dozen documents, and the lesson recorded above applies to itself: a guard that cries wolf gets deleted, after which the real rule is unguarded (ADR-014 §3). The class this cannot catch is a value pasted into prose with no assignment syntax anywhere near it. That is accepted, because the alternative has been tried and was worse.
+
+**Why this belongs on C-57 rather than in a new entry.** It is the same guard, the same failure direction, and the same lesson this entry already records one layer down: the earlier amendment found the scan's *scope* was never mutation-proven (it named `unfao` and missed `crafd`); this one finds its *matching* was never proven against the file formats it scans. Scope, matching, and now syntax-variant — three ways for a mutation-proven guard to be proven against the wrong thing.
+
+Cross-refs: C-74 (the guard this paragraph vouched for), C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), **C-86** (the drift checks this scan sits beside), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
 
 ---
 
