@@ -207,7 +207,7 @@ ADR-016 has CI check out `views-appwrite` and `views-crafdapi` so that cross-rep
 
 **The rate is not hypothetical.** views-appwrite reports five registry editions in four days (v1.4.0 2026-08-02 through v1.4.4 2026-08-05), **four of them observation-driven** — recording console facts, correcting a key's scopes — carrying no obligation for any consumer. Each would have reddened this repository and blocked a release.
 
-**What would resolve it, in order of preference:** views-appwrite#76 makes the obligation-carrying distinction machine-readable, so observation-only bumps stop firing the check at all — filed, and that seat volunteered it. Failing that, a bypass actor restores the escape. Failing both, the coupling stands as ADR-016 §7 describes, which is defensible but should be chosen rather than discovered.
+**What would resolve it, in order of preference:** views-appwrite#76 makes the obligation-carrying distinction machine-readable, so observation-only bumps stop firing the check at all — filed, and that seat volunteered it. Failing that, a bypass actor restores the escape. Failing both, the coupling stands as ADR-016 §7 describes, which is defensible but should be chosen rather than discovered. *(⚠ "filed" is stale as of 2026-08-11 — #76 has **landed**, as registry v1.6.0. See the amendment at the end of this entry; the sentence is left as written because what it asked for and what arrived are worth comparing.)*
 
 Cross-refs: **C-81** (the enforcement half, whose fix activates this), **C-46** (whose recommendation against per-PR sibling checkouts this overrode, with the reasoning recorded there), ADR-016 §7/§7a/§7b, views-appwrite#76.
 
@@ -230,6 +230,40 @@ that carry an obligation.
 
 The entry's trigger is unchanged and remains a console action: **a status check becomes
 required on `main`**, at which moment the coupling stops being latent.
+
+**Amended 2026-08-11 — the first-preference resolution has LANDED, and this entry found out
+from a guard rather than from a notification.** views-appwrite#76 shipped as registry
+**v1.6.0**: a new `[edition."x.y.z"]` table marking each edition `obliges_consumers =
+true|false`, which is exactly the machine-readable distinction the paragraph above asks for.
+The sentence *"filed, and that seat volunteered it"* was true when written and is now stale.
+
+Two things are worth recording about how it arrived. The partition check added the same day
+went red on it unprompted, on its first live encounter with an upstream table nobody here
+had classified — which is the whole reason that check is directional. And the row-level
+drift check stayed **correctly silent**, because a new table this package does not read is
+not drift in anything it depends on. The two behaved exactly as designed on data neither
+was tested against.
+
+**Adoption is a follow-up, not part of the change that noticed it.** `[edition]` is
+classified `IGNORED` in `tests/test_env_declaration.py::_TABLE_ROLE` — declared, not
+silently unseen. Nothing here reads `obliges_consumers` yet, so the false-alarm rate is
+still carried by the row-level differential rather than by upstream's own flag.
+
+**Deferral, with the trigger ADR-014 §4 requires** — this was carried in a pull-request
+description, where deferrals go to be forgotten:
+
+- **What:** re-pin `SEAM_CONTRACT_VERSION` / `SEAM_CONTRACT_COMMIT` in both
+  `views_postprocessing/{unfao,crafd}/appwrite_env.py` (currently v1.5.2 / `c7b597e`), and
+  read `[edition].obliges_consumers` so an observation-only edition cannot fire anything.
+- **Trigger — both halves have now FIRED:** the partition fired on v1.6.0 (2026-08-11), and
+  views-appwrite#76 landed. The re-pin is therefore **due**, not deferred; what remains
+  deferred is reading the new flag.
+- **Owner:** whoever next touches an `appwrite_env.py`. Re-pinning is hygiene with no
+  safety consequence now that the differential exists — which is precisely why it needs a
+  written trigger rather than a good intention.
+
+Cross-refs for this amendment: **C-57** (the drift detector this rides on), ADR-016 §7a/§7b,
+views-appwrite#76 (**delivered**, registry v1.6.0).
 
 
 ---
@@ -1470,7 +1504,22 @@ This is ADR-014 §2 in its narrow form: a guard's *scope* is part of what has to
 
 PR #211 re-pins crafd to `1.4.1` / `90fc105` and parameterises **three** of the four checks over both partner declarations — names-and-class, pinned edition, commit reachability. The fourth, the value-copy scan, was never partner-scoped: it walks `_PKG.rglob("*.py")` and so covered `crafd/` from the day it landed. A third partner is now a one-line addition, and an unguarded one is a failure. This entry stays RESOLVED — the mechanism was right, its reach was not — but the residual below now has a companion: a detector that names its subject is a detector that will miss the next subject.
 
-Cross-refs: C-74 (the guard this paragraph vouched for), C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
+**⚠ AMENDED 2026-08-11 — the value-copy scan was blind in this repository's own house style, twice, and the second time is the general lesson.**
+
+The scan was extended to tracked markdown during the development→main sync, because README.md had carried four real coordinate values. Two reviews later, it was still missing two whole classes of copy — both of them ordinary markdown, both proven by injecting real registry values and watching the guard stay green:
+
+| form | why it was invisible | fixed |
+|---|---|---|
+| `NAME=value   # comment` | `(.+?)\s*$` swallowed the comment into the captured value, so nothing compared equal. **README.md's own Configuration block is written in exactly this form.** | 2026-08-11 (iteration 2) |
+| `` - `NAME=value` ``, `` \| NAME=value \| ``, `` set `NAME=value` before … `` | the pattern anchored the coordinate name at `^\s*`, so it saw only an assignment that *starts a line* | 2026-08-11 (iteration 3) |
+
+The shared cause is not a regex bug. **The pattern described one way of writing markdown — the way this repository happens to write it today — and a guard against publishing a value has to survive the next contributor writing a bullet instead of a fenced block.** The name may now be preceded by anything that is not part of an identifier, and the value ends at whatever terminates it in prose: a comment, a closing backtick, or a table pipe. Thirteen forms are proven caught; the four legitimate mentions that must stay silent are proven silent.
+
+**The residual, which is deliberate and should not be "fixed".** This remains a *syntax* match. A value merely named in a sentence — "the six stranded documents in `<bucket>`" — is not a copy and does not fire. An earlier draft that matched any occurrence fired on a dozen documents, and the lesson recorded above applies to itself: a guard that cries wolf gets deleted, after which the real rule is unguarded (ADR-014 §3). The class this cannot catch is a value pasted into prose with no assignment syntax anywhere near it. That is accepted, because the alternative has been tried and was worse.
+
+**Why this belongs on C-57 rather than in a new entry.** It is the same guard, the same failure direction, and the same lesson this entry already records one layer down: the earlier amendment found the scan's *scope* was never mutation-proven (it named `unfao` and missed `crafd`); this one finds its *matching* was never proven against the file formats it scans. Scope, matching, and now syntax-variant — three ways for a mutation-proven guard to be proven against the wrong thing.
+
+Cross-refs: C-74 (the guard this paragraph vouched for), C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), **C-86** (the drift checks this scan sits beside), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
 
 ---
 

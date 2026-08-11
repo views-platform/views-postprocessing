@@ -264,7 +264,16 @@ The third kind exists because the no-copy rule forbids writing expected coordina
 into this repository. A pinned edition is the only lawful place to keep a baseline for
 comparing them.
 
-views-appwrite#76 is still worth doing; it is no longer a precondition for anything here.
+views-appwrite#76 has since been done. It shipped on 2026-08-11 as registry version 1.6.0,
+which adds a table naming each edition and saying whether that edition obliges the
+repositories that read the registry. This repository does not read it yet, and does not have
+to: the third kind of check above already tells us whether anything we depend on moved. What
+the new table would add is upstream's own answer to the same question, which is cheaper and
+does not require a pinned baseline at all. That is worth adopting, and it is not urgent.
+
+It is worth saying how we learned it had shipped. Nobody told us. The check that requires
+every table upstream to be classified here went red the first time it met the new one, which
+is what that check is for.
 
 ---
 

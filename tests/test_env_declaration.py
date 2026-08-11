@@ -46,7 +46,6 @@ from tests.conftest import (
     commit_is_on_main,
     git_output,
     require_sibling,
-    sibling_repo,
 )
 from views_postprocessing.contract import launch_config
 from views_postprocessing.crafd import appwrite_env as crafd_env
@@ -442,7 +441,6 @@ def test_secret_env_names_follow_the_seam_contract_naming_rule():
 # compare names, declared classes, and the edition — nothing else.
 
 
-
 #: How this module treats each declared name, vs. the registry's own `class` field.
 #:
 #: **Written out, not derived.** An earlier draft built this by suffix — anything ending
@@ -485,8 +483,6 @@ def test_every_declared_name_is_classified_here(partner):
     )
 
 
-#: Sentinel for "this row carries no value", distinct from any string a registry
-#: could legitimately hold.
 #: Every top-level table the registry may carry, and what this repository does with it.
 #:
 #: **Declared, and asserted against the live registry** — a table appearing upstream that
@@ -1025,9 +1021,12 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     their own: a function name is not a ``Constant``; ``"unfao_bucket datastore"`` is not
     equal to ``"unfao_bucket"``; docstrings are excluded outright.
     """
-    repo = sibling_repo("views-appwrite")
-    if repo is None:
-        pytest.skip("views-appwrite checkout not found — set VIEWS_APPWRITE")
+    # `require_sibling`, like every other reader in this file. The hand-rolled skip that
+    # stood here said only "checkout not found — set VIEWS_APPWRITE", which is the
+    # degraded message `require_sibling` exists to replace: it names the variable but not
+    # the conventional path, so a contributor can watch it skip and not run it. Being the
+    # last call site off the shared path is how a rule ends up with two behaviours.
+    repo = require_sibling("views-appwrite")
     registry = _registry_current(repo)
     # Scoped by the declared partition, NOT by an inline tuple — so a new table cannot
     # be swept in by a one-word edit, and `contract` cannot be swept in at all.
@@ -1080,17 +1079,30 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     # The copy is a value **assigned to its own coordinate name** — `APPWRITE_X=value` —
     # which is a reader's instruction to configure with that literal. That is precise
     # enough to have caught README.md and to ignore every legitimate mention.
-    # `(.+?)\s*$` used to swallow an inline comment into the captured value, so
-    # `NAME=value   # note` compared `'value   # note'` against the registry and matched
-    # nothing. README.md's own Configuration block is written in exactly that style, so
-    # the guard was blind in the house style of the document it was written for — proven
-    # by injecting two real coordinate values with trailing comments, both invisible.
     #
-    # A `#` inside a quoted value is legitimate, so the quoted form is matched first and
-    # taken whole; only an unquoted value is truncated at a comment.
+    # **It has been blind in this repository's own house style twice, and both blindnesses
+    # had the same cause: the pattern described one way of writing markdown.**
+    #
+    # 1. `(.+?)\s*$` swallowed an inline comment into the captured value, so
+    #    `NAME=value   # note` compared `'value   # note'` against the registry and
+    #    matched nothing. README.md's Configuration block is written in exactly that form.
+    # 2. Anchoring the name at `^\s*` saw only an assignment that *starts a line*. A
+    #    markdown bullet — ``- `NAME=value` `` — a table cell, or an assignment quoted
+    #    mid-sentence were all invisible, and all three are ordinary ways to document
+    #    configuration. The fenced-block form the guard was written against is the one
+    #    form this repository happens to use today.
+    #
+    # So the name may be preceded by anything that is not part of an identifier, and the
+    # value ends at whatever terminates it in prose: a comment, a closing backtick, or a
+    # table pipe. A `#` inside a QUOTED value is legitimate, so the quoted forms are tried
+    # first and taken whole; only an unquoted value is truncated.
+    #
+    # This stays a syntax match, deliberately. A value merely *named* in a sentence is not
+    # a copy — C-57 recorded a draft that fired on a dozen such documents, and a guard that
+    # cries wolf gets deleted, after which the real rule is unguarded (ADR-014 §3).
     assignment = re.compile(
-        r"^\s*(?:export\s+)?(" + "|".join(sorted(_EXPECTED_NAMES)) + r")\s*="
-        r"""\s*(?:"([^"]*)"|'([^']*)'|([^#]*?))\s*(?:#.*)?$"""
+        r"(?:^|(?<=[\s`|>*-]))(?:export\s+)?(" + "|".join(sorted(_EXPECTED_NAMES)) + r")\s*="
+        r"""\s*(?:"([^"]*)"|'([^']*)'|([^#`|]*?))\s*(?:[#`|].*)?$"""
     )
     # This repository's OWN tracked markdown — `git ls-files`, not `rglob`. CI checks
     # sibling repositories out into the workspace, and their documents are not this
@@ -1116,7 +1128,8 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     )
     for doc in sorted(scanned):
         for number, line in enumerate(doc.read_text().splitlines(), 1):
-            match = assignment.match(line)
+            # `search`, not `match`: the assignment no longer has to start the line.
+            match = assignment.search(line)
             captured = next((g for g in match.groups()[1:] if g is not None), None) if match else None
             if captured is not None and captured.strip() in values:
                 copied.append(

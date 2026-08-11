@@ -387,27 +387,36 @@ def _replace(name: str, **changes) -> dict[str, Sibling]:
     return {name: replace(SIBLINGS[name], **changes)}
 
 
+#: ``(rule, broken workflow, broken declaration, the sibling the message must name, why)``
+#:
+#: **The offender is declared, not inferred.** It was briefly derived from the mutant's
+#: own sibling map — which reads as principled and is wrong for `G2`, whose whole premise
+#: is an EMPTY declaration: there is nothing in the map to derive from, so it fell back to
+#: a hardcoded ``"views-appwrite"`` while the assertion message claimed it had not. For G2
+#: the offender is a name in the *workflow*, and no amount of looking at the declaration
+#: will find it. Writing it out is this repository's own rule (ADR-003): declare the fact,
+#: do not let a helper guess it.
 _MUTANTS = [
     ("G1 declared checkouts are present and pointed at",
      {"jobs": {"test": {"steps": [{"run": "poetry run pytest tests/", "env": {}}]}}},
-     _ONE, "declared ci_checkout=True but the checkout step is gone"),
+     _ONE, "views-appwrite", "declared ci_checkout=True but the checkout step is gone"),
     ("G2 every checkout is declared",
-     _workflow(), {}, "checked out but undeclared"),
+     _workflow(), {}, "views-appwrite", "checked out but undeclared"),
     ("G4 every note names a record",
      _workflow(), _replace("views-appwrite", ci_checkout=False, note=""),
-     "not checked out and no note"),
+     "views-appwrite", "not checked out and no note"),
     ("G4 every note names a record",
      _workflow(), _replace("views-appwrite", ci_checkout=False, note="because reasons"),
-     "note explains but names no record"),
+     "views-appwrite", "note explains but names no record"),
     ("G5 no step swallows its own failure",
      _workflow(**{"continue-on-error": True}), _ONE,
-     "a failed fetch would not fail the build"),
+     "views-appwrite", "a failed fetch would not fail the build"),
     ("G6 siblings land under the excluded path",
      _workflow(**{"with": {"path": "vendor/views-appwrite"}}), _ONE,
-     "outside _siblings/, so ruff would lint it"),
+     "views-appwrite", "outside _siblings/, so ruff would lint it"),
     ("G7 siblings are taken from main",
      _workflow(**{"with": {"ref": "development"}}), _ONE,
-     "takes a branch that is not the authority"),
+     "views-appwrite", "takes a branch that is not the authority"),
 ]
 
 
@@ -430,8 +439,8 @@ def test_every_rule_has_a_mutant_that_proves_it_bites():
     )
 
 
-@pytest.mark.parametrize("label, workflow, siblings, why", _MUTANTS)
-def test_each_rule_bites_on_a_broken_world(label, workflow, siblings, why):
+@pytest.mark.parametrize("label, workflow, siblings, offender, why", _MUTANTS)
+def test_each_rule_bites_on_a_broken_world(label, workflow, siblings, offender, why):
     """Feed a rule a deliberately broken world and demand that it complains.
 
     **A failure here means the RULE is broken, not the workflow.** That inversion is the
@@ -450,15 +459,13 @@ def test_each_rule_bites_on_a_broken_world(label, workflow, siblings, why):
         "This means the RULE has stopped working — the real workflow is not involved "
         "and is probably fine. Fix the rule, not run_pytest.yml."
     )
-    offender = next(iter(siblings), None) or "views-appwrite"
     assert any(offender in v for v in violations), (
         f"[{label}] objected, but its message does not name the offending sibling "
         f"({offender!r}): {violations}. A maintainer reading only the failure would not "
         "know which repository to look at.\n\n"
-        "The name is taken from the mutant's own sibling map rather than hardcoded — a "
-        "fixed \"views-appwrite\" was correct only by coincidence of today's fixtures, "
-        "and would have made a working rule fail for the next mutant about a different "
-        "repository, under this file's inverted semantics."
+        "Each mutant declares the name its rule must produce, in _MUTANTS. If you have "
+        "changed which sibling a mutant breaks, change its declared offender in the same "
+        "edit — under this file's inverted semantics, a stale one fails a rule that works."
     )
 
 
