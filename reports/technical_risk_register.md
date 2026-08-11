@@ -210,6 +210,26 @@ ADR-016 has CI check out `views-appwrite` and `views-crafdapi` so that cross-rep
 **What would resolve it, in order of preference:** views-appwrite#76 makes the obligation-carrying distinction machine-readable, so observation-only bumps stop firing the check at all — filed, and that seat volunteered it. Failing that, a bypass actor restores the escape. Failing both, the coupling stands as ADR-016 §7 describes, which is defensible but should be chosen rather than discovered.
 
 Cross-refs: **C-81** (the enforcement half, whose fix activates this), **C-46** (whose recommendation against per-PR sibling checkouts this overrode, with the reasoning recorded there), ADR-016 §7/§7a/§7b, views-appwrite#76.
+**Partial mitigation 2026-08-11 — the false-alarm rate, not the coupling.** The check that
+kept firing compared registry *version strings*. It has been replaced by three that match
+on the facts this repository actually declares: the pinned commit must declare the pinned
+version; every top-level table upstream must be classified here; and no row we read may
+differ between the pinned edition and the current one.
+
+Measured across the window that prompted this entry — v1.4.4 → v1.5.2, three editions in a
+week — the new checks are **green**, because none of those editions touched a row this
+package reads. Under the old check every one of them was a red build blocking a release.
+
+**This does not close the entry, and the distinction matters.** C-86 is about CI depending
+on two other repositories with no way past a red build. That dependency is untouched: the
+sibling checkout still happens, `protect_main` still has zero bypass actors, and a change
+upstream that *does* touch a row we read will still redden this repository and block a
+merge — correctly, and that is the point. What changed is that it now fires for reasons
+that carry an obligation.
+
+The entry's trigger is unchanged and remains a console action: **a status check becomes
+required on `main`**, at which moment the coupling stops being latent.
+
 
 ---
 

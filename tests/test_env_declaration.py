@@ -485,6 +485,96 @@ def _load_registry(repo: Path) -> dict:
     return tomllib.loads((repo / _REGISTRY_RELPATH).read_text())
 
 
+#: Every top-level table the registry may carry, and what this repository does with it.
+#:
+#: **Declared, and asserted against the live registry** — a table appearing upstream that
+#: nobody here has classified is a change this repository has not looked at. That is not
+#: hypothetical: `[contract.*]` arrived in v1.5.0 carrying a live obligation (the
+#: ADR-017 delivery-label mirror), and the ONLY mechanism here that noticed was a
+#: version-string comparison that fired for the wrong reason and was deleted with this
+#: change. Four tables were being ignored silently at the time.
+_TABLE_ROLE = {
+    "connection": "CONSUMED",   # parsed by _declared_classes; coordinates we read
+    "target": "CONSUMED",       # parsed by _declared_classes; coordinates we read
+    "secret": "CONSUMED",       # parsed by _declared_classes; the operator's slots
+    "contract": "MIRRORED",     # values legitimately live in our source — ADR-017; see below
+    "excluded": "IGNORED",      # names the registry records as deliberately NOT coordinates
+    "test_environment": "IGNORED",  # a fact about the platform, not about this package
+    "meta": "METADATA",         # the edition and its amendment log
+}
+
+#: Tables whose absence is our problem. An IGNORED table vanishing is not — that
+#: direction is deliberately unchecked, which is why v1.5.1 dropping `[unmodelled]` is
+#: silent while v1.5.0 adding `[contract]` is a red build with something to do.
+_TABLES_WE_DEPEND_ON = tuple(
+    name for name, role in _TABLE_ROLE.items() if role in ("CONSUMED", "MIRRORED")
+)
+
+
+class _RegistryReadError(RuntimeError):
+    """The registry could not be read at a pinned commit — never a silent empty dict."""
+
+
+def _registry_at(repo: Path, ref: str) -> dict:
+    """The registry as it stood at ``ref``, or raise. Never returns ``{}`` quietly.
+
+    **Why not ``conftest.git_output``.** That helper turns any failure into ``""``, and
+    ``tomllib.loads("")`` returns ``{}``. An empty registry compared against an empty
+    projection passes — forever, silently. That is the vanished-directory shape ADR-014
+    §2 exists for, and building it into the fix for a drift detector would be the joke
+    writing itself. So this distinguishes a non-zero exit from an empty file, and
+    refuses a parse that lacks the anchors every real edition has.
+
+    Module-local rather than in ``conftest.py``: register C-88 records that file already
+    holding four unrelated groups, and its trigger is a fifth. There is one consumer.
+    """
+    tomllib = pytest.importorskip("tomllib", reason="stdlib from 3.11; pyproject requires it")
+    result = subprocess.run(
+        ["git", "-C", str(repo), "show", f"{ref}:{_REGISTRY_RELPATH.as_posix()}"],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    if result.returncode != 0:
+        raise _RegistryReadError(
+            f"cannot read the registry at {ref!r} in {repo}: git exited "
+            f"{result.returncode} ({result.stderr.strip()[:200]}). A pinned commit that "
+            "cannot be read is not a baseline — run `git fetch` in that checkout."
+        )
+    if not result.stdout.strip():
+        raise _RegistryReadError(
+            f"the registry is EMPTY at {ref!r} in {repo}. Treating that as a registry "
+            "with no coordinates would make every comparison below pass."
+        )
+    registry = tomllib.loads(result.stdout)
+    if not registry.get("meta", {}).get("version") or not registry.get("connection"):
+        raise _RegistryReadError(
+            f"the registry at {ref!r} parsed but carries no meta.version or no "
+            "connection rows. Every real edition has both, so this is not the file we "
+            "think it is — refusing rather than comparing against it."
+        )
+    return registry
+
+
+def _projection(registry: dict, names: set[str]) -> dict[str, tuple]:
+    """``name -> (section, class, value-or-absent)`` for the names we declare.
+
+    The unit of comparison between two editions. Restricted to our own surface, so an
+    unrelated row moving is invisible here — that is the whole point, and it is what
+    stops an observation-only bump from reddening this repository (register C-86).
+
+    ``value`` is included because **rotation is the change no other check can see**: a
+    bucket id whose value changes keeps its name and its class, so the names-and-classes
+    check passes while every delivery goes to the wrong place. The no-copy rule forbids
+    writing the expected values into this repository, so the pinned edition is the only
+    lawful place a baseline for that comparison can live.
+    """
+    out = {}
+    for section in ("connection", "target", "secret"):
+        for name, body in (registry.get(section) or {}).items():
+            if name in names:
+                out[name] = (section, body.get("class"), body.get("value", "<absent>"))
+    return out
+
+
 def _declared_classes(registry: dict) -> dict[str, str]:
     """name -> the class the registry DECLARES for it (never inferred from the name)."""
     return {
@@ -520,24 +610,116 @@ def test_every_declared_name_exists_in_the_registry_with_the_class_we_treat_it_a
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)
-def test_the_pinned_contract_edition_still_matches_the_registry(partner):
-    """The check that catches everything the other one cannot — including additions.
+def test_the_pinned_commit_declares_the_pinned_version(partner):
+    """The pair is a claim, and until now nothing checked it.
 
-    Names and classes catch a rename. The edition catches **any** other change: a new
-    target this repo ought to adopt, a retired secret slot, a reworded rule. It fails
-    loudly and tells you what to do rather than what broke.
+    ``appwrite_env.py`` declares a version AND a commit, and the old drift check's own
+    message said *"Do not bump one alone — the pair is the claim."* That sentence lived
+    only inside an error string: no test compared the two. Someone could bump either
+    alone and the whole suite stayed green, leaving a pin that names an edition nobody
+    published.
 
-    It is also the check that would have caught #211's stale crafd pin on the day it
-    was written, had it been looking at crafd. It was not. It is now.
+    Verified 2026-08-11: ``fcf32c9`` does declare ``1.4.4`` — true by luck, not by check.
+
+    Both sides of this comparison are frozen, so it is the one registry check in this
+    file that upstream activity can never redden. It fails only when *we* are wrong.
     """
     repo = require_sibling("views-appwrite")
     module = _PARTNER_ENV[partner][0]
-    actual = _load_registry(repo)["meta"]["version"]
-    assert actual == module.SEAM_CONTRACT_VERSION, (
-        f"the Appwrite Seam Contract's registry moved to v{actual}; "
-        f"{partner}/appwrite_env.py declares v{module.SEAM_CONTRACT_VERSION}. Re-verify "
-        f"that module's declaration against v{actual}, then bump SEAM_CONTRACT_VERSION "
-        "and SEAM_CONTRACT_COMMIT together. Do not bump one alone — the pair is the claim."
+    try:
+        pinned = _registry_at(repo, module.SEAM_CONTRACT_COMMIT)
+    except _RegistryReadError as exc:
+        pytest.fail(str(exc))
+    assert pinned["meta"]["version"] == module.SEAM_CONTRACT_VERSION, (
+        f"[{partner}] the pin is internally inconsistent: commit "
+        f"{module.SEAM_CONTRACT_COMMIT} declares registry v{pinned['meta']['version']}, "
+        f"but SEAM_CONTRACT_VERSION says v{module.SEAM_CONTRACT_VERSION}. One of the two "
+        "was bumped alone. The pair is the claim — fix whichever is wrong."
+    )
+
+
+def test_every_table_in_the_registry_is_classified_here():
+    """A table nobody classified is an upstream change nobody looked at.
+
+    This replaces the old edition-equality check, and it is worth being precise about
+    what that check was really doing. It compared version *strings*, so it fired on every
+    edition — five in four days, four of them recording console observations that carried
+    no obligation for anyone here (register C-86). A guard that cries wolf gets bumped
+    reflexively, which is how its one real firing goes unread.
+
+    But it did have a real job underneath the noise, and this is that job. On 2026-08-10
+    the registry grew a ``[contract.*]`` table carrying a live obligation for this
+    repository — the ADR-017 delivery-label mirror — and the edition check was the *only*
+    mechanism here that noticed, because ``_declared_classes`` parses three tables and
+    was silently ignoring four.
+
+    **Directional on purpose.** Every table upstream must be classified; only the tables
+    we depend on must exist. An IGNORED table disappearing is not our business, which is
+    why v1.5.1 dropping ``[unmodelled]`` is silent while v1.5.0 adding ``[contract]`` is
+    a red build with something to do. Two events in the registry's life, both of which
+    this repository needed to see.
+    """
+    repo = require_sibling("views-appwrite")
+    registry = _load_registry(repo)
+
+    unclassified = sorted(set(registry) - set(_TABLE_ROLE))
+    assert not unclassified, (
+        f"the registry has table(s) this repository has never classified: "
+        f"{unclassified}. Decide what each one is — CONSUMED (we read it), MIRRORED (its "
+        "values live in our source), or IGNORED (with a reason) — and add it to "
+        "_TABLE_ROLE. A new table is how an obligation arrives; `[contract.*]` arrived "
+        "exactly this way and only a noisy version check happened to catch it."
+    )
+    vanished = sorted(n for n in _TABLES_WE_DEPEND_ON if n not in registry)
+    assert not vanished, (
+        f"table(s) this repository depends on are gone from the registry: {vanished}. "
+        "Either they were retired upstream and this package must stop reading them, or "
+        "the file being read is not the registry."
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_nothing_this_repo_reads_has_changed_since_the_pin(partner):
+    """The drift check, matching on the facts rather than on the edition label.
+
+    ADR-014 §3: when a guard fires on something legitimate, ask whether the *matching* is
+    wrong before you narrow the scope. The old check matched on ``meta.version``, which
+    is a label for "anything at all changed". This matches on the rows this package
+    actually declares, compared between the edition we pinned and the edition upstream
+    has now.
+
+    **Fires on:** a rename, a reclassification, a removal, a valueless row gaining a
+    value — and on **rotation**, which is the one no other check in this file can see. A
+    rotated bucket id keeps its name and its class, so names-and-classes passes while
+    every delivery goes somewhere else. The no-copy rule forbids writing the expected
+    values into this repository, so the pinned edition is the only lawful baseline for
+    that comparison.
+
+    **Silent through:** prose edits, ``[meta]`` bumps, and rows belonging to anyone else.
+    Measured across the real v1.4.4 -> v1.5.2 window (three editions, one week): green.
+    """
+    repo = require_sibling("views-appwrite")
+    module, _, expected_class = _PARTNER_ENV[partner]
+    try:
+        pinned = _registry_at(repo, module.SEAM_CONTRACT_COMMIT)
+    except _RegistryReadError as exc:
+        pytest.fail(str(exc))
+
+    names = set(expected_class)
+    then, now = _projection(pinned, names), _projection(_load_registry(repo), names)
+
+    changed = {
+        name: {"at the pin": then.get(name, "<absent>"), "now": now.get(name, "<absent>")}
+        for name in sorted(names)
+        if then.get(name) != now.get(name)
+    }
+    assert not changed, (
+        f"[{partner}] the registry changed something this package reads, since the "
+        f"edition it was verified against (v{module.SEAM_CONTRACT_VERSION}, commit "
+        f"{module.SEAM_CONTRACT_COMMIT}): {changed}. Re-verify this module's declaration "
+        "against the current edition, then move SEAM_CONTRACT_VERSION and "
+        "SEAM_CONTRACT_COMMIT together. If a value rotated, the delivery is pointing "
+        "somewhere else until the launcher's environment is updated too."
     )
 
 
@@ -590,6 +772,83 @@ def test_the_pinned_commit_is_reachable_from_the_contract_repos_main(partner):
         "views-appwrite's main. A "
         "pin taken from a working copy's HEAD can land on an unmerged branch — that is "
         "#196, verbatim. Re-pin from `git rev-parse --short origin/main`."
+    )
+
+
+def test_the_pinned_reader_refuses_rather_than_returning_an_empty_registry():
+    """The trap this reader exists to avoid, proven rather than asserted in prose.
+
+    ``conftest.git_output`` turns any git failure into ``""``, and ``tomllib.loads("")``
+    is ``{}``. Had this reader been built on it, an unreadable pin would have produced an
+    empty baseline, an empty projection, and a comparison that passes forever — the
+    vanished-directory shape ADR-014 §2 exists for, rebuilt inside the fix for a drift
+    detector.
+
+    Runs everywhere: it needs a git repository, not the sibling, and this repository is
+    one.
+    """
+    with pytest.raises(_RegistryReadError, match="cannot read the registry"):
+        _registry_at(_REPO, "0000000000000000000000000000000000000000")
+
+
+def test_the_table_partition_would_catch_a_new_table_and_a_vanished_one():
+    """Both directions, against synthetic registries — no sibling needed.
+
+    The asymmetry is the design: an *unclassified* table fails (an obligation may have
+    arrived), a *missing IGNORED* table does not (not our business). Getting that
+    backwards would either miss the `[contract.*]` case or cry wolf on v1.5.1's removal
+    of `[unmodelled]`, and both have actually happened upstream.
+    """
+    base = {name: {} for name in _TABLE_ROLE}
+
+    arrived = dict(base) | {"brand_new_table": {}}
+    assert sorted(set(arrived) - set(_TABLE_ROLE)) == ["brand_new_table"], (
+        "a table nobody classified went unnoticed — that is how `[contract.*]` arrived"
+    )
+
+    lost_consumed = {k: v for k, v in base.items() if k != "target"}
+    assert [n for n in _TABLES_WE_DEPEND_ON if n not in lost_consumed] == ["target"], (
+        "a table this package reads vanished and the check did not object"
+    )
+
+    lost_ignored = {k: v for k, v in base.items() if k != "excluded"}
+    assert not [n for n in _TABLES_WE_DEPEND_ON if n not in lost_ignored], (
+        "an IGNORED table disappearing must NOT fire — v1.5.1 removed `[unmodelled]` "
+        "and that carried no obligation for anyone here (ADR-014 §3: prefer the false "
+        "negative to the false alarm)"
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(partner):
+    """Rotation is the whole reason the projection carries ``value``.
+
+    A rotated bucket id keeps its name and its class, so
+    ``test_every_declared_name_exists_in_the_registry_with_the_class_we_treat_it_as``
+    passes while every delivery goes somewhere else. This proves the differential sees
+    what that check structurally cannot — and proves it without a sibling checkout, so
+    it runs on every machine rather than only where views-appwrite happens to be.
+
+    No real coordinate value appears here: both editions are synthetic, and the point is
+    that the two *differ*, not what either says.
+    """
+    _, own_store, expected_class = _PARTNER_ENV[partner]
+    canary = own_store[0]
+    names = set(expected_class)
+
+    def edition(value: str) -> dict:
+        return {"target": {canary: {"class": "target", "value": value}}}
+
+    then = _projection(edition("value-at-the-pin"), names)
+    now = _projection(edition("value-after-rotation"), names)
+
+    assert then[canary][:2] == now[canary][:2], (
+        "this fixture is meant to change ONLY the value — if the name or class differs "
+        "it is not proving what it claims"
+    )
+    assert then != now, (
+        f"[{partner}] a rotated value went unnoticed. Names and classes are identical "
+        "on both sides, so nothing else in this file can see it."
     )
 
 

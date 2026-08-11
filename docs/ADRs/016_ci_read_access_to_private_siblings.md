@@ -221,6 +221,35 @@ branch. Both live here, and they answer different questions:
 G7 makes both read `main` rather than a default branch. It does not make either of them
 track the tip for its own sake.
 
+**Erratum, 2026-08-11 — there is a third kind, and §7a's "not adopted here" is stale.**
+
+§7a recorded views-appwrite's suggestion — pin against the contract *version* and treat
+observation-only bumps as non-blocking — and marked it *not adopted here, because it needs
+the upstream side first*. That framing was wrong in a way worth correcting rather than
+quietly editing: it treated the noise as something only upstream could fix.
+
+The registry-edition check was matching on `meta.version`, a label meaning *"anything at
+all changed"*. What this repository actually depends on is a set of rows. Matching on the
+rows instead removes the false alarms **without needing anything from upstream** — which
+is ADR-014 §3 applied properly: when a guard fires on something legitimate, the first
+question is whether the matching is wrong, not whether the scope is too wide. The matching
+was wrong.
+
+So the two categories above become three:
+
+- **Drift tripwires** read the sibling's `main` because movement is the signal.
+- **Reachability checks** read a pinned commit; movement is noise.
+- **Differential tripwires** read **both** — a pinned edition as the baseline, `main` as
+  the comparison — and fire only when something *we declare* differs between them. This is
+  the shape the registry check now has. It catches a rotation, which is invisible to the
+  other two, and it is silent through prose edits and version bumps.
+
+The third kind exists because the no-copy rule forbids writing expected coordinate values
+into this repository. A pinned edition is the only lawful place to keep a baseline for
+comparing them.
+
+views-appwrite#76 is still worth doing; it is no longer a precondition for anything here.
+
 ---
 
 This section overrides an earlier internal recommendation not to couple per-pull-request CI
