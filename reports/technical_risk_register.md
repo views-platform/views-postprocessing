@@ -170,7 +170,7 @@ that indexes only deleted code is noise.
 | Source | `falsify` against the SOLID / component-principle lens, 2026-08-11 |
 | Trigger | **Either.** (a) A second non-test consumer needs one of these declarations and has to copy it. (b) A fifth declaration is added to `tests/conftest.py` — the file is at four, and the threshold for "dumping ground" is not a number but the moment nobody can say in one sentence what the file is for. |
 | Owner | Whoever adds the next declaration, or the next non-test consumer. Not urgent; it gets more expensive slowly. |
-| Location | `tests/conftest.py` (271 lines); `scripts/build_gaul_lookup.py:73`; ADR-016 §4. |
+| Location | `tests/conftest.py` (grew again this week; `wc -l` for the number, which moves); `scripts/build_gaul_lookup.py:73`; ADR-016 §4. |
 
 `tests/conftest.py` is pytest's fixture file. It currently holds **four unrelated groups**: the package taxonomy (`PARTNER_PACKAGES`, `MACHINERY_PACKAGES`), the sibling repositories (`Sibling`, `SIBLINGS`, and three resolver functions), the consumer mapping (`CONSUMER_REPO`), and two git helpers (`git_output`, `commit_is_on_main`). None of those is a test fixture. They are declarations about the platform that happen to be consumed by tests.
 
@@ -630,7 +630,7 @@ CI now checks that repository out and those seven run on every pull request — 
 
 **What remains, and it is two different things:**
 
-1. **One dark check.** `views-faoapi` is genuinely private — the consumer-name pin is still laptop-only. That is one test, not seven, and it is the one whose failure mode is invisible rather than loud. ADR-016 §8 defers the credential and names the trigger: FAO declining the request to make that repository public, or a second private sibling appearing.
+1. **~~One dark check.~~ CLOSED 2026-08-11, and not by a credential.** This read: *"views-faoapi is genuinely private — the consumer-name pin is still laptop-only. That is one test, and it is the one whose failure mode is invisible rather than loud."* ADR-017 moved that check onto the public coordinate registry, so it runs in CI for every partner and needs no access to any private repository. The credential ADR-016 §8 deferred was never issued and is no longer the route. What remains of this half is CRAF'd's consumer-side check (views-crafdapi#53), which is the other repository's work, not a dark check here.
 2. **The enforcement half is entirely untouched.** `protect_main`'s ref-name include-list was empty; it now targets the default branch, but **no status check is required**, so a pull request with a red CI can still be merged to `main`. Since merging to `main` *is* the production release, this is the half that matters most and the half that has not moved.
 
 **And it no longer stands alone — read C-86 before closing this.** Measured 2026-08-10: `protect_main` also lists **zero bypass actors**, so once a status check *is* required, nobody can merge past it, administrator or otherwise. Meanwhile ADR-016 made this repository's CI depend on two other repositories. Adding the required check therefore does two things at once: it closes this entry, and it makes an unbypassable external dependency live on the release path. Both are defensible; doing them in one unremarked step is not. If the escape is wanted, a bypass actor is the same console session.

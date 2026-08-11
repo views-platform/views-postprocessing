@@ -5,7 +5,7 @@ target classes) plus the one operator-issued secret slot. The contract is homed 
 views-appwrite and referenced by pinned URL, never copied — copies were the
 platform's original failure (þing-01 sáttmál S6):
 
-    https://github.com/views-platform/views-appwrite/blob/b703cab/docs/ADRs/platform/coordinate_registry.toml
+    https://github.com/views-platform/views-appwrite/blob/c7b597e/docs/ADRs/platform/coordinate_registry.toml
 
 That pin is registry **v1.5.2** — declared below as
 ``SEAM_CONTRACT_VERSION`` / ``SEAM_CONTRACT_COMMIT`` so the pin is a value a test can
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 #: declaration against that edition of the registry. ``tests/test_env_declaration.py``
 #: enforces the pair against a local views-appwrite checkout when one is present.
 SEAM_CONTRACT_VERSION = "1.5.2"
-SEAM_CONTRACT_COMMIT = "b703cab"
+SEAM_CONTRACT_COMMIT = "c7b597e"
 
 CONNECTION_ENV = (
     "APPWRITE_ENDPOINT",

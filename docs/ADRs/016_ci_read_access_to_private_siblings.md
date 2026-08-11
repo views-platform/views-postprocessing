@@ -41,9 +41,12 @@ the boundary and says so, rather than implying a coverage it does not have.
 Most tests here check our own code. A few check something different: whether a **claim
 this repository makes about a different repository** is still true.
 
-The clearest example. Each partner's `appwrite_env.py` says, in effect, *"we were written
-against edition 1.4.4 of the shared configuration registry."* That registry lives in
-another repository. A test opens that repository and checks the edition is still 1.4.4.
+The clearest example. Each partner's `appwrite_env.py` records which edition of the
+shared configuration registry it was verified against, by naming a commit in another
+repository. Tests open that repository at that commit and ask whether anything this
+package reads has moved since — a rename, a reclassification, a rotated value, or a new
+coordinate that has arrived. *(Until 2026-08-11 they asked a cruder question — whether the
+edition **label** still matched — which fired on every upstream edit. See §7b's erratum.)*
 
 This is not hypothetical housekeeping. On 2026-08-05 that test failed — the registry had
 moved to a new edition while nobody here was looking. Two days earlier, the same family of
@@ -110,12 +113,16 @@ Who is who, once and in one table:
 | repository | public? | fetched by CI? | why not, if not |
 |---|---|---|---|
 | **views-appwrite** | yes | **yes** | — carries the registry drift checks |
-| **views-crafdapi** | yes | **yes**, temporarily | — retires when ADR-017 §7 lands |
+| **views-crafdapi** | yes | **yes**, temporarily | — retires when views-crafdapi#53 lands, not before (ADR-017 §5 is per partner) |
 | **views-datafactory** | yes | no | its checks need raw data that is not in its git repository; fetching it turns an honest skip into a crash |
 | **views-faoapi** | **no** | no | private — no amount of workflow configuration reaches it. That case is [ADR-017](017_facts_across_a_private_boundary.md) |
 
-The table is not decoration: it is `tests/conftest.py::SIBLINGS` in prose, and a test fails
-if the two disagree.
+**What of this table is enforced, and what is not.** `ci_checkout` is: the workflow and
+`SIBLINGS` are compared by `tests/test_ci_sibling_coverage.py`, and disagreement fails.
+The **`public?` column is not, and cannot be** — which is why `public` was deleted from the
+`Sibling` record on 2026-08-10, after a review found nothing could verify it. It is here
+because a reader needs it to follow the argument. Nothing reads this table; if it drifts
+from `SIBLINGS`, only a human will notice.
 
 ### §5 CI downloads exactly what that list says, and a test enforces it
 
@@ -239,10 +246,14 @@ So the two categories above become three:
 
 - **Drift tripwires** read the sibling's `main` because movement is the signal.
 - **Reachability checks** read a pinned commit; movement is noise.
-- **Differential tripwires** read **both** — a pinned edition as the baseline, `main` as
-  the comparison — and fire only when something *we declare* differs between them. This is
-  the shape the registry check now has. It catches a rotation, which is invisible to the
-  other two, and it is silent through prose edits and version bumps.
+- **Differential tripwires** read **both** — a pinned edition as the baseline, the
+  sibling's `main` as the comparison — and fire when something *we declare* differs between
+  them, or when a coordinate arrives in a table we read. This is the shape the registry
+  check now has. It catches a rotation, which is invisible to the other two, and it is
+  silent through prose edits and version bumps. *(Corrected 2026-08-11: the first
+  implementation compared against the sibling's **working tree**, so a developer whose
+  clone sat on a feature branch was grading this repository against unreviewed content —
+  #196's shape. It reads `origin/main` now.)*
 
 The third kind exists because the no-copy rule forbids writing expected coordinate values
 into this repository. A pinned edition is the only lawful place to keep a baseline for
@@ -275,6 +286,12 @@ check runs on a maintainer's machine and not in CI, and the sibling's `note` say
 Until that declaration exists, the affected check runs on a maintainer's machine and not
 in CI. That is stated in the sibling's `note`, which rule G4 requires and which must name
 the record that owns it.
+
+**Update 2026-08-11.** The declaration now exists (views-appwrite#75), views-faoapi
+checks itself against it (their #379), and this repository's check reads the registry
+rather than that repository's source. So the FAO half is no longer laptop-only, and no
+credential was issued. What remains is CRAF'd's consumer-side check (views-crafdapi#53);
+until it lands, that partner's source-read stays, and with it that partner's fetch.
 
 ---
 

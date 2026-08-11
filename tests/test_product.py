@@ -41,10 +41,13 @@ from tests.conftest import CONSUMER_REPO, PARTNER_PACKAGES, SIBLINGS, require_si
 #: ADR-013 §4.1a, the defect that stranded six `orange_ensemble` documents in
 #: `unfao_bucket` while FAO's forecast serving read empty for months.
 #:
-#: ``test_the_declared_consumer_name_still_matches_the_consumer`` closes that half
-#: against the sibling checkout, following the pattern
-#: ``tests/test_env_declaration.py`` already uses for the coordinate registry: declared
-#: locally, verified across the seam when the other repo is on disk.
+#: ``test_the_declared_consumer_name_matches_the_registry`` closes that half against the
+#: **public coordinate registry** rather than the consumer's source (ADR-017 §5). It runs
+#: for every partner and needs no credential, because the registry is public even when the
+#: consumer is not — which is why it reaches the FAO partner and its predecessor could not.
+#:
+#: One partner is still ALSO read at the source, and only one:
+#: ``_CONSUMER_SELF_CHECK_PENDING`` below names it and the issue that retires it.
 _CONSUMER_DOCUMENT_NAME = {
     "unfao": "un_fao",
     "crafd": "un_crafd",
@@ -229,9 +232,12 @@ def test_the_declared_consumer_name_matches_the_registry(partner):
     had moved. ADR-017 §7: we were never entitled to depend on another repository's file
     layout.
 
-    Now both sides read one public declaration and neither reads the other. The registry
-    lives in views-appwrite, which is public, so this needs no credential even for the
-    private partner — that is the whole of ADR-017 §5 in one assertion.
+    Now both sides read one public declaration. The registry lives in views-appwrite,
+    which is public, so this needs no credential even for the private partner — that is
+    the whole of ADR-017 §5 in one assertion.
+
+    *"Neither reads the other" is the end state, not yet the present one:* CRAF'd's source
+    is still read by the check below, until views-crafdapi#53 lands.
 
     The value it guards is the one whose failure is silent: a delivery filed under a name
     the consumer does not ask for is uploaded, stored, billed, and invisible — no error
@@ -273,10 +279,31 @@ _CONSUMER_SELF_CHECK_PENDING = {
 }
 
 
-def test_the_pending_list_names_only_real_partners():
-    """A stale name here would keep a retired mechanism alive against nothing."""
+def test_the_pending_list_is_not_empty_and_names_only_real_partners():
+    """An empty map must be a prompt to delete code, not a silent skip.
+
+    ``parametrize`` over an empty collection is a **skip** under pytest's default
+    ``empty_parameter_set_mark``, and this repository declares no pytest configuration at
+    all. So emptying this map — by a premature cleanup, or an edit made before
+    views-crafdapi#53 lands — would retire the only check that reads what a consumer
+    actually does, and report ``1 skipped`` on a green build. The registry check would
+    then be comparing two values this platform authored to each other, which is the exact
+    failure the retained test's docstring warns about.
+
+    So the map is asserted non-empty. When it legitimately empties, this assertion is
+    what tells you to delete the test, its regexes, and the sibling fetch that serves it.
+    """
     unknown = sorted(set(_CONSUMER_SELF_CHECK_PENDING) - set(PARTNER_PACKAGES))
     assert not unknown, f"not partners: {unknown}"
+    assert _CONSUMER_SELF_CHECK_PENDING, (
+        "_CONSUMER_SELF_CHECK_PENDING is empty, which means every consumer now checks "
+        "itself against the registry. That is the end state ADR-017 §5 describes — so "
+        "finish it: delete test_the_consumer_still_filters_on_the_name_until_it_checks_"
+        "itself, the _CONSUMER_PATH_MANAGER and _CONSUMER_FILTER patterns, and the "
+        "views-crafdapi entry in tests/conftest.py::SIBLINGS whose note says that fetch "
+        "serves exactly this one test. Leaving them costs a clone on every pull request "
+        "and asserts nothing."
+    )
 
 
 @pytest.mark.parametrize("partner", sorted(_CONSUMER_SELF_CHECK_PENDING))

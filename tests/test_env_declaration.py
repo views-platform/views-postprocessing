@@ -24,6 +24,7 @@ filesystem, so the next partner cannot be silently exempt (register C-57).
 """
 
 import ast
+import hashlib
 import logging
 import re
 import subprocess
@@ -485,6 +486,10 @@ def _load_registry(repo: Path) -> dict:
     return tomllib.loads((repo / _REGISTRY_RELPATH).read_text())
 
 
+#: Sentinel for "this row carries no value", distinct from any string a registry
+#: could legitimately hold.
+_ABSENT = object()
+
 #: Every top-level table the registry may carry, and what this repository does with it.
 #:
 #: **Declared, and asserted against the live registry** — a table appearing upstream that
@@ -504,12 +509,57 @@ _TABLE_ROLE = {
     "meta": "METADATA",         # the edition and its amendment log
 }
 
-#: Tables whose absence is our problem. An IGNORED table vanishing is not — that
-#: direction is deliberately unchecked, which is why v1.5.1 dropping `[unmodelled]` is
+#: direction is deliberately unchecked. (An earlier version of this comment offered
+#: v1.5.1's removal of `[unmodelled]` as the worked example of a silent case. That was
+#: WRONG: `unmodelled` was never in this partition, so against v1.4.4 it would have
+#: been a RED build demanding classification. The rule is right; the illustration
+#: was not, and it had been repeated in three places.)
 #: silent while v1.5.0 adding `[contract]` is a red build with something to do.
+#: The only roles that mean anything. A typo in `_TABLE_ROLE` used to be silent, and it
+#: silently narrowed a security scan: mistyping "CONSUMED" dropped `target` from the
+#: no-copy check's sections, taking it from twelve values to two, with no test objecting.
+_ROLES = ("CONSUMED", "MIRRORED", "IGNORED", "METADATA")
+
+#: Tables this package reads rows out of. **One source, three consumers** — the class
+#: check, the drift projection and the no-copy scan all derive from here rather than each
+#: keeping a copy of the tuple. They did keep copies, which made classifying a table as
+#: CONSUMED add exactly zero coverage while satisfying the guard that demanded it — the
+#: guard's own remediation advice producing register C-74's shape.
+_CONSUMED_TABLES = tuple(n for n, role in _TABLE_ROLE.items() if role == "CONSUMED")
+
 _TABLES_WE_DEPEND_ON = tuple(
     name for name, role in _TABLE_ROLE.items() if role in ("CONSUMED", "MIRRORED")
 )
+
+
+def _unclassified_tables(registry: dict) -> list[str]:
+    """Tables upstream that nobody here has classified. THE production predicate.
+
+    Extracted so the proof can call it instead of re-typing it. The previous proof
+    re-typed the set arithmetic, so neutering this to ``return []`` left it green — a
+    detector for the detector that detected nothing.
+    """
+    return sorted(set(registry) - set(_TABLE_ROLE))
+
+
+def _missing_dependencies(registry: dict) -> list[str]:
+    """Tables we depend on that are absent upstream. THE production predicate."""
+    return sorted(n for n in _TABLES_WE_DEPEND_ON if n not in registry)
+
+
+def _rows(registry: dict, sections: tuple) -> dict[str, tuple]:
+    """``name -> (section, class, value-or-absent)`` across ``sections``.
+
+    The single reader the class check, the drift projection and the no-copy scan share.
+    Two hand-copied versions had already diverged on null handling: one used
+    ``registry.get(s, {})`` and raised ``AttributeError`` on a null section, the other
+    used ``(registry.get(s) or {})`` and did not.
+    """
+    return {
+        name: (section, body.get("class"), body.get("value", _ABSENT))
+        for section in sections
+        for name, body in (registry.get(section) or {}).items()
+    }
 
 
 class _RegistryReadError(RuntimeError):
@@ -530,6 +580,37 @@ def _registry_at(repo: Path, ref: str) -> dict:
     holding four unrelated groups, and its trigger is a fifth. There is one consumer.
     """
     tomllib = pytest.importorskip("tomllib", reason="stdlib from 3.11; pyproject requires it")
+
+    # The ref must name a FROZEN commit, and must be the one we asked for.
+    #
+    # Without this, `git show ":<path>"` reads the INDEX and `git show "main:<path>"`
+    # reads a branch — both exit 0, both parse, both pass every anchor below. A pin
+    # blanked by a bad edit or set to "main" by someone who thinks that is what a pin
+    # means would make the differential compare the current registry against itself and
+    # report green against every future edition. That is the same silent-baseline trap
+    # this reader exists to close, wearing a different hat.
+    #
+    # ``^{commit}`` also peels an annotated TAG. That matters here: a tag object is not
+    # a commit, is reachable only through refs/tags, and — measured 2026-08-11 — yields
+    # a 404 from the pinned blob URL these modules publish. So this refuses one.
+    resolved = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    if resolved.returncode != 0 or not resolved.stdout.strip():
+        raise _RegistryReadError(
+            f"{ref!r} does not resolve to a commit in {repo}. A pin must name a frozen "
+            "commit: an empty ref reads the index, a branch name reads a moving tip, and "
+            "either would make the comparison below compare the registry to itself."
+        )
+    if ref not in ("origin/main", "main") and not resolved.stdout.strip().startswith(ref):
+        raise _RegistryReadError(
+            f"{ref!r} resolves to commit {resolved.stdout.strip()[:12]}, which does not "
+            f"start with it. That happens when the pin names an annotated TAG rather than "
+            "a commit — git peels it silently, every check here passes, and the blob URL "
+            "these modules publish returns 404. Pin the commit."
+        )
+
     result = subprocess.run(
         ["git", "-C", str(repo), "show", f"{ref}:{_REGISTRY_RELPATH.as_posix()}"],
         capture_output=True, text=True, check=False, timeout=30,
@@ -545,7 +626,15 @@ def _registry_at(repo: Path, ref: str) -> dict:
             f"the registry is EMPTY at {ref!r} in {repo}. Treating that as a registry "
             "with no coordinates would make every comparison below pass."
         )
-    registry = tomllib.loads(result.stdout)
+    try:
+        registry = tomllib.loads(result.stdout)
+    except Exception as exc:  # TOMLDecodeError, and whatever a non-TOML blob raises
+        raise _RegistryReadError(
+            f"the registry at {ref!r} in {repo} did not parse as TOML: {exc}. A raw "
+            "traceback from a helper whose justification is failing legibly would be its "
+            "own defeat — this happens when the path names a directory, or the blob is "
+            "not the file we think it is."
+        ) from exc
     if not registry.get("meta", {}).get("version") or not registry.get("connection"):
         raise _RegistryReadError(
             f"the registry at {ref!r} parsed but carries no meta.version or no "
@@ -568,21 +657,70 @@ def _projection(registry: dict, names: set[str]) -> dict[str, tuple]:
     writing the expected values into this repository, so the pinned edition is the only
     lawful place a baseline for that comparison can live.
     """
+    return {n: row for n, row in _rows(registry, _CONSUMED_TABLES).items() if n in names}
+
+
+def _registry_current(repo: Path) -> dict:
+    """The registry as the sibling's ``main`` has it — not its working tree.
+
+    A sibling clone normally sits on whatever branch its own agent last worked on.
+    Comparing against that grades us on unreviewed content, or reddens on a branch nobody
+    merged — #196 verbatim, the case that cost this platform a withdrawn pull request.
+    The ``ref: main`` discipline lived only inside the CI workflow, so a developer running
+    the suite locally was comparing against something else entirely, and ADR-016's erratum
+    claimed otherwise.
+    """
+    for ref in ("origin/main", "main"):
+        try:
+            return _registry_at(repo, ref)
+        except _RegistryReadError:
+            continue
+    raise _RegistryReadError(
+        f"neither origin/main nor main resolves in {repo}. The comparison is against that "
+        "repository's ratified content, so there is nothing to compare against — run "
+        "`git fetch` there."
+    )
+
+
+def _describe_changes(then: dict, now: dict, names: set[str]) -> dict[str, str]:
+    """What differs, said WITHOUT printing a coordinate value.
+
+    This repository is public and its CI logs are world-readable. The first version of
+    this comparison interpolated the projection tuples straight into the assertion
+    message — so the single event this check exists to fire on, a rotated coordinate,
+    would have printed the old and new values into a public log. Longer than the
+    six-character threshold the no-copy check itself uses to define a leak, and the
+    outcome ``tests/test_redaction_guard.py`` exists to prevent.
+
+    So: name the field that moved, and for a value give a short digest — enough to see
+    that two editions disagree and to match against a rotation you performed, never
+    enough to be the value.
+    """
+    def digest(value) -> str:
+        if value is _ABSENT:
+            return "<absent>"
+        return f"<sha256:{hashlib.sha256(str(value).encode()).hexdigest()[:8]}>"
+
     out = {}
-    for section in ("connection", "target", "secret"):
-        for name, body in (registry.get(section) or {}).items():
-            if name in names:
-                out[name] = (section, body.get("class"), body.get("value", "<absent>"))
+    for name in sorted(names):
+        was, is_ = then.get(name), now.get(name)
+        if was == is_:
+            continue
+        if was is None or is_ is None:
+            out[name] = "absent at the pin" if was is None else "removed upstream"
+            continue
+        fields = [
+            f"{label}: {a!r} -> {b!r}" if label != "value" else f"value: {digest(a)} -> {digest(b)}"
+            for label, a, b in zip(("section", "class", "value"), was, is_)
+            if a != b
+        ]
+        out[name] = "; ".join(fields)
     return out
 
 
 def _declared_classes(registry: dict) -> dict[str, str]:
     """name -> the class the registry DECLARES for it (never inferred from the name)."""
-    return {
-        name: body.get("class")
-        for section in ("connection", "target", "secret")
-        for name, body in registry.get(section, {}).items()
-    }
+    return {n: row[1] for n, row in _rows(registry, _CONSUMED_TABLES).items()}
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)
@@ -622,15 +760,14 @@ def test_the_pinned_commit_declares_the_pinned_version(partner):
 
     Verified 2026-08-11: ``fcf32c9`` does declare ``1.4.4`` — true by luck, not by check.
 
-    Both sides of this comparison are frozen, so it is the one registry check in this
-    file that upstream activity can never redden. It fails only when *we* are wrong.
+    Both sides of the *comparison* are frozen, so upstream editing the registry cannot
+    change its verdict. It still needs the sibling checkout to read the pinned blob, so a
+    missing or degraded clone reddens it — the check that runs with no sibling at all is
+    ``test_the_docstring_states_the_same_edition_the_constants_declare``.
     """
     repo = require_sibling("views-appwrite")
     module = _PARTNER_ENV[partner][0]
-    try:
-        pinned = _registry_at(repo, module.SEAM_CONTRACT_COMMIT)
-    except _RegistryReadError as exc:
-        pytest.fail(str(exc))
+    pinned = _registry_at(repo, module.SEAM_CONTRACT_COMMIT)
     assert pinned["meta"]["version"] == module.SEAM_CONTRACT_VERSION, (
         f"[{partner}] the pin is internally inconsistent: commit "
         f"{module.SEAM_CONTRACT_COMMIT} declares registry v{pinned['meta']['version']}, "
@@ -656,14 +793,18 @@ def test_every_table_in_the_registry_is_classified_here():
 
     **Directional on purpose.** Every table upstream must be classified; only the tables
     we depend on must exist. An IGNORED table disappearing is not our business, which is
-    why v1.5.1 dropping ``[unmodelled]`` is silent while v1.5.0 adding ``[contract]`` is
-    a red build with something to do. Two events in the registry's life, both of which
-    this repository needed to see.
+    an IGNORED table disappearing is silent while a new, unclassified one is a red build
+    with something to do. Two such events in the registry's life so far, and this
+    repository needed to see both.
+
+    *(An earlier draft illustrated the silent case with v1.5.1's removal of
+    ``[unmodelled]``. That was wrong — ``unmodelled`` was never in the partition, so it
+    would have been a red build demanding classification, not a silent pass.)*
     """
     repo = require_sibling("views-appwrite")
     registry = _load_registry(repo)
 
-    unclassified = sorted(set(registry) - set(_TABLE_ROLE))
+    unclassified = _unclassified_tables(registry)
     assert not unclassified, (
         f"the registry has table(s) this repository has never classified: "
         f"{unclassified}. Decide what each one is — CONSUMED (we read it), MIRRORED (its "
@@ -671,7 +812,7 @@ def test_every_table_in_the_registry_is_classified_here():
         "_TABLE_ROLE. A new table is how an obligation arrives; `[contract.*]` arrived "
         "exactly this way and only a noisy version check happened to catch it."
     )
-    vanished = sorted(n for n in _TABLES_WE_DEPEND_ON if n not in registry)
+    vanished = _missing_dependencies(registry)
     assert not vanished, (
         f"table(s) this repository depends on are gone from the registry: {vanished}. "
         "Either they were retired upstream and this package must stop reading them, or "
@@ -701,19 +842,26 @@ def test_nothing_this_repo_reads_has_changed_since_the_pin(partner):
     """
     repo = require_sibling("views-appwrite")
     module, _, expected_class = _PARTNER_ENV[partner]
-    try:
-        pinned = _registry_at(repo, module.SEAM_CONTRACT_COMMIT)
-    except _RegistryReadError as exc:
-        pytest.fail(str(exc))
+    pinned = _registry_at(repo, module.SEAM_CONTRACT_COMMIT)
+    current = _registry_current(repo)
 
     names = set(expected_class)
-    then, now = _projection(pinned, names), _projection(_load_registry(repo), names)
+    then, now = _projection(pinned, names), _projection(current, names)
 
-    changed = {
-        name: {"at the pin": then.get(name, "<absent>"), "now": now.get(name, "<absent>")}
-        for name in sorted(names)
-        if then.get(name) != now.get(name)
-    }
+    arrived = sorted(
+        set(_rows(current, _TABLES_WE_DEPEND_ON)) - set(_rows(pinned, _TABLES_WE_DEPEND_ON))
+    )
+    assert not arrived, (
+        f"[{partner}] the registry gained coordinate(s) {arrived} in a table this package "
+        f"reads, since the edition it was verified against "
+        f"(v{module.SEAM_CONTRACT_VERSION}). Decide whether this package must adopt them "
+        "— that is a human read, which is why this reports rather than guesses — then "
+        "move SEAM_CONTRACT_VERSION and SEAM_CONTRACT_COMMIT together. This is the half "
+        "of the deleted edition check that was worth keeping: `[contract.*]` arrived "
+        "exactly this way, and nothing else here would have seen it."
+    )
+
+    changed = _describe_changes(then, now, names)
     assert not changed, (
         f"[{partner}] the registry changed something this package reads, since the "
         f"edition it was verified against (v{module.SEAM_CONTRACT_VERSION}, commit "
@@ -776,80 +924,138 @@ def test_the_pinned_commit_is_reachable_from_the_contract_repos_main(partner):
     )
 
 
-def test_the_pinned_reader_refuses_rather_than_returning_an_empty_registry():
-    """The trap this reader exists to avoid, proven rather than asserted in prose.
+def test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong(tmp_path):
+    """Each refusal branch, against a scratch repository built to trigger it.
 
-    ``conftest.git_output`` turns any git failure into ``""``, and ``tomllib.loads("")``
-    is ``{}``. Had this reader been built on it, an unreadable pin would have produced an
-    empty baseline, an empty projection, and a comparison that passes forever — the
-    vanished-directory shape ADR-014 §2 exists for, rebuilt inside the fix for a drift
-    detector.
+    The first version of this test used a bogus sha against *this* repository — where the
+    registry path does not exist at any ref, so a nonsense sha and ``HEAD`` failed
+    identically. It proved the helper rejects *something*, not that it rejects an
+    unreadable **pin**, and deleting the empty-file and anchor branches left it green.
 
-    Runs everywhere: it needs a git repository, not the sibling, and this repository is
-    one.
+    Every branch here is genuinely reachable, and each is the shape of a real accident:
+    a pin blanked by a bad edit, a pin pointing at a branch, a pin naming an annotated
+    tag, a file emptied upstream, a file that parses but is not the registry.
     """
-    with pytest.raises(_RegistryReadError, match="cannot read the registry"):
-        _registry_at(_REPO, "0000000000000000000000000000000000000000")
+    import subprocess as sp
+
+    def git(*args):
+        return sp.run(["git", "-C", str(tmp_path), *args], capture_output=True, text=True, check=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    target = tmp_path / _REGISTRY_RELPATH
+    target.parent.mkdir(parents=True)
+
+    def commit(text: str, message: str) -> str:
+        target.write_text(text)
+        git("add", "-A")
+        git("commit", "-q", "-m", message)
+        return git("rev-parse", "--short", "HEAD").stdout.strip()
+
+    good = commit('[meta]\nversion = "9.9.9"\n\n[connection.X]\nclass = "connection"\n', "good")
+    empty = commit("", "empty")
+    anchorless = commit('[target.X]\nclass = "target"\n', "no meta, no connection")
+    git("tag", "-a", "v1", "-m", "annotated")
+
+    assert _registry_at(tmp_path, good)["meta"]["version"] == "9.9.9", (
+        "the reader must accept a well-formed registry, or the refusals below prove nothing"
+    )
+
+    with pytest.raises(_RegistryReadError, match="does not resolve to a commit"):
+        _registry_at(tmp_path, "")          # a blanked pin reads the INDEX
+    with pytest.raises(_RegistryReadError, match="annotated TAG|does not start with it"):
+        _registry_at(tmp_path, "v1")        # a tag object: git peels it, the URL 404s
+    with pytest.raises(_RegistryReadError, match="is EMPTY"):
+        _registry_at(tmp_path, empty)       # exits 0, stdout empty
+    with pytest.raises(_RegistryReadError, match="no meta.version or no"):
+        _registry_at(tmp_path, anchorless)  # parses, but is not the registry
+    with pytest.raises(_RegistryReadError, match="does not resolve to a commit"):
+        _registry_at(tmp_path, "0" * 40)    # a pin that names nothing
+
+
+def test_the_role_vocabulary_is_closed():
+    """A typo in a role string used to silently narrow a security scan.
+
+    ``_TABLE_ROLE``'s values drive which sections the no-copy check reads. Mistyping
+    ``"CONSUMED"`` dropped `target` from that scan — twelve coordinate values to two —
+    with nothing objecting, while also narrowing what counts as a dependency. Roles are
+    now a closed set, asserted.
+    """
+    unknown = sorted({r for r in _TABLE_ROLE.values() if r not in _ROLES})
+    assert not unknown, (
+        f"unknown role(s) in _TABLE_ROLE: {unknown}. Roles drive which sections the "
+        f"no-copy scan reads; a typo here silently narrows it. Use one of {_ROLES}."
+    )
+    assert _CONSUMED_TABLES, "no table is classified CONSUMED — every row check reads nothing"
 
 
 def test_the_table_partition_would_catch_a_new_table_and_a_vanished_one():
-    """Both directions, against synthetic registries — no sibling needed.
+    """Calls the production predicates, so neutering them fails here.
 
-    The asymmetry is the design: an *unclassified* table fails (an obligation may have
-    arrived), a *missing IGNORED* table does not (not our business). Getting that
-    backwards would either miss the `[contract.*]` case or cry wolf on v1.5.1's removal
-    of `[unmodelled]`, and both have actually happened upstream.
+    The first version of this test re-typed the set arithmetic inline. Mutation-proven
+    afterwards: replacing the real computations with ``[]`` left the guard accepting any
+    upstream registry forever, and this proof still passed. It detected nothing, which is
+    ADR-014 §2 exactly — and it was the ONLY thing claiming the table check bites.
+
+    The asymmetry is the design and is asserted in both directions: an unclassified table
+    fires, a vanished IGNORED table does not.
     """
     base = {name: {} for name in _TABLE_ROLE}
 
-    arrived = dict(base) | {"brand_new_table": {}}
-    assert sorted(set(arrived) - set(_TABLE_ROLE)) == ["brand_new_table"], (
+    assert _unclassified_tables(base | {"brand_new_table": {}}) == ["brand_new_table"], (
         "a table nobody classified went unnoticed — that is how `[contract.*]` arrived"
     )
+    assert not _unclassified_tables(base), "the real registry's tables must all classify"
 
-    lost_consumed = {k: v for k, v in base.items() if k != "target"}
-    assert [n for n in _TABLES_WE_DEPEND_ON if n not in lost_consumed] == ["target"], (
-        "a table this package reads vanished and the check did not object"
+    assert _missing_dependencies({k: v for k, v in base.items() if k != "target"}) == ["target"], (
+        "a table this package reads rows out of vanished and the check did not object"
     )
-
-    lost_ignored = {k: v for k, v in base.items() if k != "excluded"}
-    assert not [n for n in _TABLES_WE_DEPEND_ON if n not in lost_ignored], (
-        "an IGNORED table disappearing must NOT fire — v1.5.1 removed `[unmodelled]` "
-        "and that carried no obligation for anyone here (ADR-014 §3: prefer the false "
+    assert not _missing_dependencies({k: v for k, v in base.items() if k != "excluded"}), (
+        "an IGNORED table disappearing must NOT fire (ADR-014 §3: prefer the false "
         "negative to the false alarm)"
     )
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)
 def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(partner):
-    """Rotation is the whole reason the projection carries ``value``.
+    """Rotation is why the projection carries ``value`` — proven through the real code.
 
-    A rotated bucket id keeps its name and its class, so
-    ``test_every_declared_name_exists_in_the_registry_with_the_class_we_treat_it_as``
-    passes while every delivery goes somewhere else. This proves the differential sees
-    what that check structurally cannot — and proves it without a sibling checkout, so
-    it runs on every machine rather than only where views-appwrite happens to be.
+    The first version of this test asserted ``then != now`` on dicts it built itself.
+    Mutation-proven afterwards: making the production comparison ignore ``value`` — which
+    is *literally* "names and classes cannot see a rotation", the thing this test exists
+    to disprove — left both the proof and the check green, while a rotated bucket id
+    shipped every delivery to the wrong place. So it now calls ``_describe_changes``, the
+    same function the check calls.
 
-    No real coordinate value appears here: both editions are synthetic, and the point is
-    that the two *differ*, not what either says.
+    Runs without a sibling, so it holds on every machine rather than only where
+    views-appwrite happens to be checked out.
     """
     _, own_store, expected_class = _PARTNER_ENV[partner]
     canary = own_store[0]
     names = set(expected_class)
 
     def edition(value: str) -> dict:
-        return {"target": {canary: {"class": "target", "value": value}}}
+        return {
+            "meta": {"version": "0.0.0-fixture"},
+            "connection": {"APPWRITE_ENDPOINT": {"class": "connection", "value": "e"}},
+            "target": {canary: {"class": "target", "value": value}},
+        }
 
-    then = _projection(edition("value-at-the-pin"), names)
-    now = _projection(edition("value-after-rotation"), names)
+    then = _projection(edition("at-the-pin"), names)
+    now = _projection(edition("after-rotation"), names)
 
     assert then[canary][:2] == now[canary][:2], (
-        "this fixture is meant to change ONLY the value — if the name or class differs "
-        "it is not proving what it claims"
+        "this fixture must differ ONLY in the value, or it is not proving what it claims"
     )
-    assert then != now, (
-        f"[{partner}] a rotated value went unnoticed. Names and classes are identical "
-        "on both sides, so nothing else in this file can see it."
+    changed = _describe_changes(then, now, names)
+    assert canary in changed, (
+        f"[{partner}] a rotated value went unnoticed. Name and class are identical on "
+        "both sides, so nothing else in this file can see it."
+    )
+    assert "value:" in changed[canary] and "at-the-pin" not in changed[canary], (
+        "the report must name the field that moved and must NOT print the value — this "
+        "repository is public and its CI logs are world-readable"
     )
 
 

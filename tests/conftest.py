@@ -149,10 +149,11 @@ SIBLINGS = {
             "PRIVATE — the only one, and that is why it is not fetched. Checking it "
             "out needs a credential, which is an "
             "operator decision deferred pending a request to FAO to make the repository "
-            "public. One check is dark meanwhile — the consumer-name pin, whose failure "
-            "mode is a delivery nobody can find. ADR-017 decides what happens instead "
-            "of a credential: the fact moves to the public coordinate registry, and "
-            "neither side reads the other. See also register C-81."
+            "public. **Nothing is dark because of this any more** (2026-08-11): ADR-017 "
+            "moved the delivery-label check onto the public coordinate registry, which "
+            "needs no credential, so neither side reads the other. This entry stays "
+            "PRIVATE because the fact is still true, not because anything is blocked on "
+            "it. See ADR-017 and register C-81."
         ),
     ),
     "views-crafdapi": Sibling(
