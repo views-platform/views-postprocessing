@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-10                           |
-| Total Concerns    | 87                                   |
-| Open Concerns     | 14                                   |
+| Last Updated      | 2026-08-11                           |
+| Total Concerns    | 88                                   |
+| Open Concerns     | 15                                   |
 | Resolved Concerns | 73                                   |
 
 ---
@@ -160,6 +160,33 @@ that indexes only deleted code is noise.
 ---
 
 ## Open Concerns
+
+### C-88: The platform declarations live in pytest's fixture file, so nothing outside the test tree can reach them
+
+| Field | Value |
+|-------|-------|
+| ID | C-88 |
+| Tier | 3 — no correctness risk and nothing silent. It is a boundary that has already forced one duplication for structural rather than design reasons, and it will force the next one the same way. |
+| Source | `falsify` against the SOLID / component-principle lens, 2026-08-11 |
+| Trigger | **Either.** (a) A second non-test consumer needs one of these declarations and has to copy it. (b) A fifth declaration is added to `tests/conftest.py` — the file is at four, and the threshold for "dumping ground" is not a number but the moment nobody can say in one sentence what the file is for. |
+| Owner | Whoever adds the next declaration, or the next non-test consumer. Not urgent; it gets more expensive slowly. |
+| Location | `tests/conftest.py` (271 lines); `scripts/build_gaul_lookup.py:73`; ADR-016 §4. |
+
+`tests/conftest.py` is pytest's fixture file. It currently holds **four unrelated groups**: the package taxonomy (`PARTNER_PACKAGES`, `MACHINERY_PACKAGES`), the sibling repositories (`Sibling`, `SIBLINGS`, and three resolver functions), the consumer mapping (`CONSUMER_REPO`), and two git helpers (`git_output`, `commit_is_on_main`). None of those is a test fixture. They are declarations about the platform that happen to be consumed by tests.
+
+**The concrete cost, which has already been paid once.** `scripts/build_gaul_lookup.py` needs the same sibling-location fact and cannot have it: *"a script must not import from `tests/` — that is the dependency direction backwards."* So it hardcodes `"VIEWS_DATAFACTORY"` at `:73` while `SIBLINGS` declares the same string in `conftest.py`.
+
+That duplication is **defended on WET grounds and the defence is sound** — the two contracts genuinely differ (the script returns a `Path` even when the checkout is absent so it can raise its own message; the test helper returns `None` because a missing sibling is a normal skip), and a guard asserts the two resolve to the same place. This entry does not ask for that to be merged.
+
+**What it records is that the choice was not free.** The script could not have reused the declaration even if reuse had been right, because of where the declaration lives. A structural constraint and a design decision reached the same answer, and only one of them was examined.
+
+**Why this is Tier 3 and not higher.** Nothing is wrong today. Every guard works, the duplication is guarded, and moving the declarations would touch a dozen imports for no immediate gain. The risk is the slope: `conftest.py` is where a declaration goes when nobody asks where it belongs, and each addition makes the next one more natural.
+
+**What "fixed" would look like**, when the trigger fires: a small module that owns the platform declarations — importable by tests, scripts and, if ever needed, package code — with `conftest.py` reduced to what pytest actually needs from it. That is the shape, not a commitment; the point of the trigger is that the second incident tells you whether it is right.
+
+Cross-refs: **C-46** (which records the builder's separate resolver and the guard that they agree), ADR-016 §4, ADR-002 (dependency direction).
+
+---
 
 ### C-86: The release path now depends on two other repositories, and there is no way past a red build
 

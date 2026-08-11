@@ -96,6 +96,33 @@ must decide for the category, not for today's instance.
 > surface. Each side verifies itself against that declaration. Neither side reads the
 > other's source code.**
 
+The same thing as a picture:
+
+```
+                views-appwrite
+             the registry (public)
+                   "un_fao"
+
+            ▲                     ▲
+            │                     │
+  views-postprocessing      views-faoapi
+     writes the name        reads the name
+
+        these two never read each other
+```
+
+**The arrow that is missing is the point.** Neither repository reads the other, so it does
+not matter that one of them is private, and no credential is needed by anyone. Both arrows
+point at a third place that is public to everybody.
+
+Who does what, once and in one table:
+
+| repository | its role | what it checks | needs access to |
+|---|---|---|---|
+| **views-appwrite** | holds the fact | nothing — it is the authority | — |
+| **views-postprocessing** (here) | writes the name onto every upload | its own copy against the registry | the registry only |
+| **views-faoapi** (private) | opens files with that name | its own served name against the registry | the registry only |
+
 Concretely, for the delivery label:
 
 1. The value is declared once, in the platform's public coordinate registry

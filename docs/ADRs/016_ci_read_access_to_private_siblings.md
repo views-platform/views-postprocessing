@@ -86,6 +86,37 @@ nothing able to check it, will eventually be wrong and nobody will find out.
 
 That is all. It replaces a comment with something a test can read.
 
+**Where that code lives, and why the question is worth asking.** The declaration sits in
+`tests/conftest.py`, because that is where this repository already keeps facts several
+test modules share. It is not obviously the right home: `conftest.py` is pytest's fixture
+file, and none of these declarations is a fixture — they are statements about the platform
+that tests happen to read.
+
+The cost is already visible. `scripts/build_gaul_lookup.py` needs the same
+sibling-location fact and cannot import it, because a script importing from `tests/` is
+the dependency direction backwards. So it declares the variable name a second time. That
+duplication is defensible on its own merits — the two contracts genuinely differ — but it
+was not a free choice, and a reader should know that a structural constraint and a design
+decision happened to agree.
+
+**Named trigger for moving it (ADR-014 §4):** a second non-test consumer needing one of
+these declarations, or a fifth declaration arriving in that file. The shape it would move
+to is a small module owning the platform declarations, importable by tests and scripts
+alike. Not committed to here, because the second incident is what tells you whether that
+shape is right. Tracked as register **C-88**.
+
+Who is who, once and in one table:
+
+| repository | public? | fetched by CI? | why not, if not |
+|---|---|---|---|
+| **views-appwrite** | yes | **yes** | — carries the registry drift checks |
+| **views-crafdapi** | yes | **yes**, temporarily | — retires when ADR-017 §7 lands |
+| **views-datafactory** | yes | no | its checks need raw data that is not in its git repository; fetching it turns an honest skip into a crash |
+| **views-faoapi** | **no** | no | private — no amount of workflow configuration reaches it. That case is [ADR-017](017_facts_across_a_private_boundary.md) |
+
+The table is not decoration: it is `tests/conftest.py::SIBLINGS` in prose, and a test fails
+if the two disagree.
+
 ### §5 CI downloads exactly what that list says, and a test enforces it
 
 The workflow downloads every sibling marked `ci_checkout=True`.
