@@ -22,6 +22,20 @@ What still holds without the flag: a checkout of a repository CI cannot read sim
 the build, because the default `GITHUB_TOKEN` is scoped to this repository. Rule G5 keeps
 that failure loud.
 
+**Why the rules run G1, G2, G4, G5, G6, G7 with two numbers missing.** G3 paired a
+sibling's visibility against whether its checkout used a credential; G8 checked that a
+recorded date was plausible. Both were deleted on 2026-08-10 after a review found them
+circular — each existed to protect a field that existed to feed it. The survivors keep
+their original names rather than being renumbered, so anything written about "G6"
+elsewhere still means this G6. The gap is deliberate; nothing is missing.
+
+**Two sections of this file have inverted failure semantics, and that trips people.**
+Everything above `── the rules, against the real workflow ──` fails when *the workflow or
+the declaration* is wrong. Everything below `── the rules, against synthetic mutants ──`
+fails when **the rule itself** is wrong — those tests feed a deliberately broken world to
+a rule and demand it complain. If one of those fails, do not go looking at
+`run_pytest.yml`; the workflow is fine and the guard has stopped guarding.
+
 **Every rule is a pure function of (workflow, siblings)**, so each can be run against a
 synthetic mutant rather than only against the real file. A guard that can only be
 demonstrated by editing CI is a guard nobody ever watches fail (ADR-014 §2) — this repo
@@ -418,10 +432,28 @@ def test_every_rule_has_a_mutant_that_proves_it_bites():
 
 @pytest.mark.parametrize("label, workflow, siblings, why", _MUTANTS)
 def test_each_rule_bites_on_a_broken_world(label, workflow, siblings, why):
+    """Feed a rule a deliberately broken world and demand that it complains.
+
+    **A failure here means the RULE is broken, not the workflow.** That inversion is the
+    one thing about this file worth knowing before you debug it: `run_pytest.yml` is not
+    involved, the world being fed in is a synthetic dict defined below, and a green real
+    workflow is entirely consistent with this failing. A guard that no longer objects to
+    a violation is a guard that has silently stopped working, which is the failure this
+    whole file exists to make loud (ADR-014 §2).
+
+    The second assertion is not pedantry: a rule that objects without naming which
+    sibling is at fault leaves a maintainer grepping a workflow file by hand.
+    """
     violations = _RULES[label](workflow, siblings)
-    assert violations, f"[{label}] did not object to: {why}"
+    assert violations, (
+        f"[{label}] did not object to a world that is deliberately broken: {why}. "
+        "This means the RULE has stopped working — the real workflow is not involved "
+        "and is probably fine. Fix the rule, not run_pytest.yml."
+    )
     assert any("views-appwrite" in v for v in violations), (
-        f"[{label}] objected but did not name the offending sibling: {violations}"
+        f"[{label}] objected, but its message does not name the offending sibling: "
+        f"{violations}. A maintainer reading only the failure would not know which "
+        "repository to look at."
     )
 
 
