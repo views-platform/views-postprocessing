@@ -63,7 +63,6 @@ def _product(partner: str):
     return importlib.import_module(f"views_postprocessing.{partner}.product")
 
 
-
 def test_every_partner_has_its_consumer_name_pinned():
     """Assert this file's declared scope is the real one (ADR-014 §2)."""
     assert set(_CONSUMER_DOCUMENT_NAME) == set(PARTNER_PACKAGES), (
@@ -98,7 +97,6 @@ def test_consumer_document_name_is_the_pin_its_consumer_filters_on(partner):
 def test_upload_interlock_defaults_off(partner):
     # §11.4: the default configuration must be unable to touch the live bucket.
     assert _product(partner).UPLOAD_ENABLED is False
-
 
 
 @pytest.mark.parametrize("partner", PARTNER_PACKAGES)
@@ -150,21 +148,28 @@ def test_both_delivery_legs_name_the_document_from_the_declaration(partner):
         "checked against the consumer's filter."
     )
 
-# ── across the seam: the pin above, checked against the repo that owns the fact ──
+# ── across the seam: the pin above, checked against the registry that owns the fact ──
 
 
-def test_every_partner_has_a_declared_consumer_repository():
-    """The gated check below iterates this map; assert it is real (ADR-014 §2)."""
+def test_every_partner_names_the_repository_that_consumes_its_delivery():
+    """Every partner must name its consumer, and that name must be a declared sibling.
+
+    **No test reads a consumer's checkout any more** (#248), so this no longer guards a
+    call site. It guards the *addressing*: `CONSUMER_REPO` is how this repository says who
+    receives each delivery, and it is what the cross-repo asks in register C-92 are
+    addressed to. A partner with no consumer named is a delivery with no recorded
+    recipient; a consumer named but absent from `SIBLINGS` is a name nothing else in this
+    repository can resolve.
+    """
     assert set(CONSUMER_REPO) == set(PARTNER_PACKAGES), (
         f"partners with no declared consumer repository: "
-        f"{sorted(set(PARTNER_PACKAGES) - set(CONSUMER_REPO))}. Without one, that "
-        "partner's consumer-name pin is never checked against the consumer."
+        f"{sorted(set(PARTNER_PACKAGES) - set(CONSUMER_REPO))}. Without one, nothing "
+        "records who receives that partner's delivery."
     )
     undeclared = sorted(r for r in CONSUMER_REPO.values() if r not in SIBLINGS)
     assert not undeclared, (
-        f"consumer repositories with no SIBLINGS entry: {undeclared}. "
-        "require_sibling() raises KeyError rather than skipping for those, so the "
-        "check would fail confusingly instead of skipping cleanly."
+        f"consumer repositories with no SIBLINGS entry: {undeclared}. Every repository "
+        "this one names must be resolvable from one declaration, or the two lists drift."
     )
 
 

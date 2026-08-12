@@ -179,10 +179,12 @@ SIBLINGS = {
 #: the second one ``un-crafdapi`` while the repository on disk is ``views-crafdapi`` —
 #: exactly the kind of near-miss that makes guessing expensive.
 #:
-#: This exists so the consumer-document-name pin can be checked **across the seam**
-#: rather than asserted locally. A name this repo declares and the consumer filters on
-#: is a fact this repo does not own; declaring it here is right, but only the sibling
-#: checkout can confirm it still matches (ADR-014 §1 — the guarantee needs a check).
+#: It exists so this repository records **who receives each delivery**. It used to also
+#: locate a sibling checkout so the consumer-document-name pin could be read from that
+#: consumer's source; #248 deleted that read (ADR-017 §7 — we were never entitled to
+#: depend on another repository's file layout, and two consumers proved it in a day by
+#: improving theirs). What the map is for now is addressing: it is who register C-92's
+#: cross-repo asks are sent to.
 CONSUMER_REPO = {
     "unfao": "views-faoapi",
     "crafd": "views-crafdapi",

@@ -115,7 +115,7 @@ Who is who, once and in one table:
 | repository | public? | fetched by CI? | why not, if not |
 |---|---|---|---|
 | **views-appwrite** | yes | **yes** | — carries the registry drift checks |
-| **views-crafdapi** | yes | **yes**, temporarily | — retires when views-crafdapi#53 lands, not before (ADR-017 §5 is per partner) |
+| **views-crafdapi** | yes | **no**, since 2026-08-12 | it was fetched for one test; that check read the consumer's source, broke twice in a day when both consumers improved theirs, and was deleted rather than repaired (ADR-017 §7 and its §5 erratum) |
 | **views-datafactory** | yes | no | its checks need raw data that is not in its git repository; fetching it turns an honest skip into a crash |
 | **views-faoapi** | **no** | no | private — no amount of workflow configuration reaches it. That case is [ADR-017](017_facts_across_a_private_boundary.md) |
 
@@ -148,12 +148,14 @@ Each rule is a plain function, so each is also run against a deliberately broken
 to prove it objects. A rule only ever tried against a correct file is a rule nobody has
 watched fail.
 
-**One of these downloads is temporary, and it is worth knowing which.** `views-crafdapi` is
-fetched for exactly one test. [ADR-017](017_facts_across_a_private_boundary.md) §7 replaces
-that test with one that reads a public declaration instead — at which point this download
-buys nothing and goes. That has been decided and is not yet done; it waits on the
-declaration landing in the registry. That is a decision this document cannot make on its own, which
-is why it is recorded there and cross-referenced here.
+**One of these downloads was temporary, and it is worth knowing what became of it.**
+`views-crafdapi` was fetched for exactly one test — a check that read the consumer's own
+source. [ADR-017](017_facts_across_a_private_boundary.md) §7 said this repository was never
+entitled to depend on another's file layout, and on 11 and 12 August 2026 both consumers
+proved it by refactoring a literal into a named constant and reddening this repository
+twice in a day. The check was deleted rather than repaired, and the download went with it.
+What that costs is register C-92: nothing here verifies that a consumer's query uses the
+name it declares.
 
 ### §6 A repository CI expects but cannot find turns the build red
 
@@ -311,8 +313,12 @@ the record that owns it.
 **Update 2026-08-11.** The declaration now exists (views-appwrite#75), views-faoapi
 checks itself against it (their #379), and this repository's check reads the registry
 rather than that repository's source. So the FAO half is no longer laptop-only, and no
-credential was issued. What remains is CRAF'd's consumer-side check (views-crafdapi#53);
-until it lands, that partner's source-read stays, and with it that partner's fetch.
+credential was issued. CRAF'd's consumer-side check landed the next day (views-crafdapi#53, closed 2026-08-12).
+
+**Amended 2026-08-12.** Both source-reads are now gone, and the crafd fetch with them —
+but not because those gates opened. The reads broke twice in twenty-four hours, each time
+because a consumer improved its own code, so the mechanism was abandoned rather than
+sequenced out. ADR-017 §5 carries the erratum; the residual is C-92.
 
 ---
 

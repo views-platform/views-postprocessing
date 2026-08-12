@@ -161,29 +161,42 @@ machine for the private one. Slightly redundant for a while, and redundancy is t
 price for not having a window where the only thing verifying a delivery label is our own
 typing.
 
-**Erratum, 2026-08-12: this constraint did not survive contact, and it dissolved rather
-than being satisfied.** Both source reads are gone, and neither partner's step 3 is what
-removed them. The reads broke twice in twenty-four hours — views-faoapi on 11 August,
-views-crafdapi on the 12th — each time because that repository refactored a literal
-argument into a named constant, which is an improvement. §7 of this document says we were
-never entitled to depend on another repository's file layout; two breakages in a day is
-the evidence, and repairing the regex a third time would have been repairing the wrong
-thing.
+**Erratum, 2026-08-12. The sequence above was followed, and the check was still the wrong
+mechanism. Both facts belong here, and an earlier draft of this erratum got the first one
+backwards.**
 
-So the ordering above is superseded by a plainer rule: **a check that reads another
-repository's source is not a check this repository builds.** The window the constraint
-guarded against is now permanent rather than temporary, and it is registered as **C-92**
-rather than sequenced away. What closes it is each consumer proving that its query uses
-the name it declares — asked for in views-faoapi#390 and views-crafdapi#55, because that
-is a fact only the consumer can hold.
+Both partners' step 3 landed. views-faoapi#379 merged on 11 August; views-crafdapi#53
+closed at 12:15 on the 12th. So the constraint stated above was **satisfied**, not
+bypassed — and the first version of this erratum claimed the opposite, that "neither
+partner's step 3 is what removed them". That was false when written, six hours after the
+second one landed. It is corrected here rather than quietly, because an ADR that repeals
+its own rule on a false claim about another repository is §3's failure inside §5's text.
+
+**What actually happened is more useful than what that draft said.** In both repositories
+the commit that satisfied step 3 was *the same commit* that broke our source-reading
+check: each consumer, while binding its served name to the registry, tidied
+`APIPathManager("literal")` into `APIPathManager(CONSUMER_DOCUMENT_NAME)`. The improvement
+and the breakage were one edit. Twice, a day apart.
+
+That is the argument for removing the check, and it is **§7's argument, not §5's**: we were
+never entitled to depend on another repository's file layout, and a mechanism that a
+consumer breaks by improving itself will keep breaking. The ordering rule above did its
+job; the thing it was ordering was not worth having.
+
+So the ordering constraint is not repealed — it is **discharged**, and superseded for this
+class by a plainer rule: **a check that reads another repository's source is not a check
+this repository builds.** The residual window is now permanent rather than temporary,
+registered as **C-92**, and what closes it is each consumer proving its query uses the name
+it declares — asked for in views-faoapi#390 and views-crafdapi#55, because that is a fact
+only the consumer can hold.
 
 **One assumption worth stating rather than relying on.** The registry is versioned, so the
 two sides could in principle read it at different editions and both pass while disagreeing.
 That is not a live risk here because the label is contract-immutable — changing it is an
 amendment, which produces a new edition both sides re-pin to, and our pin's reachability is
 already checked. Recorded because an unstated assumption carrying a silent-failure mode is
-what §1 is about. Today the check still reads the consumer's source
-and still skips in CI. The order the three land in, and what is blocked on what, is
+what §1 is about. *(Until 2026-08-12 the check also read the consumer's source and
+skipped in CI; see the erratum above — that half is gone and its residual is C-92.)* The order the three land in, and what is blocked on what, is
 Appendix B. Said here because a decision record that reads as a description of the code is
 how this repository has repeatedly ended up believing work was done.
 
@@ -393,21 +406,31 @@ visibility can be inferred for future APIs.
 
    Corrected: **retirement is per partner, and follows that partner's step 3.** For FAO
    that is now met (views-faoapi#379 merged 2026-08-11), so the FAO source-read goes. For
-   CRAF'd it is not (views-crafdapi#53 open), so the crafd source-read stays — and with
-   it the crafd fetch, whose `note` in `tests/conftest.py` already records that it lives
-   or dies with that one check.
+   CRAF'd it was not yet, so the crafd source-read stayed — and with it the crafd fetch.
+
+   *(Superseded 2026-08-12. views-crafdapi#53 closed at 12:15 that day, and the crafd
+   source-read was deleted anyway — not because the gate opened, but because the mechanism
+   was wrong. Both fetch and check are gone; `tests/conftest.py`'s note records it. See the
+   §5 erratum.)*
 3. **views-faoapi** — verify its own served label against the declaration; §8's other half.
    Filed as views-faoapi#379, and the consumer-side maintainer has accepted it.
 
-4. **views-crafdapi** — the same self-check for the other partner. **Not yet filed at the
-   time of writing, and that gap matters**: §7 retires the crafdapi fetch, so without this
-   leg the CRAF'd label would end up checked against a registry row that nobody checks
-   against CRAF'd's actual code — no verification against reality at all, which is worse
-   than the status quo. §7 argues the rule must apply uniformly; uniform application means
-   uniformly filing the third leg. Sequenced after that partner's data contract settles,
-   per step 1.
+4. **views-crafdapi** — the same self-check for the other partner. Landed as
+   views-crafdapi#53 (closed 2026-08-12), with the *query*-side ask filed the same day as
+   views-crafdapi#55 alongside views-faoapi#390.
 
-**Step 3 is a precondition for removing the old check**, though not for adding the new one
-— see the sequencing note in §5. The order is safe to interrupt at any point: until step 3
-lands for a partner, that partner's source-reading check stays, so no window exists in which
-the label is verified only against our own typing.
+   The reasoning that made this leg necessary still stands: §7 retires the crafdapi fetch,
+   so without it the CRAF'd label would be checked against a registry row that nobody
+   checks against CRAF'd's actual code — no verification against reality at all, which is
+   worse than the status quo. §7 argues the rule must apply uniformly; uniform application
+   means uniformly filing the third leg.
+
+**Step 3 was a precondition for removing the old check**, though never for adding the new
+one — see the sequencing note in §5. The order was safe to interrupt at any point: until
+step 3 landed for a partner, that partner's source-reading check stayed, so no window
+existed in which the label was verified only against our own typing.
+
+**That last sentence stopped being true on 2026-08-12, deliberately.** Both source reads
+were deleted once the mechanism — not the ordering — was found wanting, so the window is
+now permanent and carried as **C-92**. See the §5 erratum for why the constraint was
+discharged rather than repealed.
