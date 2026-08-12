@@ -158,12 +158,16 @@ SIBLINGS = {
     ),
     "views-crafdapi": Sibling(
         env="VIEWS_CRAFDAPI",
-        ci_checkout=True,
+        ci_checkout=False,
         note=(
-            "PUBLIC, and fetched **temporarily**. Measured: this fetch serves exactly one "
-            "test, the consumer-name pin. ADR-017 §7 replaces that test with a read of "
-            "the public registry, at which point this fetch buys nothing and should be "
-            "removed along with it. Until then it is real coverage, not decoration."
+            "PUBLIC, and no longer fetched. It served exactly one test — the check that "
+            "read this consumer's source for its query filter — and #248 deleted that "
+            "check rather than repairing it: the same read broke twice in 24 hours "
+            "because both consumers refactored a literal into a named constant, which "
+            "ADR-017 §7 predicted. The declaration stays because CONSUMER_REPO still "
+            "names this repository; only the fetch is gone. What the source read used to "
+            "cover is register C-92, and views-crafdapi#55 is the ask that would close it "
+            "where the fact lives."
         ),
     ),
 }

@@ -67,14 +67,6 @@ jobs:
         path: _siblings/views-appwrite
         fetch-depth: 0
 
-    - name: Checkout views-crafdapi (sibling)
-      uses: actions/checkout@v3
-      with:
-        repository: views-platform/views-crafdapi
-        ref: main
-        path: _siblings/views-crafdapi
-        fetch-depth: 0
-
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -97,7 +89,6 @@ jobs:
     - name: Run tests
       env:
         VIEWS_APPWRITE: ${{ github.workspace }}/_siblings/views-appwrite
-        VIEWS_CRAFDAPI: ${{ github.workspace }}/_siblings/views-crafdapi
       run: |
         set -e
         poetry run pytest tests/

@@ -181,8 +181,9 @@ def _g4_every_note_names_a_record(
 
     **Widened 2026-08-10 after external review.** The rule used to look only at siblings
     with ``ci_checkout=False``, which left a hole in exactly the place ADR-016 calls out:
-    `views-crafdapi` is fetched *temporarily*, until the check it serves moves to a
-    registry read, and that fact lived in a note **no rule examined**. A claim about
+    `views-crafdapi` was fetched *temporarily*, until the check it served moved to a
+    registry read, and that fact lived in a note **no rule examined**. (That fetch is gone
+    as of #248; the rule this incident produced is not.) A claim about
     another repository, in prose, that nothing can check — which is the failure ADR-016
     §3 diagnoses, reintroduced for the one download the document itself calls temporary.
 

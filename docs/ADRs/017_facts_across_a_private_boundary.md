@@ -161,6 +161,22 @@ machine for the private one. Slightly redundant for a while, and redundancy is t
 price for not having a window where the only thing verifying a delivery label is our own
 typing.
 
+**Erratum, 2026-08-12: this constraint did not survive contact, and it dissolved rather
+than being satisfied.** Both source reads are gone, and neither partner's step 3 is what
+removed them. The reads broke twice in twenty-four hours — views-faoapi on 11 August,
+views-crafdapi on the 12th — each time because that repository refactored a literal
+argument into a named constant, which is an improvement. §7 of this document says we were
+never entitled to depend on another repository's file layout; two breakages in a day is
+the evidence, and repairing the regex a third time would have been repairing the wrong
+thing.
+
+So the ordering above is superseded by a plainer rule: **a check that reads another
+repository's source is not a check this repository builds.** The window the constraint
+guarded against is now permanent rather than temporary, and it is registered as **C-92**
+rather than sequenced away. What closes it is each consumer proving that its query uses
+the name it declares — asked for in views-faoapi#390 and views-crafdapi#55, because that
+is a fact only the consumer can hold.
+
 **One assumption worth stating rather than relying on.** The registry is versioned, so the
 two sides could in principle read it at different editions and both pass while disagreeing.
 That is not a live risk here because the label is contract-immutable — changing it is an

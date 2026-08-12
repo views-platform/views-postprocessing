@@ -409,7 +409,26 @@ views-faoapi#379 binds their *served-name constant* to the registry row. The ass
 
 **A second, structural half.** `_CONSUMER_SELF_CHECK_PENDING` is asserted non-empty and asserted to name only real partners — never asserted to *cover* them. Every other partner map here is two-sided against `PARTNER_PACKAGES`; this one is not, so a third partner is silently exempt from the source read the day it lands. And `SIBLINGS["views-crafdapi"].note` says the fetch "buys nothing and should be removed" once the registry read exists — which PR #239 landed — while ADR-017 §5 forbids retiring that partner's source read until views-crafdapi#53 lands. A maintainer following the note does the thing the ADR forbids, and `test_the_pending_list_is_not_empty` does not object because the map stays non-empty.
 
-Cross-refs: **C-87** (the broader residual this sharpens, not duplicates), ADR-017 §5/§8/Appendix B, views-faoapi#379, views-crafdapi#53.
+**Resolved as far as it can be here, 2026-08-12 (#248) — the check is gone, the gap is permanent, and the ask is filed.**
+
+Both source reads are deleted. Not because the sequencing constraint was satisfied — it **dissolved**: the reads broke twice in twenty-four hours, views-faoapi on 11 August and views-crafdapi on the 12th, each time because that repository refactored a literal argument into a named constant. Their code got better and our test went red. ADR-017 §7 said we were never entitled to depend on another repository's file layout; two breakages in a day is the evidence, and repairing the regex a third time would have been repairing the wrong thing. ADR-017 §5 carries the erratum.
+
+**The gap is now permanent and unguarded here, by choice.** Nothing in this repository verifies that a consumer's query uses the name it declares. The chain reads:
+
+| link | owner | held by |
+|---|---|---|
+| we upload with name N | us | construction |
+| N == the registry row | us | `test_product.py::test_the_declared_consumer_name_matches_the_registry` |
+| their constant == the registry row | them | views-faoapi's `tests/test_seam_contract_binding.py`; views-crafdapi's equivalent |
+| **their query == their constant** | **them** | **nothing** |
+
+**Filed where the fact lives:** views-faoapi#390 (under their seam-verification epic #383, whose flagship this is) and views-crafdapi#55. Both carry `file:line` evidence, both note that `manager.py:117` applies the name filter *conditionally* so a falsy name broadens the query rather than failing, and both say plainly that we are not prescribing their internals.
+
+**Verified intact at the time of writing** — the constant reaches the path manager and the manager still filters on it, in both consumers. This is a risk, not an incident.
+
+**Trigger** is now theirs to clear and ours to notice: when either issue lands, this entry closes for that partner. Until then the honest statement is that a delivery is verified by two values this platform authored agreeing with each other, plus the consumer's own word.
+
+Cross-refs: **C-87** (the broader residual this sharpens, not duplicates), **C-94** (the producer-side preflight that would close it without asking anyone), ADR-017 §5/§7/§8/Appendix B, views-faoapi#390, views-crafdapi#55.
 
 ---
 
