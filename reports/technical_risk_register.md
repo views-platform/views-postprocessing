@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-12                           |
 | Total Concerns    | 97                                   |
-| Open Concerns     | 24                                   |
-| Resolved Concerns | 73                                   |
+| Open Concerns     | 23                                   |
+| Resolved Concerns | 74                                   |
 
 ---
 
@@ -244,29 +244,6 @@ Every mechanism this platform has aimed at invisible delivery is a **CI-time pro
 **What it would not cover, so nobody over-reads it later:** it proves the document is findable by that name in the store. It does not prove the consumer's code queries by that name. That last link is theirs, and issues asking each consumer to bind their *query* to their constant are filed under #248.
 
 Cross-refs: **C-92** (the check we deleted rather than replaced), **C-87** (the broader residual), **C-96** (the permission), ADR-013 §4.1a, ADR-017 §5/§8, issue #248.
-
----
-
-### C-93: A mutation proof written by whoever wrote the guard tests that author's imagination, not the guard
-
-| Field | Value |
-|-------|-------|
-| ID | C-93 |
-| Tier | 3 — no defect of its own. It is the reason several of the defects below survived three reviews, and it changes what "mutation-proven" is allowed to mean in this codebase. |
-| Source | `/code-review max` on PR #239 post-merge, 2026-08-11, corroborated by measurement |
-| Trigger | The next time a guard is defended in a pull-request description as "mutation-proven" against a list of cases the same change authored. |
-| Owner | Whoever writes the next guard; the standard belongs in ADR-014 §2. |
-| Location | ADR-014 §2; `tests/test_env_declaration.py::test_no_coordinate_value_is_copied_into_this_repo`; every `_MUTANTS`-style proof in `tests/`. |
-
-ADR-014 §2 says a guard is mutation-proven or it is decoration. That is right, and it is not sufficient. **A mutation proof is only as good as the mutant list, and a mutant list written by the author of the guard covers the cases the author already had in mind — which are, by construction, the cases the guard already handles.**
-
-Measured, on the guard that protects a public repository from publishing a coordinate value. Its author (this assistant) proposed thirteen input forms, proved all thirteen caught, and wrote that result into C-57 and into a commit message. An independent review then proposed twenty-nine forms. **Fifteen missed.** The thirteen were not a sample of how people write markdown; they were a sample of what the author had thought of, and every one of them happened to share the property the guard depended on.
-
-This is not the same as ADR-014 §2 failing. The proof was real, it was executed, and every case in it genuinely passed. The gap is that "proven against N mutations" reads as a statement about the guard when it is a statement about N.
-
-**What would change.** Two candidates, and they are not exclusive: (a) for a guard whose failure is silent — a leak, an invisible delivery — the mutant list is written or extended by something other than the change that wrote the guard; (b) the mutant list is a *declared, named* artifact in the test file rather than a paragraph in a commit message, so the next contributor can see what was and was not tried. `tests/test_ci_sibling_coverage.py::_MUTANTS` is already (b) and is the pattern to copy.
-
-Cross-refs: **C-57** and **C-89** (the guard this was measured on), **C-90** (a proof that proved nothing at all), ADR-014 §2.
 
 ---
 
@@ -1079,6 +1056,38 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-93: A mutation proof written by whoever wrote the guard tests that author's imagination, not the guard — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-93 |
+| Tier | 3 — no defect of its own. It is the reason several of the defects below survived three reviews, and it changes what "mutation-proven" is allowed to mean in this codebase. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11, corroborated by measurement |
+| Trigger | The next time a guard is defended in a pull-request description as "mutation-proven" against a list of cases the same change authored. |
+| Owner | Whoever writes the next guard; the standard belongs in ADR-014 §2. |
+| Location | ADR-014 §2; `tests/test_env_declaration.py::test_no_coordinate_value_is_copied_into_this_repo`; every `_MUTANTS`-style proof in `tests/`. |
+
+ADR-014 §2 says a guard is mutation-proven or it is decoration. That is right, and it is not sufficient. **A mutation proof is only as good as the mutant list, and a mutant list written by the author of the guard covers the cases the author already had in mind — which are, by construction, the cases the guard already handles.**
+
+Measured, on the guard that protects a public repository from publishing a coordinate value. Its author (this assistant) proposed thirteen input forms, proved all thirteen caught, and wrote that result into C-57 and into a commit message. An independent review then proposed twenty-nine forms. **Fifteen missed.** The thirteen were not a sample of how people write markdown; they were a sample of what the author had thought of, and every one of them happened to share the property the guard depended on.
+
+This is not the same as ADR-014 §2 failing. The proof was real, it was executed, and every case in it genuinely passed. The gap is that "proven against N mutations" reads as a statement about the guard when it is a statement about N.
+
+**RESOLVED 2026-08-12 (#250) — ADR-014 §2 amended.**
+
+The rule landed is a **diagnostic**, not a process: *if a guard can only be proven against inputs you invented, that is the signal the guard is on the wrong side of a boundary — it is verifying a fact you do not own.* Prefer moving the check to where the fact lives, or anchoring the mutant list in something real — this repository's corpus, the registry's rows, an observable outcome. The no-copy scan's stopping rule is the worked example and shipped in #243.
+
+Two cheap obligations where that is impossible: the mutant list is a declared artifact in the test file, not a paragraph in a pull request; and a proof must be able to fail.
+
+**Deliberately not adopted:** requiring an independent mutant author for every guard. The friction would exceed the disease for a single maintainer. Independent mutants are worth buying only for the silent-failure class — a leak, an invisible delivery — and the arc that produced this entry is the evidence for both halves: five parallel reviewers found what four rounds of self-review had not, and that cost was proportionate exactly once.
+
+Cross-refs: **C-57** and **C-89** (the guard this was measured on), **C-90** (a proof that proved nothing at all), ADR-014 §2.
+
+---
+
+---
+
 
 ### C-82: Governance-artifact prose carries numbers and statuses that nothing checks — RESOLVED 2026-08-05
 
