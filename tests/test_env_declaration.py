@@ -28,6 +28,7 @@ import hashlib
 import logging
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -136,8 +137,23 @@ _EXPECTED_NAMES = {name for _, _, expected in _PARTNER_ENV.values() for name in 
 _DOTENV_CALLS = {"load_dotenv", "find_dotenv", "dotenv_values"}
 
 
-def _dotenv_use(source: str) -> list[str]:
+def _parsed(path: Path) -> ast.Module:
+    """Parse ``path``, refusing a malformed module by path and line — never by content."""
+    try:
+        return ast.parse(path.read_text())
+    except SyntaxError as exc:
+        raise AssertionError(f"{path.name} does not parse (line {exc.lineno})") from None
+
+
+def _dotenv_use(path: Path) -> list[str]:
     """Real imports of, and calls into, python-dotenv — parsed, not grepped.
+
+    A malformed module is refused by path and line, never by content. ``ast.parse``
+    raises with the source as its own frame's argument, which pytest renders in full — so
+    a package file that both fails to parse and carries a coordinate value would publish
+    itself. ``from None`` drops the chained ``SyntaxError``, which carries the same text.
+    (An earlier version credited the ``Path`` parameter for this. Measured: it changes
+    nothing, because the text still reaches ``ast.parse``.)
 
     **Prose is not a violation and must not be treated as one.** ``appwrite_env.py``'s
     own docstring explains what the retired borrow was, spelling it exactly; a token
@@ -147,7 +163,7 @@ def _dotenv_use(source: str) -> list[str]:
     or a comment, so the guard can cover the whole package without lying about prose.
     """
     found = []
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(_parsed(path)):
         if isinstance(node, ast.Import):
             found += [a.name for a in node.names if a.name.split(".")[0] == "dotenv"]
         elif isinstance(node, ast.ImportFrom):
@@ -194,7 +210,7 @@ def test_the_dotenv_borrow_is_dead():
     offenders = {
         source.relative_to(_PKG).as_posix(): used
         for source in sorted(_PKG.rglob("*.py"))
-        for used in [_dotenv_use(source.read_text())]
+        for used in [_dotenv_use(source)]
         if used
     }
     assert not offenders, (
@@ -923,8 +939,9 @@ def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(pa
             "target": {canary: {"class": "target", "value": value}},
         }
 
-    then = _projection(edition("at-the-pin"), names)
-    now = _projection(edition("after-rotation"), names)
+    was, rotated = "at-the-pin", "after-rotation"
+    then = _projection(edition(was), names)
+    now = _projection(edition(rotated), names)
 
     assert then[canary][:2] == now[canary][:2], (
         "this fixture must differ ONLY in the value, or it is not proving what it claims"
@@ -934,10 +951,17 @@ def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(pa
         f"[{partner}] a rotated value went unnoticed. Name and class are identical on "
         "both sides, so nothing else in this file can see it."
     )
-    assert "value:" in changed[canary] and "at-the-pin" not in changed[canary], (
-        "the report must name the field that moved and must NOT print the value — this "
-        "repository is public and its CI logs are world-readable"
+    assert "value:" in changed[canary], (
+        f"[{partner}] the report must name the FIELD that moved, or a maintainer reading "
+        "the failure cannot tell a rotation from a reclassification."
     )
+    # Both sides, from the fixture's own variables — the rotated one was never checked.
+    for side in (was, rotated):
+        assert side not in changed[canary], (
+            f"[{partner}] the report printed the {side!r} value. It must name the field "
+            "and never the value: this repository is public, its CI logs are "
+            "world-readable, and they cannot be redacted afterwards."
+        )
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)
@@ -1002,24 +1026,15 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     """The registry's own rule: *"never bake a value into code, an example, or a
     dataclass default."* Consumers READ and VALIDATE; the launcher supplies values.
 
-    **Two wrong narrowings before this one, both instructive.**
+    **Names coordinates, never values** — including in this docstring. pytest prints the
+    failing function's source, so a value written here publishes on exactly the event the
+    check exists to catch (register C-89).
 
-    A substring text scan over every ``.py`` flagged three "leaks": ``file_metadata``
-    (a **function name** in ``contract/store_metadata.py``), ``production_forecasts``
-    and ``unfao_bucket`` (only in refusal labels and docstrings naming which store a
-    function serves). None was a copy, and a guard that fails on
-    ``def file_metadata(record)`` gets deleted — after which the real rule is unguarded.
-
-    Narrowing to *assignments and default arguments* then went too far in the other
-    direction: it caught neither a dict value nor a keyword argument, and the keyword
-    argument is the shape this repo would actually produce —
-    ``AppwriteConfig(bucket_id=...)`` is how every store is configured, and swapping one
-    ``os.getenv`` for a literal there is the violation.
-
-    The right axis was **exact equality on string constants**, not statement shape. It
-    catches dict values and kwargs, while all three original false positives fall out on
-    their own: a function name is not a ``Constant``; ``"unfao_bucket datastore"`` is not
-    equal to ``"unfao_bucket"``; docstrings are excluded outright.
+    The axis is **exact equality on string constants**, not statement shape: it catches
+    dict values and keyword arguments — ``AppwriteConfig(bucket_id=...)`` is how every
+    store is configured — while a function name is not a ``Constant`` and docstrings are
+    excluded outright. Two narrower drafts and their false positives are in register
+    C-57; three values that cannot be told from ordinary code at all are in C-97.
     """
     # `require_sibling`, like every other reader in this file. The hand-rolled skip that
     # stood here said only "checkout not found — set VIEWS_APPWRITE", which is the
@@ -1041,19 +1056,21 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     scanned_sections = tuple(
         name for name, role in _TABLE_ROLE.items() if role == "CONSUMED" and name != "secret"
     )
-    values = {
-        body["value"]
-        for section in scanned_sections
-        for body in registry.get(section, {}).values()
-        # No length floor: it excluded two five-character coordinates and,
-        # measured, removing it keeps the suite green — so it was buying nothing
-        # while narrowing a security check.
-        if isinstance(body.get("value"), str) and body["value"].strip()
-    }
+    # value -> every coordinate declaring it. A list, because two coordinates may share
+    # a value and measured against the live registry two pairs do.
+    declared_by_value: dict[str, list[str]] = {}
+    for section in scanned_sections:
+        for name, body in registry.get(section, {}).items():
+            # No length floor: it excluded two five-character coordinates and,
+            # measured, removing it keeps the suite green — so it was buying nothing
+            # while narrowing a security check.
+            if isinstance(body.get("value"), str) and body["value"].strip():
+                declared_by_value.setdefault(body["value"], []).append(name)
+    values = set(declared_by_value)
 
     copied = []
     for source in sorted(_PKG.rglob("*.py")):
-        tree = ast.parse(source.read_text())
+        tree = _parsed(source)
         docstrings = _docstring_nodes(tree)
         for node in ast.walk(tree):
             if (
@@ -1062,7 +1079,11 @@ def test_no_coordinate_value_is_copied_into_this_repo():
                 and node.value in values
                 and id(node) not in docstrings
             ):
-                copied.append(f"{source.relative_to(_PKG)}:{node.lineno} = {node.value!r}")
+                names = ", ".join(sorted(declared_by_value[node.value]))
+                copied.append(
+                    f"{source.relative_to(_PKG)}:{node.lineno} carries the value "
+                    f"declared for {names}"
+                )
     # Markdown too — the AST half cannot see a fenced ``bash`` block, and that is exactly
     # where four production-forecasts values sat: in README.md's Configuration section,
     # two lines below the sentence promising they are never copied, in a PUBLIC
@@ -1071,7 +1092,8 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     #
     # **What counts as a copy, and what does not.** A first draft flagged any line
     # containing a registry value and immediately fired on a dozen documents that merely
-    # *name* a store in prose — "six stranded documents in unfao_bucket". That is not a
+    # *name* a store in prose — a sentence counting stranded documents in the UNFAO
+    # bucket, written with the bucket's declared value. That is not a
     # copy; it is a sentence. C-57 recorded the identical false-positive class over `.py`
     # and the identical lesson: when a guard cries wolf, the matching is wrong before the
     # scope is (ADR-014 §3).
@@ -1132,9 +1154,12 @@ def test_no_coordinate_value_is_copied_into_this_repo():
             match = assignment.search(line)
             captured = next((g for g in match.groups()[1:] if g is not None), None) if match else None
             if captured is not None and captured.strip() in values:
+                # The coordinate(s) that DECLARE the value, not the one the assignment
+                # names — they differ on the ordinary copy-paste slip.
+                names = ", ".join(sorted(declared_by_value[captured.strip()]))
                 copied.append(
-                    f"{doc.relative_to(_REPO)}:{number} assigns a registry value to "
-                    f"{match.group(1)}"
+                    f"{doc.relative_to(_REPO)}:{number} carries the value "
+                    f"declared for {names}"
                 )
 
     assert not copied, (
@@ -1142,4 +1167,34 @@ def test_no_coordinate_value_is_copied_into_this_repo():
         "registry is referenced, never copied — values reach this package through the "
         "environment the launcher assembles, validated by assert_env_declared. In a "
         "document, write the NAME and leave the value to the launcher."
+    )
+
+
+def test_the_scan_reports_where_a_copy_is_and_never_what_it_is(tmp_path, monkeypatch):
+    """C-89: the ``.py`` branch printed the value it forbids, on the one event it fires on.
+
+    Read the finished message, not the source that built it — an earlier guard asserted
+    that findings were *routed* through one formatter, and routing is not safety.
+    """
+    planted = "Zq7xVb9KdLm1RnTs3Wy8Pj5Hc2Gf"
+    pkg = tmp_path / "views_postprocessing"
+    pkg.mkdir()
+    (pkg / "leaky.py").write_text(f'BUCKET_ID = "{planted}"\n')
+
+    here = sys.modules[__name__]
+    monkeypatch.setattr(here, "_PKG", pkg)
+    monkeypatch.setattr(here, "require_sibling", lambda name: tmp_path)
+    monkeypatch.setattr(here, "_registry_current", lambda repo: {
+        "target": {"APPWRITE_UNFAO_BUCKET_ID": {"class": "target", "value": planted}},
+    })
+
+    with pytest.raises(AssertionError) as caught:
+        test_no_coordinate_value_is_copied_into_this_repo()
+    message = str(caught.value)
+
+    assert "leaky.py" in message, f"the planted copy was not reported at all: {message}"
+    assert "APPWRITE_UNFAO_BUCKET_ID" in message, f"the coordinate is not named: {message}"
+    assert planted not in message, (
+        "THE SCAN PUBLISHED THE VALUE IT EXISTS TO HIDE. This repository is public and its "
+        "CI logs are world-readable and cannot be redacted afterwards."
     )

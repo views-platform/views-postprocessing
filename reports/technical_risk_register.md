@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-11                           |
-| Total Concerns    | 88                                   |
-| Open Concerns     | 15                                   |
+| Last Updated      | 2026-08-12                           |
+| Total Concerns    | 97                                   |
+| Open Concerns     | 24                                   |
 | Resolved Concerns | 73                                   |
 
 ---
@@ -161,6 +161,250 @@ that indexes only deleted code is noise.
 
 ## Open Concerns
 
+### C-97: Thirty-three coordinate values sit in docstrings and comments, where the scan deliberately does not look
+
+| Field | Value |
+|-------|-------|
+| ID | C-97 |
+| Tier | 3 — a decided position, not an accident, and the decision is defensible. It is registered because the decision was taken before anyone counted, and because a docstring is printed by pytest in a way a code constant is not. |
+| Source | `/code-review max` on #242, 2026-08-12; count reproduced here |
+| Trigger | **Either.** (a) A check whose failing function contains one of these values starts firing in CI. (b) Someone proposes widening the no-copy scan to docstrings — at which point this entry is the measurement that says what that would cost. |
+| Owner | This repository. |
+| Location | Measured across `git ls-files '*.py'`: 33 standalone occurrences in 9 files, including `views_postprocessing/{unfao,crafd}/managers/`, `contract/store_metadata.py`, `contract/wire/sink.py`. |
+
+The no-copy scan compares string **constants** and excludes docstrings outright. That exclusion is C-57's recorded lesson: an early draft fired on refusal labels and on docstrings naming which store a function serves, and *"a guard that fails on `def file_metadata(record)` gets deleted — after which the real rule is unguarded"* (ADR-014 §3).
+
+The position is still right. What was not known when it was taken is the count, and one consequence:
+
+**A value in a docstring is printed by pytest that a value in a constant is not.** When any test fails, `--tb=auto` prints the failing function's source. So a registry value in the docstring of a *test* reaches a world-readable CI log on that test's next failure — which is how #242 found that the no-copy scan's own docstring carried three. That one is fixed. The others sit in functions that fail less predictably.
+
+**Three of the values cannot be distinguished from ordinary code at all.** Measured: two are this repository's own package directory names, and one is the name of a function in `contract/store_metadata.py`. Exact-string matching cannot separate a copy from a coincidence for these, which is the same measurement #243 needs for the ban-set — recorded here once rather than twice.
+
+**What is deliberately not proposed:** scanning docstrings. It would fire on every sentence naming a store, which is the false-alarm class that gets guards deleted. The honest options are to leave it (current), to scan only *test* docstrings (where the traceback amplification is), or to stop writing values in prose going forward without rewriting history. None is urgent.
+
+Cross-refs: **C-57** (the exclusion and why), **C-89** (the traceback amplification, found here), **C-86**, issues #242, #243.
+
+---
+
+### C-96: The registry table that says which live checks this package may build is classified as none of our business
+
+| Field | Value |
+|-------|-------|
+| ID | C-96 |
+| Tier | 4 — no defect follows from it directly. It is here because it concealed an available mechanism for weeks, which is a cheap mistake to make again. |
+| Source | `/expert-code-review` of the standing decisions, 2026-08-12 |
+| Trigger | Anyone asks whether a live check against the production Appwrite project is permitted. |
+| Owner | This repository. |
+| Location | `tests/test_env_declaration.py:509` (`_TABLE_ROLE["test_environment"] = "IGNORED"`). |
+
+`[test_environment]` is classified `IGNORED` with the reason *"a fact about the platform, not about this package"*. It is in fact the clause that governs **what live checks this package is permitted to build**:
+
+> `status = "none"` — *"No non-production Appwrite project exists (þing-01 S23). Until the operator creates one: integration tests against the production project are FORBIDDEN by the seam contract; **read-only preflight validation is the only permitted live check**."*
+
+The second half is a **permission**, and this repository spent weeks believing the whole clause was a prohibition. Reclassify and read it, or record why a permission that changes what we may build is not a fact we depend on.
+
+Cross-refs: **C-94** (the mechanism this permission authorises), **C-95** (the mis-citation that compounded it), issue #249.
+
+---
+
+### C-95: The integration-test prohibition is cited to the wrong verdict, in three places
+
+| Field | Value |
+|-------|-------|
+| ID | C-95 |
+| Tier | 3 — a citation error, but one that closed off a design option. Namespacing across six repositories and two þings is a known hazard here; this is it landing. |
+| Source | `/expert-code-review` of the standing decisions, 2026-08-12 |
+| Trigger | Anyone reasons from the integration-test prohibition — for a preflight, a drill, or a new ADR. |
+| Owner | This repository. |
+| Location | `reports/technical_risk_register.md` (~:475, ~:1628, ~:1717); anywhere else citing þing-02 D2 for this. |
+
+This register cites **þing-02 D2** for the ruling that integration tests against the production Appwrite project are forbidden. þing-02 D2 is about identity and key separation. The ruling is **þing-01 D2** (`þingit/01_identity_secrets_config/orð_dómr.md:53-61`), and it differs from the paraphrase in two ways that matter: it is **conditional** (*"until the operator creates one"*), and it **grants** read-only preflight validation as the permitted live check. It also records that creating a test project is **assigned to the operator** and gates the provisioning-path drill — an open assignment, not a closed door.
+
+Cross-refs: **C-94**, **C-96**, þing-01 `orð_dómr.md` D2, issue #249.
+
+---
+
+### C-94: No mechanism anywhere detects an invisible delivery at the time it happens
+
+| Field | Value |
+|-------|-------|
+| ID | C-94 |
+| Tier | 2 — the failure mode is invisible by construction and lands on the live FAO path: upload succeeds, storage is billed, the consumer's endpoint returns empty, nothing raises anywhere. ADR-013 §4.1a's *"invisible to the consumer, not merely degraded."* |
+| Source | `/expert-code-review` of the standing decisions, 2026-08-12 |
+| Trigger | **Either.** (a) A delivery is reported empty by a consumer or by FAO. (b) `APPWRITE_READ_API_KEY` is provisioned for the launcher — at which point the deferral below has no remaining cost. |
+| Owner | This repository, for the mechanism. The credential is the operator's. |
+| Location | `views_postprocessing/contract/wire/sink.py` (the upload path, where nothing verifies); `views_postprocessing/delivery/`. |
+
+Every mechanism this platform has aimed at invisible delivery is a **CI-time proxy** for it: we check our label against the registry, the consumer checks their constant against the registry, and — until this week — we parsed their source. None of them observes the outcome. Grepping the sink and the delivery package finds no read-back, no findability check, no assertion that what was uploaded can be retrieved by the name the consumer will query.
+
+**The mechanism that would close it is known and is legal.** A producer-side **read-only findability preflight**: after upload, query the store read-only for a document whose `name` equals the declared `CONSUMER_DOCUMENT_NAME`; assert non-empty; log at ERROR and raise (ADR-008); remedy is the existing operator quarantine. It is authorised by the seam contract (see **C-96**), the `APPWRITE_READ_API_KEY` slot is already declared, and it is the only mechanism that survives a **third-party-operated private consumer**, because it asks nothing of them.
+
+**Why it is deferred, stated honestly.** It needs a read credential wired into the launcher — an operator action, not a code change — and it adds a live network call to the delivery path. Delivery works today. Building it now would be building the right thing at the wrong time. That is a deferral with a trigger and an owner (ADR-014 §4), not an omission.
+
+**What it would not cover, so nobody over-reads it later:** it proves the document is findable by that name in the store. It does not prove the consumer's code queries by that name. That last link is theirs, and issues asking each consumer to bind their *query* to their constant are filed under #248.
+
+Cross-refs: **C-92** (the check we deleted rather than replaced), **C-87** (the broader residual), **C-96** (the permission), ADR-013 §4.1a, ADR-017 §5/§8, issue #248.
+
+---
+
+### C-93: A mutation proof written by whoever wrote the guard tests that author's imagination, not the guard
+
+| Field | Value |
+|-------|-------|
+| ID | C-93 |
+| Tier | 3 — no defect of its own. It is the reason several of the defects below survived three reviews, and it changes what "mutation-proven" is allowed to mean in this codebase. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11, corroborated by measurement |
+| Trigger | The next time a guard is defended in a pull-request description as "mutation-proven" against a list of cases the same change authored. |
+| Owner | Whoever writes the next guard; the standard belongs in ADR-014 §2. |
+| Location | ADR-014 §2; `tests/test_env_declaration.py::test_no_coordinate_value_is_copied_into_this_repo`; every `_MUTANTS`-style proof in `tests/`. |
+
+ADR-014 §2 says a guard is mutation-proven or it is decoration. That is right, and it is not sufficient. **A mutation proof is only as good as the mutant list, and a mutant list written by the author of the guard covers the cases the author already had in mind — which are, by construction, the cases the guard already handles.**
+
+Measured, on the guard that protects a public repository from publishing a coordinate value. Its author (this assistant) proposed thirteen input forms, proved all thirteen caught, and wrote that result into C-57 and into a commit message. An independent review then proposed twenty-nine forms. **Fifteen missed.** The thirteen were not a sample of how people write markdown; they were a sample of what the author had thought of, and every one of them happened to share the property the guard depended on.
+
+This is not the same as ADR-014 §2 failing. The proof was real, it was executed, and every case in it genuinely passed. The gap is that "proven against N mutations" reads as a statement about the guard when it is a statement about N.
+
+**What would change.** Two candidates, and they are not exclusive: (a) for a guard whose failure is silent — a leak, an invisible delivery — the mutant list is written or extended by something other than the change that wrote the guard; (b) the mutant list is a *declared, named* artifact in the test file rather than a paragraph in a commit message, so the next contributor can see what was and was not tried. `tests/test_ci_sibling_coverage.py::_MUTANTS` is already (b) and is the pattern to copy.
+
+Cross-refs: **C-57** and **C-89** (the guard this was measured on), **C-90** (a proof that proved nothing at all), ADR-014 §2.
+
+---
+
+### C-89: The guard against publishing a coordinate value publishes it — in one branch of three, proven on one side of two
+
+| Field | Value |
+|-------|-------|
+| ID | C-89 |
+| Tier | 2 — a confidentiality exposure on a public repository with no signal that it happened. It fires on exactly the event the guard exists to catch, and CI logs are world-readable and are not retroactively redactable. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11; every element verified in this repository |
+| Trigger | A literal coordinate value is committed into a `.py` under `views_postprocessing/` — the violation the scan exists for — on any branch whose CI runs. |
+| Owner | This repository. |
+| Location | `tests/test_env_declaration.py` — `test_no_coordinate_value_is_copied_into_this_repo` (both reporting branches and the `secret` exemption in `scanned_sections`), `test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot`. **Function names, not line numbers**: this entry has now cited stale ones twice, because each fix moved them. |
+
+The no-copy scan exists because README.md once carried four real coordinate values, two lines below the sentence promising they are never copied, in a public repository. It has three parts and they do not agree with each other about the one rule that matters.
+
+**The Python branch prints the value.** `copied.append(f"{source}:{node.lineno} = {node.value!r}")`. The markdown branch sixty-eight lines below was rewritten on 2026-08-11 to stop doing precisely this, and `_describe_changes` was added in the same change with a docstring whose entire subject is that a rotated coordinate must never reach a public log. The invariant was stated, applied to one branch, and left off the other. When this guard fires it does the thing it was built to prevent.
+
+**The `secret` table is exempted by an inline literal.** `scanned_sections` filters `_TABLE_ROLE` for `CONSUMED` and then subtracts `secret` by name, two lines under a comment claiming the scope comes from the declared partition and not from an inline list, and with no reason recorded anywhere. Measured against views-appwrite's current registry: `[secret]` has seven rows and none carries a `value`, so the clause removes zero entries today and the `isinstance(..., str)` filter on the next line already does its work. The day a secret row gains any value, the one table class whose leak matters most is silently outside the scan.
+
+**The rotation proof checks one side.** `assert "value:" in changed[canary] and "at-the-pin" not in changed[canary]` asserts the *pinned* value is absent. The freshly rotated value — the more damaging one, and the one the fixture already names — is never asserted absent. A regression that digests one side and interpolates the other passes this proof.
+
+The three share a cause: the no-print rule lives in prose and in one implementation, and nothing asserts it about the guard as a whole.
+
+**Partial mitigation 2026-08-12 (#242) — the leak is closed; the scan's scope is not.**
+
+*(The heading matters. An earlier draft of this paragraph said "Mitigated", which is neither of the two phrasings this register declares — `Mitigation — landed` and `Partial mitigation`, enforced by `tests/test_register_integrity.py`. Inventing a third phrasing passes that guard by evading its string rather than by complying, which is the identical escape ADR-014 §5 records C-15 making. This entry is partial by its own next sentence.)*
+
+Two of the three are fixed, and the third moved:
+
+1. **Both branches name the coordinate, never the value.** Each builds its own sentence — two f-strings, deliberately not one shared formatter — and neither has the value in hand. They name **all** coordinates declaring that value: measured, two pairs share one (the prod-forecasts bucket and collection share both id and name), so a `value -> name` map would have named the wrong coordinate half the time in the message a maintainer uses to find the copy.
+2. **The rotation proof asserts both sides absent**, taken from the fixture's own variables rather than from two literals a rename would quietly orphan. Mutation-proven: leaking the post-rotation side while keeping the pinned side digested fails now and **passed before** — the more damaging half, unchecked.
+3. **The rule is asserted behaviourally**, by `test_the_scan_reports_a_copy_without_reprinting_it`: plant a value in a fixture tree, run the real scan, read the finished message.
+
+**And the third one took two attempts, which is the part worth recording.** The first version asserted that every finding was *routed* through `_report_a_copy` — an AST walk over the scan's own source. Five independent reviewers were run against it and **routing turned out not to be safety**: the value could be smuggled through either of that helper's two parameters, appended with `extend` or `+=`, or reported from a renamed accumulator. Six of eight mutations survived, and one legitimate refactor *failed* it — a guard that misses the thing and fires on the innocent, which is C-82's shape and ADR-014 §3's deletion criterion at once. The docstring's claim that a caller "cannot print one however it is written" was false when written.
+
+Reading the finished message instead makes the whole class unreachable: it does not matter how a finding is built, which branch builds it, or what the final assertion interpolates. All five surviving mutations are now caught, including one that leaked the entire ban-set through the assertion message rather than through a finding.
+
+**A third pass, from an adversarial mutation review that ran 14 mutations against the second.** Twelve survived. Seven were leak channels the message test could not see, and all seven are now closed:
+
+- `print()` or `logging.warning()` beside the append — the message stayed clean while pytest published the value under *Captured stdout* / *Captured log call*. The behavioural test now reads `capsys` and `caplog` too. A stray debug print is an ordinary accident, not an adversarial one.
+- **`_describe_changes`'s rotation proof was one-sided** — it asserted only the pinned value absent, never the rotated one, which is the more damaging half. Now both, taken from the fixture's own variables.
+
+**A malformed package module published itself, and the first fix for it did not work.** `ast.parse` raises with the source as its own frame's argument, and pytest renders that in full — so a package file that both fails to parse and carries a value printed itself. This entry previously said *"it takes a `Path` now and reads inside"*; **measured, that changes nothing**, because the text still reaches `ast.parse`. The fix is a shared `_parsed(path)` that refuses by path and line with `raise ... from None` — `from None` is the load-bearing part, since the chained `SyntaxError` carries the same text. Applied at **both** parse sites: fixing one and not the other is this entry's own shape.
+
+**A fourth pass deleted most of the third, and that is the entry's real lesson.** Four commits and five reviews had grown this file by **+195 lines**, of which **+95 was prose restating this register** and **every one of the 149 new function-body lines was a test of another test in the same file**. Two of those additions were themselves defective:
+
+- `test_the_drift_report_never_carries_a_value_in_any_recoverable_form` claimed to drive `_describe_changes`'s `appeared`/`removed` branches. It did not: those branch on `was is None`, and the fixtures passed `_ABSENT`, a sentinel object. It ran one branch three times while asserting three — an ADR-014 §1 defect inside the fix for an ADR-014 §1 defect — and the branches it named return constant strings and cannot leak. **Deleted.**
+- `_carries`, an eight-character-window "recoverability" predicate, is **strictly worse than plain `in`**: the window degrades to exact match below eight characters, and this package's two directory names are five-character declared values. Measured, `_carries("views_postprocessing/unfao/leaky.py …", "unfao")` is `True` — it condemns a bare, safe file path while claiming a leak. **Deleted**; both call sites use plain `not in`, the vocabulary already at `test_the_environment_refusal_logs_names_and_never_values`.
+
+Net **−140 lines**, leaving the file **+55 over its pre-story size** rather than +195. What the +55 buys: one behavioural guard, the rotation proof's second side, the value→coordinate map, and the shared parse refusal.
+
+**What is deliberately NOT chased.** Four surviving mutations narrow the scan's *scope* — a length floor, a dropped section, a swallowed `SyntaxError`, a `break` after the first finding — and none is visible to a test that plants its own fixture. They are **#243**'s subject and are routed there. A fifth deletes the no-print assertion itself: infinite regress, carried here instead. Two residuals stand: the markdown branch's output is not behaviourally proven (it holds no value by construction), and a leak shorter than the planted fixture would pass. Chasing either is the whack-a-mole this epic exists to refuse.
+
+4. **The scan's own docstring carried four registry values**, and pytest prints the failing function's source — so the guard would have published them on exactly the event it exists to catch. The message was clean; the traceback was not. Now it names coordinates. **The wider finding is registered separately as C-97**: 33 standalone values sit in docstrings and comments across nine files, production modules included, and the AST scan excludes docstrings by a deliberate C-57 decision taken before anyone counted them.
+
+**Deliberately still open, and moved rather than closed:** the `secret` exemption at `:1042` and the ban-set's package-name collision are the *scope* of the scan, not its reporting, and belong with the matcher rewrite in **#243**. This entry stays open until they land, because closing it now would close a Tier 2 on two-thirds of its content.
+
+**Two deferrals, both with triggers (ADR-014 §4).**
+
+1. **The leak guards belong in `tests/test_redaction_guard.py`**, which already owns "what stops us leaking" and which `test_the_environment_refusal_logs_names_and_never_values` already points readers to. The concern is currently split across two files with no shared vocabulary. Not moved here, because moving code while fixing bugs in it is how the next defect arrives. **Trigger: when #243 finishes touching `tests/test_env_declaration.py`.** Owner: this repository.
+2. **`test_the_drift_check_would_catch_a_rename` re-types its subject's comparison inline** rather than calling it, so blanking that subject's assertions leaves the proof green — the same defect its two siblings had repaired. Pre-existing, found while reading for this change. **Routed to #243**, which is already in this file.
+
+Cross-refs: **C-57** (the scan's own entry and its history), **C-93** (why the author's own proof did not find this), **C-90** (the sibling defect in the drift checks), ADR-014 §1, issues #242, #243.
+
+---
+
+### C-90: The replacement drift checks assert less than their docstrings say, and one of their mutation proofs is a tautology
+
+| Field | Value |
+|-------|-------|
+| ID | C-90 |
+| Tier | 2 — this is the entry PR #239 was written to close, reopened by the code that closed it. It reinstates release-blocking false alarms on the path that is this project's production release, and it does so under a docstring saying the opposite. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11; verified by direct measurement against views-appwrite `origin/main` |
+| Trigger | views-appwrite declares any new coordinate in `connection`, `target`, `secret` or `contract` — including one belonging to another repository entirely. On the current registry that is 8 of 25 rows' worth of surface. |
+| Owner | This repository. |
+| Location | `tests/test_env_declaration.py:732` (`arrived`), `:890` (the tautology), `tests/seam_registry.py:113` (`registry_current`). |
+
+**`arrived` is not filtered by the names this package reads.** `changed` is; `arrived` is computed over every row of every table this package depends on. Measured on the live registry: **25 rows, 8 of which this package never reads** — six of them keys and callers belonging to other repositories. So views-appwrite issuing one more key for an unrelated repo turns both partner parametrizations red here, with a message demanding a `SEAM_CONTRACT` re-pin for a coordinate this package cannot use.
+
+That is the exact failure class C-86 records and that PR #239 was written to remove, and the same test's docstring seven lines above says **"Silent through: prose edits, `[meta]` bumps, and rows belonging to anyone else."** The prose describes the check that was designed; the code implements a wider one.
+
+There is a real question underneath, and it should be decided rather than inherited: a *new* coordinate in a table we read may be one we must adopt — `[contract.*]` arrived exactly that way and nothing else here would have seen it. That argues for table-granularity on arrival and row-granularity on change. If that is the intent it is defensible, and then the docstring is wrong; if the docstring is right, the code is. **They cannot both stand.**
+
+**The partition's mutation proof cannot fail.** `assert not _unclassified_tables(base)` where `base = {name: {} for name in _TABLE_ROLE}` reduces to `set(_TABLE_ROLE) - set(_TABLE_ROLE)`, empty for every possible input. Its message — *"the real registry's tables must all classify"* — asserts a fact about a file this test never opens. It is decoration inside the test whose own docstring is about removing decoration.
+
+**`registry_current` has no test.** The module `tests/seam_registry.py` was extracted for one reason: two copies of the reader disagreed about whether to read the sibling's `main` or its working tree, and reading the working tree is issue #196 verbatim. The function that settles it is called by five tests and is the subject of none. Replacing its body with `rev-parse HEAD` — the defect it exists to prevent — leaves the suite at its exact baseline. Three of its error branches are executed by nothing.
+
+Cross-refs: **C-86** (whose partial-mitigation paragraph this falsifies), **C-89** (the sibling defect in the no-copy scan), **C-93**, **C-91**, ADR-014 §1/§2, issue #196.
+
+---
+
+### C-91: The git plumbing this arc added turns ordinary developer states into hard errors, bare tracebacks, and one possible hang
+
+| Field | Value |
+|-------|-------|
+| ID | C-91 |
+| Tier | 3 — no wrong data and nothing silent. It taxes every contributor who does not already have the exact sibling checkout this repository assumes, and it does so with diagnoses that point at the wrong cause. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11 |
+| Trigger | Any of: a contributor clones views-appwrite shallow, single-branch, or before the pinned commit; a table classified `CONSUMED` upstream is written as flat keys rather than sub-tables; a contributor has `commit.gpgsign` or a global `core.hooksPath` set. |
+| Owner | This repository. |
+| Location | `tests/seam_registry.py:71` (refusal diagnoses), `:150` (`rows`), `tests/test_env_declaration.py:820` (the scratch repo). |
+
+**A stale clone produces four errors carrying the wrong explanation.** The reader the extraction replaced read the file off disk, so an older checkout simply read an older file. Now a clone that predates the pinned commit — or is shallow, or was made `--single-branch`, which matters because views-appwrite's default branch is not `main` — raises *"does not resolve to a commit … an empty ref reads the index and a branch reads a moving tip"*. That names neither cause and does not say `git fetch`. Meanwhile `test_the_pinned_commit_is_reachable_from_the_contract_repos_main` detects the identical root cause and *skips* with the right remedy. One condition, one skip, four errors, three explanations.
+
+**`rows()` raises a bare `AttributeError` on a shape the live registry already has.** It guards a null section and not a scalar row. Verified: views-appwrite's `[test_environment]` holds `status` and `fact` as top-level strings. That table is `IGNORED`, so nothing breaks today — but when the partition check fires on a new upstream table, its own message instructs the maintainer to classify it `CONSUMED` or `MIRRORED`, and doing so for a table written that way returns a traceback pointing into a dict comprehension. From the module whose docstring says a helper justified by failing legibly must not hand back a bare traceback.
+
+**The scratch repo inherits the developer's global git config and has no timeout.** `test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong` sets `user.name` and `user.email` and stops. With `commit.gpgsign = true` it fails with a bare `CalledProcessError` — `capture_output=True` swallows git's explanation. With a passphrase-protected key it blocks on pinentry with no `timeout`, hanging the whole run; `conftest.git_output`, which this helper bypasses, caps at 30 seconds. The leak was anticipated for identity and not for the setting that blocks.
+
+Cross-refs: **C-90** (the same module's untested core), **C-88** (why the module exists outside `conftest.py`), ADR-008 (explicit failure), issue #196.
+
+---
+
+### C-92: This repository lost its only check that the FAO consumer still SELECTS by the delivery label
+
+| Field | Value |
+|-------|-------|
+| ID | C-92 |
+| Tier | 2 — the failure mode is invisible by construction and is on the live FAO path. Upload succeeds, storage is billed, the consumer's endpoint returns empty, nothing raises anywhere. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11 |
+| Trigger | views-faoapi changes how `managers/prediction/manager.py` selects — to a category, a metadata field, a query builder — without touching its served-name constant. |
+| Owner | Shared: views-faoapi owns the check; this repository owns noticing it does not exist. |
+| Location | `tests/test_product.py:63` (`_CONSUMER_FILTER`), `:274` (`_CONSUMER_SELF_CHECK_PENDING`), `:344`; `tests/conftest.py:159-167`; ADR-017 §5. |
+
+PR #239 retired the FAO half of the source-reading check on the strength of views-faoapi#379. That was the right sequencing — §5 requires the consumer-side check to land first, and it had. **But the two checks are not the same check.**
+
+views-faoapi#379 binds their *served-name constant* to the registry row. The assertion this repository deleted was `'filters["name"] = self.model_path.model_name'` — that they still *query* on it. So views-faoapi can refactor its selection mechanism, leave its name constant untouched, pass #379, pass our registry comparison, and serve an empty endpoint. The deleted assertion carried that exact sentence: *"the name may still match while the consumer filters on something else entirely — same invisibility, different cause."* Nothing carries it now.
+
+**Verified 2026-08-12, and the state is good — which is why this is a risk and not an incident.** Read at `views-faoapi@origin/development`: `_CONSUMER_DOCUMENT_NAME = "un_fao"` (`src/views_faoapi/managers/api.py:59`) reaches `APIPathManager(...)` at `:1282`, and `managers/prediction/manager.py` still filters on it at `:117` and `:435`. Their D2 test — views-faoapi's `tests/test_seam_contract_binding.py` — imports the constant from the production module rather than re-typing it, which is better than it had to be. **The composition is what nothing asserts**: constant↔registry is checked by them, query↔constant was checked by us and is not any more. Also worth recording: their D2 check is on `development`; their `main` is 22 commits behind at PR #357, so a reader taking "#379 merged" to mean "live on their default branch" is over-reading it.
+
+**C-87 is not this.** C-87 records that we verify our copy against the declaration rather than the consumer's code against it. This is narrower and worse: for one partner we briefly had the second check and gave it up for something that does not cover the same failure.
+
+**A second, structural half.** `_CONSUMER_SELF_CHECK_PENDING` is asserted non-empty and asserted to name only real partners — never asserted to *cover* them. Every other partner map here is two-sided against `PARTNER_PACKAGES`; this one is not, so a third partner is silently exempt from the source read the day it lands. And `SIBLINGS["views-crafdapi"].note` says the fetch "buys nothing and should be removed" once the registry read exists — which PR #239 landed — while ADR-017 §5 forbids retiring that partner's source read until views-crafdapi#53 lands. A maintainer following the note does the thing the ADR forbids, and `test_the_pending_list_is_not_empty` does not object because the map stays non-empty.
+
+Cross-refs: **C-87** (the broader residual this sharpens, not duplicates), ADR-017 §5/§8/Appendix B, views-faoapi#379, views-crafdapi#53.
+
+---
+
 ### C-88: The platform declarations live in pytest's fixture file, so nothing outside the test tree can reach them
 
 | Field | Value |
@@ -265,6 +509,19 @@ description, where deferrals go to be forgotten:
 Cross-refs for this amendment: **C-57** (the drift detector this rides on), ADR-016 §7a/§7b,
 views-appwrite#76 (**delivered**, registry v1.6.0).
 
+**⚠ CORRECTED 2026-08-12 — the partial mitigation above overstates what shipped.** The
+paragraph beginning *"Partial mitigation 2026-08-11"* says the replacement checks "match on
+the facts this repository actually declares". **One of the three does not.** The arrival
+half of the drift check is computed over every row of every table this package depends on,
+with no filter for the names it reads — 8 of 25 rows on the live registry belong to other
+repositories. So the false-alarm class this entry records is *narrowed*, not removed:
+observation-only edits no longer fire it, but any new coordinate for any repo still does.
+
+The measurement quoted above (v1.4.4 → v1.5.2, three editions, green) remains true and was
+not the wrong measurement — none of those editions added a row. It was simply not a
+measurement of the case that now fires. Registered as **C-90**, and this entry's rate claim
+should be re-stated once that is fixed rather than before.
+
 
 ---
 
@@ -288,6 +545,8 @@ Its residual is stated plainly in §8 and belongs here rather than only in a doc
 **What was already prevented.** A reviewer caught that the obvious sequence created a window where the source-reading check was deleted before the consumer-side check existed, leaving a green build proving only that two values this platform authored agreed with each other. ADR-017 now forbids that ordering. This entry exists so the ordering constraint has a home outside the document that states it.
 
 Cross-refs: **C-77** (the same field's producer-side half, resolved), ADR-013 §4.1a, ADR-017 §5/§8/Appendix B, views-appwrite#75, views-faoapi#379, views-crafdapi#53.
+
+**⚠ AMENDED 2026-08-12 — one partner's residual got worse, not better.** This entry says the label's agreement with reality "rests on the source-reading check … which someone could remove believing the registry check replaced it." PR #239 removed the FAO half on the strength of views-faoapi#379 — correct sequencing under ADR-017 §5, and still the wrong outcome, because **#379 and the deleted check do not cover the same failure.** #379 binds their served-name constant to the registry; the deleted assertion was that they still *query* on it. Registered separately as **C-92**, because it is narrower and more acute than the residual recorded here: not "we never checked the consumer's code" but "we checked it, for one partner, and stopped."
 
 ---
 
@@ -1518,6 +1777,17 @@ The shared cause is not a regex bug. **The pattern described one way of writing 
 **The residual, which is deliberate and should not be "fixed".** This remains a *syntax* match. A value merely named in a sentence — "the six stranded documents in `<bucket>`" — is not a copy and does not fire. An earlier draft that matched any occurrence fired on a dozen documents, and the lesson recorded above applies to itself: a guard that cries wolf gets deleted, after which the real rule is unguarded (ADR-014 §3). The class this cannot catch is a value pasted into prose with no assignment syntax anywhere near it. That is accepted, because the alternative has been tried and was worse.
 
 **Why this belongs on C-57 rather than in a new entry.** It is the same guard, the same failure direction, and the same lesson this entry already records one layer down: the earlier amendment found the scan's *scope* was never mutation-proven (it named `unfao` and missed `crafd`); this one finds its *matching* was never proven against the file formats it scans. Scope, matching, and now syntax-variant — three ways for a mutation-proven guard to be proven against the wrong thing.
+
+**⚠ CORRECTED 2026-08-12, and the correction is the same mistake one level up.** The amendment immediately above claims "thirteen forms are proven caught" and cites `` set `NAME=value` before … `` as evidence the mid-sentence class is covered. An independent review supplied twenty-nine forms and **fifteen missed**, including the *unbackticked* form of that very example: `set NAME=value before running` captures `'value before running'`. The cited case passes only because of its backticks. Measured, not argued.
+
+Two distinct defects sit under those fifteen, and both are the pattern-describes-one-dialect cause this entry already names:
+
+1. **The unquoted value has no whitespace terminator.** It ends only at `#`, a backtick or `|`, so any value followed by prose escapes. And `search` is called once per line, so on a two-variable table row every assignment after the first is invisible.
+2. **The boundary is an allow-list, not a predicate.** The comment above it says the name may be preceded by "anything that is not part of an identifier"; the code is a six-character lookbehind. A quoted, parenthesised or colon-prefixed assignment produces no match at all — so the pattern can *parse* a quoted value but cannot *see* a quoted assignment.
+
+**And a fourth failure direction, opposite to the other three.** Removing the six-character floor admitted the registry's two shortest values into the ban-set. Measured: **they are this repository's own package directory names — the exact contents of `PARTNER_PACKAGES`** — matched by exact string equality against every non-docstring string constant under `views_postprocessing/`. The justification given, "measured, removing it keeps the suite green", measured today's source and not the next commit's. The next `logging.getLogger(<partner>)` or `Literal[<partner>, …]` fails a security guard for code that copied nothing, and this entry's own doctrine says what happens next. It also hands views-appwrite a way to redden this repository by declaring any short ordinary word as a value — which is **C-86**'s coupling, arriving through the guard that was supposed to reduce it.
+
+Registered as **C-89** (the leak half) and tracked with this entry's remediation. **C-93** records why the author's own proof did not find any of it.
 
 Cross-refs: C-74 (the guard this paragraph vouched for), C-33 (store identity still hardcoded per store — the same env surface, different concern), C-58 (what happens when a coordinate is wrong rather than missing), C-44 (the pipeline-core version coupling that would carry a registry change), **C-86** (the drift checks this scan sits beside), issues #134/#135/#138 (this repo's discharged þing-01 obligations), #104 (README env block placeholders).
 
