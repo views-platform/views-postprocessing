@@ -35,9 +35,13 @@ import pytest
 
 from tests.seam_registry import (
     ABSENT as _ABSENT,
+    REGISTRY_RELPATH,
     REGISTRY_RELPATH as _REGISTRY_RELPATH,
+    RegistryReadError,
     RegistryReadError as _RegistryReadError,
+    registry_at,
     registry_at as _registry_at,
+    registry_current,
     registry_current as _registry_current,
     rows as _rows,
 )
@@ -945,7 +949,15 @@ def test_the_table_partition_would_catch_a_new_table_and_a_vanished_one():
     assert _unclassified_tables(base | {"brand_new_table": {}}) == ["brand_new_table"], (
         "a table nobody classified went unnoticed — that is how `[contract.*]` arrived"
     )
-    assert not _unclassified_tables(base), "the real registry's tables must all classify"
+    # NOT `assert not _unclassified_tables(base)` — `base` is built from `_TABLE_ROLE`,
+    # so that reduces to `set(x) - set(x)` and is empty for every possible input. It
+    # shipped, claiming "the real registry's tables must all classify" about a file this
+    # test never opens. The silent direction is worth asserting; it just has to be
+    # asserted about something the function did not derive from itself.
+    assert not _unclassified_tables({"connection": {}, "target": {}}), (
+        "a subset of the classified tables was reported as unclassified — the check is "
+        "inverted, and every real registry would fail it"
+    )
 
     assert _missing_dependencies({k: v for k, v in base.items() if k != "target"}) == ["target"], (
         "a table this package reads rows out of vanished and the check did not object"
@@ -1365,3 +1377,96 @@ def test_the_scan_understands_every_assignment_form_this_repo_writes():
         "document that introduced it — that is the stopping rule, and it is why the "
         "form list is derived from this repository's own corpus rather than invented."
     )
+
+
+def _scratch_repo(tmp_path: Path):
+    """A throwaway git repo whose registry differs on `main`, on `origin/main`, and on disk.
+
+    `-c` rather than `git config`: a contributor's global `commit.gpgsign` or
+    `core.hooksPath` would otherwise reach in and either fail opaquely or block on
+    pinentry with no timeout.
+    """
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), "-c", "commit.gpgsign=false",
+             "-c", "core.hooksPath=/dev/null", *args],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+
+    target = tmp_path / REGISTRY_RELPATH
+    target.parent.mkdir(parents=True)
+
+    def edition(marker: str) -> str:
+        return f'[meta]\nversion = "{marker}"\n\n[connection.X]\nclass = "connection"\n'
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    target.write_text(edition("on-main"))
+    git("add", "-A")
+    git("commit", "-q", "-m", "main")
+
+    # a remote-tracking ref that is AHEAD of main, so preferring one over the other shows
+    git("checkout", "-q", "-b", "upstream")
+    target.write_text(edition("on-origin-main"))
+    git("add", "-A")
+    git("commit", "-q", "-m", "origin")
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    git("checkout", "-q", "main")
+
+    # and a dirty working tree, which is what #196 was about
+    target.write_text(edition("in-the-working-tree"))
+    return tmp_path
+
+
+def test_registry_current_reads_origin_main_not_the_working_tree(tmp_path):
+    """The reason `tests/seam_registry.py` exists, and until now the only untested part.
+
+    A sibling clone sits on whatever branch its own agent last worked on. Comparing
+    against that grades this repository on unreviewed content — issue #196, which cost a
+    withdrawn pull request. Replacing this function with a working-tree or `HEAD` read
+    used to leave the whole suite green.
+    """
+    repo = _scratch_repo(tmp_path)
+    assert registry_current(repo)["meta"]["version"] == "on-origin-main", (
+        "registry_current read something other than origin/main. A working-tree read is "
+        "#196 verbatim; a bare `main` read misses that the sibling's remote has moved."
+    )
+
+
+def test_registry_current_refuses_a_repo_with_neither_ref(tmp_path):
+    """No `origin/main` and no `main` must say so, not return an empty registry."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)],
+                   capture_output=True, text=True, check=True, timeout=30)
+    with pytest.raises(RegistryReadError, match="neither origin/main nor main"):
+        registry_current(tmp_path)
+
+
+def test_registry_at_refuses_a_commit_whose_registry_is_missing_or_unparseable(tmp_path):
+    """`git show` failing, and a blob that is not TOML — two refusal branches nothing reached."""
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), "-c", "commit.gpgsign=false",
+             "-c", "core.hooksPath=/dev/null", *args],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+
+    (tmp_path / "unrelated.txt").write_text("no registry here\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "no registry")
+    absent = git("rev-parse", "--short", "HEAD").stdout.strip()
+
+    target = tmp_path / REGISTRY_RELPATH
+    target.parent.mkdir(parents=True)
+    target.write_text("this is not toml = = =\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "not toml")
+    garbage = git("rev-parse", "--short", "HEAD").stdout.strip()
+
+    with pytest.raises(RegistryReadError, match="cannot read the registry"):
+        registry_at(tmp_path, absent)
+    with pytest.raises(RegistryReadError, match="did not parse as TOML"):
+        registry_at(tmp_path, garbage)
