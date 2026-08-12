@@ -79,6 +79,40 @@ Where a guard's inputs are declared (a path list, a module list, a set of names)
 that the inputs are real**. `rglob` on a nonexistent directory yields nothing rather than
 raising; a list of paths that no longer exist does not fail a scan, it empties it.
 
+**Amended 2026-08-12.** Mutation-proving is necessary and it is not sufficient, and the
+gap has a shape worth naming.
+
+A mutant list written by the author of the guard covers the cases the author already had
+in mind — which are, by construction, the cases the guard already handles. Measured on the
+guard that keeps coordinate values out of this public repository: **thirteen input forms
+proposed by its author, thirteen caught; twenty-nine proposed independently, fifteen
+missed.** Every case in the first list genuinely passed. *"Proven against N mutations"*
+reads as a statement about the guard when it is a statement about N.
+
+The useful rule is a **diagnostic**, not a process:
+
+> If a guard can only be proven against inputs you invented, that is the signal the guard
+> is on the wrong side of a boundary — it is verifying a fact you do not own.
+
+Prefer moving the check to where the fact lives, or anchoring the mutant list in something
+real: this repository's own corpus, the registry's actual rows, an outcome you can observe.
+The no-copy scan's stopping rule is the worked example — it derives its list of accepted
+forms from this repository's tracked markdown, so a form no document here uses is not a gap.
+
+Where that is impossible, two cheap obligations:
+
+- the mutant list is a **declared artifact in the test file**, not a paragraph in a pull
+  request (`tests/test_ci_sibling_coverage.py::_MUTANTS` is the pattern);
+- **a proof must be able to fail** — mutate the function, watch the proof go red, record
+  it. An assertion whose inputs are derived from the thing under test proves nothing, and
+  three of those shipped here in two days.
+
+Deliberately **not** adopted: a requirement that someone other than the author write the
+mutants for every guard. The friction would exceed the disease for a single maintainer.
+The diagnostic above is the load-bearing part; independent mutants are worth buying only
+for the silent-failure class — a leak, an invisible delivery — where the cost of missing
+is not a red build but a thing nobody ever notices.
+
 ### §3 Prefer a false negative to a false alarm
 
 A guard that cries wolf gets deleted, and then the rule it carried is unguarded — which is
