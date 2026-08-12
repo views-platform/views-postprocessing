@@ -161,7 +161,7 @@ that indexes only deleted code is noise.
 
 ## Open Concerns
 
-### C-97: Thirty-three coordinate values sit in docstrings and comments, where the scan deliberately does not look
+### C-97: Coordinate values sit in docstrings and comments, where the scan deliberately does not look
 
 | Field | Value |
 |-------|-------|
@@ -170,7 +170,7 @@ that indexes only deleted code is noise.
 | Source | `/code-review max` on #242, 2026-08-12; count reproduced here |
 | Trigger | **Either.** (a) A check whose failing function contains one of these values starts firing in CI. (b) Someone proposes widening the no-copy scan to docstrings — at which point this entry is the measurement that says what that would cost. |
 | Owner | This repository. |
-| Location | Measured across `git ls-files '*.py'`: 33 standalone occurrences in 9 files, including `views_postprocessing/{unfao,crafd}/managers/`, `contract/store_metadata.py`, `contract/wire/sink.py`. |
+| Location | Measured across `git ls-files '*.py'`, **25 standalone occurrences in 8 files** (2026-08-12, down from 33 in 9 when filed — #242 cleared the no-copy scan's own docstring and #248 cleared `tests/test_product.py`). Includes `views_postprocessing/{unfao,crafd}/managers/`, `contract/store_metadata.py`, `contract/wire/sink.py`. **The count moves whenever prose is edited; re-measure rather than cite it.** |
 
 The no-copy scan compares string **constants** and excludes docstrings outright. That exclusion is C-57's recorded lesson: an early draft fired on refusal labels and on docstrings naming which store a function serves, and *"a guard that fails on `def file_metadata(record)` gets deleted — after which the real rule is unguarded"* (ADR-014 §3).
 
@@ -388,16 +388,16 @@ Cross-refs: **C-90** (the same module's untested core), **C-88** (why the module
 
 ---
 
-### C-92: This repository lost its only check that the FAO consumer still SELECTS by the delivery label
+### C-92: Nothing here checks that a consumer SELECTS by the delivery label — for either partner
 
 | Field | Value |
 |-------|-------|
 | ID | C-92 |
 | Tier | 2 — the failure mode is invisible by construction and is on the live FAO path. Upload succeeds, storage is billed, the consumer's endpoint returns empty, nothing raises anywhere. |
 | Source | `/code-review max` on PR #239 post-merge, 2026-08-11 |
-| Trigger | views-faoapi changes how `managers/prediction/manager.py` selects — to a category, a metadata field, a query builder — without touching its served-name constant. |
+| Trigger | **Either consumer** changes how it selects — to a category, a metadata field, a query builder — without touching its served-name constant. Also live: `manager.py:117` in both drops the name filter entirely when `model_name` is falsy. |
 | Owner | Shared: views-faoapi owns the check; this repository owns noticing it does not exist. |
-| Location | `tests/test_product.py:63` (`_CONSUMER_FILTER`), `:274` (`_CONSUMER_SELF_CHECK_PENDING`), `:344`; `tests/conftest.py:159-167`; ADR-017 §5. |
+| Location | `views_postprocessing/<partner>/product.py::CONSUMER_DOCUMENT_NAME`; `tests/test_product.py::test_the_declared_consumer_name_matches_the_registry` (what remains); ADR-017 §5/§7. Function names, not line numbers. |
 
 PR #239 retired the FAO half of the source-reading check on the strength of views-faoapi#379. That was the right sequencing — §5 requires the consumer-side check to land first, and it had. **But the two checks are not the same check.**
 
@@ -407,9 +407,28 @@ views-faoapi#379 binds their *served-name constant* to the registry row. The ass
 
 **C-87 is not this.** C-87 records that we verify our copy against the declaration rather than the consumer's code against it. This is narrower and worse: for one partner we briefly had the second check and gave it up for something that does not cover the same failure.
 
-**A second, structural half.** `_CONSUMER_SELF_CHECK_PENDING` is asserted non-empty and asserted to name only real partners — never asserted to *cover* them. Every other partner map here is two-sided against `PARTNER_PACKAGES`; this one is not, so a third partner is silently exempt from the source read the day it lands. And `SIBLINGS["views-crafdapi"].note` says the fetch "buys nothing and should be removed" once the registry read exists — which PR #239 landed — while ADR-017 §5 forbids retiring that partner's source read until views-crafdapi#53 lands. A maintainer following the note does the thing the ADR forbids, and `test_the_pending_list_is_not_empty` does not object because the map stays non-empty.
+**~~A second, structural half.~~ MOOT 2026-08-12 (#248)** — `_CONSUMER_SELF_CHECK_PENDING`, `test_the_pending_list_is_not_empty` and the `SIBLINGS` note it describes were all deleted with the mechanism. Left visible because the reasoning still applies to any future map of this shape: `_CONSUMER_SELF_CHECK_PENDING` is asserted non-empty and asserted to name only real partners — never asserted to *cover* them. Every other partner map here is two-sided against `PARTNER_PACKAGES`; this one is not, so a third partner is silently exempt from the source read the day it lands. And `SIBLINGS["views-crafdapi"].note` says the fetch "buys nothing and should be removed" once the registry read exists — which PR #239 landed — while ADR-017 §5 forbids retiring that partner's source read until views-crafdapi#53 lands. A maintainer following the note does the thing the ADR forbids, and `test_the_pending_list_is_not_empty` does not object because the map stays non-empty.
 
-Cross-refs: **C-87** (the broader residual this sharpens, not duplicates), ADR-017 §5/§8/Appendix B, views-faoapi#379, views-crafdapi#53.
+**Resolved as far as it can be here, 2026-08-12 (#248) — the check is gone, the gap is permanent, and the ask is filed.**
+
+Both source reads are deleted. Not because the sequencing constraint was satisfied — it **dissolved**: the reads broke twice in twenty-four hours, views-faoapi on 11 August and views-crafdapi on the 12th, each time because that repository refactored a literal argument into a named constant. Their code got better and our test went red. ADR-017 §7 said we were never entitled to depend on another repository's file layout; two breakages in a day is the evidence, and repairing the regex a third time would have been repairing the wrong thing. ADR-017 §5 carries the erratum.
+
+**The gap is now permanent and unguarded here, by choice.** Nothing in this repository verifies that a consumer's query uses the name it declares. The chain reads:
+
+| link | owner | held by |
+|---|---|---|
+| we upload with name N | us | construction |
+| N == the registry row | us | `test_product.py::test_the_declared_consumer_name_matches_the_registry` |
+| their constant == the registry row | them | views-faoapi's `tests/test_seam_contract_binding.py`; views-crafdapi's equivalent |
+| **their query == their constant** | **them** | **nothing** |
+
+**Filed where the fact lives:** views-faoapi#390 (under their seam-verification epic #383, whose flagship this is) and views-crafdapi#55. Both carry `file:line` evidence, both note that `manager.py:117` applies the name filter *conditionally* so a falsy name broadens the query rather than failing, and both say plainly that we are not prescribing their internals.
+
+**Verified intact at the time of writing** — the constant reaches the path manager and the manager still filters on it, in both consumers. This is a risk, not an incident.
+
+**Trigger** is now theirs to clear and ours to notice: when either issue lands, this entry closes for that partner. Until then the honest statement is that a delivery is verified by two values this platform authored agreeing with each other, plus the consumer's own word.
+
+Cross-refs: **C-87** (the broader residual this sharpens, not duplicates), **C-94** (the producer-side preflight that would close it without asking anyone), ADR-017 §5/§7/§8/Appendix B, views-faoapi#390, views-crafdapi#55.
 
 ---
 
@@ -586,7 +605,7 @@ would fix it, and its trigger is below.
 | ID | C-87 |
 | Tier | 2 — the failure mode is invisible by construction. The upload succeeds, the storage is paid for, the consumer's endpoint returns empty, and nothing anywhere raises. That is the shape ADR-013 §4.1a calls *"invisible to the consumer, not merely degraded"*. |
 | Source | ADR-017 §8, sharpened by external review (#232, #234), 2026-08-10 |
-| Trigger | **Either half going missing.** (a) `views-faoapi#379` or `views-crafdapi#53` is closed without the check being written. (b) A private API operated by a **third party** becomes a consumer — at which point the second half cannot be required at all and this becomes permanent. |
+| Trigger | **Either half going missing.** (a) ~~`views-faoapi#379` or `views-crafdapi#53` is closed without the check being written.~~ **Both closed WITH the check written** (2026-08-11, 2026-08-12). The live trigger is now (a') either consumer's *query* stops using its declared constant — see **C-92**, and views-faoapi#390 / views-crafdapi#55. (b) A private API operated by a **third party** becomes a consumer — at which point the second half cannot be required at all and this becomes permanent. |
 | Owner | The consumer-side seats own the check; this repository owns noticing that it exists. |
 | Location | `views_postprocessing/<partner>/product.py::CONSUMER_DOCUMENT_NAME`; the check in `tests/test_product.py`; ADR-017 §5, §8, Appendix B. |
 
@@ -594,9 +613,9 @@ ADR-017 decides that the delivery label is declared in the public coordinate reg
 
 Its residual is stated plainly in §8 and belongs here rather than only in a document: **we will verify our copy against the declaration, not the consumer's code against it.** If a consumer quietly starts filtering on something else, our check passes and the delivery is invisible exactly as before.
 
-**Why this is a risk and not merely a note.** The second half is real work in repositories this project does not control. `views-faoapi#379` has a willing owner. `views-crafdapi#53` is blocked on that partner's data contract and could sit for a long time. Until both land, the label's agreement with reality rests on the source-reading check — which ADR-017's sequencing deliberately keeps alive for exactly this reason, and which someone could remove believing the registry check replaced it.
+**Why this is a risk and not merely a note.** The second half is real work in repositories this project does not control. `views-faoapi#379` has a willing owner. `views-crafdapi#53` is blocked on that partner's data contract and could sit for a long time. Both have now landed. The label's agreement with reality **no longer rests on any source-reading check**: both were deleted on 2026-08-12, not because those gates opened but because a consumer improving its own code broke the mechanism twice in a day (ADR-017 §5 erratum). What remains is C-92 — a consumer's word that its query uses the name it declares.
 
-**What was already prevented.** A reviewer caught that the obvious sequence created a window where the source-reading check was deleted before the consumer-side check existed, leaving a green build proving only that two values this platform authored agreed with each other. ADR-017 now forbids that ordering. This entry exists so the ordering constraint has a home outside the document that states it.
+**What was already prevented, and then accepted.** A reviewer caught that the obvious sequence created a window where the source-reading check was deleted before the consumer-side check existed, leaving a green build proving only that two values this platform authored agreed with each other. ADR-017 forbade that ordering, and the ordering was in fact honoured — both partners' consumer-side checks landed before their source-read was removed. The window exists anyway, permanently, because the source-reads were then deleted on their own demerits. This entry exists so that history has a home outside the document that states it.
 
 Cross-refs: **C-77** (the same field's producer-side half, resolved), ADR-013 §4.1a, ADR-017 §5/§8/Appendix B, views-appwrite#75, views-faoapi#379, views-crafdapi#53.
 
@@ -960,7 +979,7 @@ Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-
 Nine of the seventeen are **new in this arc**, including both registry-drift detectors (pinned edition, commit-reachable-from-`main`) for both partners. Those detectors have a demonstrated drift rate: they fired **twice on 2026-08-03**, hours apart. A detector for a fault that recurs twice in a day, running only on one machine, is most of the way to not existing.
 
 Where each sibling stands, after trying them:
-- **views-crafdapi** — public, its check reads source text. **Now checked out in CI**, recovering **one** test: the cross-seam consumer-document-name pin for CRAF'd.
+- **views-crafdapi** — public; its check read source text. Checked out in CI from 2026-08-10, recovering **one** test; **that checkout was removed on 2026-08-12** when the check it served was deleted (ADR-017 §5 erratum, C-92): the cross-seam consumer-document-name pin for CRAF'd.
 - **views-datafactory** — public, but its eight tests need the producer's raw GAUL parquets, which are **not in its git repository**. Checking it out converts an honest skip into a `FileNotFoundError`; tried and reverted.
 - **views-appwrite** — was private when this was written; **made public 2026-08-08** (`views-appwrite@9d80b75`) and **now checked out in CI**, recovering **seven** tests including both registry-drift detectors. No credential was needed for any of them, and none was ever the obstacle after 2026-08-08 — the obstacle was that this line went on saying "private" for two days after it stopped being true.
 - **views-faoapi** — **private**, and the only one. Its single check is dark. Closing it needs either a credential or FAO's consent to make that repository public; the second is being pursued, and ADR-016 §8 carries the trigger for falling back to the first.
