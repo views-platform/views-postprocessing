@@ -996,11 +996,15 @@ def test_the_drift_check_is_silent_on_a_row_this_partner_does_not_read(partner, 
     guard has to be pointed at the thing it claims to guard.
     """
     expected_class = _PARTNER_ENV[partner][2]
-    mine = sorted(n for n, cls in expected_class.items() if cls == "target")[0]
-    assert expected_class[mine] == "target", (
-        f"[{partner}] this fixture files {mine} under [target]; if this package no longer "
-        "classifies it that way the fixture is lying about the registry's shape."
+    targets = sorted(n for n, cls in expected_class.items() if cls == "target")
+    assert targets, (
+        f"[{partner}] declares no coordinate of class 'target', so this fixture has "
+        "nothing to file under [target] and would prove nothing. (An earlier version "
+        "asserted that the chosen name's class was 'target' — true by construction, "
+        "since the name was selected by that condition. A proof that cannot fail is the "
+        "defect this entry's own C-90 records.)"
     )
+    mine = targets[0]
 
     pinned = {
         "meta": {"version": "0.0.0-fixture"},
@@ -1024,13 +1028,14 @@ def test_the_drift_check_fires_when_a_row_this_partner_reads_rotates(partner, mo
 
     Without this, the check's entire ``assert not changed`` could be deleted and the suite
     would stay green — measured. Its two apparent proofs are not about it: the rotation
-    proof below calls ``_describe_changes``, the helper underneath, and the rename proof
+    proof above calls ``_describe_changes``, the helper underneath, and the rename proof
     calls ``_declared_classes``, which belongs to a different check altogether. So the
     silence guard was the only test driving this one, and a guard that can only pass is
     the same defect as a guard pointed at the wrong subject.
     """
-    expected_class = _PARTNER_ENV[partner][2]
-    mine = sorted(n for n, cls in expected_class.items() if cls == "target")[0]
+    targets = sorted(n for n, cls in _PARTNER_ENV[partner][2].items() if cls == "target")
+    assert targets, f"[{partner}] declares no 'target' coordinate to rotate"
+    mine = targets[0]
 
     pinned = {
         "meta": {"version": "0.0.0-fixture"},
