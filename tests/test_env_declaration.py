@@ -739,17 +739,27 @@ def test_nothing_this_repo_reads_has_changed_since_the_pin(partner):
 
     **The stopping rule, because this check has been widened once already.** It fires on
     exactly one condition: *a row named in this partner's* ``expected_class`` *differs
-    between the pinned edition and the sibling's* ``main``. Nothing else.
+    between the pinned edition and the sibling's* ``main``.
 
-    Any proposal to add a condition must name the delivery failure it prevents and show
-    that failure is not already prevented by ``assert_env_declared`` at run time. If it
-    is, the condition is refused. An arrival half was added and deleted for failing that
-    test: it fired on every row of every table this package depends on — measured, 12 of
-    25 rows are ones this partner never reads and 8 belong to no repository here — so an
-    API key issued upstream for someone else blocked a release. It defended itself by
-    claiming ``[contract.*]`` "arrived exactly this way and nothing else here would have
-    seen it", which is false: ``[contract]`` is a top-level *table*, and
-    ``test_every_table_in_the_registry_is_classified_here`` above catches those.
+    Any proposal to widen it must state two things: which delivery failure it prevents,
+    **and its false-alarm surface measured against the live registry**. If that surface
+    includes rows this package does not read, it is refused. (An earlier version of this
+    rule asked instead whether ``assert_env_declared`` already prevented the failure at
+    run time. That rule is wrong in both directions: an unadopted upstream coordinate is
+    not prevented by it, so arrival detection would pass — and a removed coordinate *is*
+    caught by it, so the removal detection this check does perform would fail.)
+
+    An arrival half failed the surface test and was deleted (#245): it compared every row
+    of every depended-on table, and measured, each partner reads 13 of 25 while 6 belong
+    to other repositories entirely. It defended itself by claiming ``[contract.*]``
+    "arrived exactly this way and nothing else here would have seen it" — false at table
+    granularity, where ``test_every_table_in_the_registry_is_classified_here`` catches it.
+
+    **What that deletion costs, stated rather than implied.** A coordinate views-appwrite
+    issues *for this package* is now silent until a human reads the registry — no test, no
+    run-time assert, nothing. So is a second ``[contract.*]`` row for a future partner.
+    That is the accepted price of not being reddened by every unrelated row, and it is
+    carried in register C-90 rather than here.
     """
     repo = require_sibling("views-appwrite")
     module, _, expected_class = _PARTNER_ENV[partner]
@@ -963,6 +973,37 @@ def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(pa
             "and never the value: this repository is public, its CI logs are "
             "world-readable, and they cannot be redacted afterwards."
         )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_drift_check_is_silent_on_a_row_this_partner_does_not_read(partner):
+    """The stopping rule above, as a check rather than a paragraph.
+
+    The proofs either side of this one are positive — rotation fires, a rename fires.
+    Nothing asserted the *silence* direction, so a third widening of this check would
+    have met no objection, and the rule forbidding it would have been prose with a guard
+    on the other half only. That is this file's own recurring defect (C-80, C-82).
+    """
+    _, _, expected_class = _PARTNER_ENV[partner]
+    names = set(expected_class)
+    mine = next(iter(names))
+
+    pinned = {"target": {mine: {"class": "target", "value": "unchanged"}}}
+    current = {
+        "target": {mine: {"class": "target", "value": "unchanged"}},
+        # Somebody else's coordinate, arriving in a table this package depends on.
+        "secret": {"SOMEBODY_ELSES_API_KEY": {"class": "secret", "slot": "theirs"}},
+    }
+
+    changed = _describe_changes(
+        _projection(pinned, names), _projection(current, names), names
+    )
+    assert not changed, (
+        f"[{partner}] the drift check objected to a row this package does not read: "
+        f"{changed}. It must be silent on another repository's coordinates — an arrival "
+        "half that was not was deleted in #245 for exactly this, and re-adding one is "
+        "refused by the stopping rule in the check's own docstring."
+    )
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)

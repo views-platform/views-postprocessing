@@ -334,22 +334,24 @@ Cross-refs: **C-57** (the scan's own entry and its history), **C-93** (why the a
 
 ---
 
-### C-90: The replacement drift checks assert less than their docstrings say, and one of their mutation proofs is a tautology
+### C-90: A mutation proof that cannot fail, and the untested function a module was extracted to create
 
 | Field | Value |
 |-------|-------|
 | ID | C-90 |
 | Tier | 2 — this is the entry PR #239 was written to close, reopened by the code that closed it. It reinstates release-blocking false alarms on the path that is this project's production release, and it does so under a docstring saying the opposite. |
 | Source | `/code-review max` on PR #239 post-merge, 2026-08-11; verified by direct measurement against views-appwrite `origin/main` |
-| Trigger | views-appwrite declares any new coordinate in `connection`, `target`, `secret` or `contract` — including one belonging to another repository entirely. On the current registry that is 8 of 25 rows' worth of surface. |
+| Trigger | **Both remaining halves are proof defects, not runtime ones.** (a) Someone mutates `_unclassified_tables` or `_TABLE_ROLE` and believes the tautological proof covers it. (b) Someone changes `registry_current` — the reason `tests/seam_registry.py` exists — and the suite stays green. *(The original trigger, an unrelated coordinate arriving upstream, died with `arrived` in #245.)* |
 | Owner | This repository. |
-| Location | `tests/test_env_declaration.py:732` (`arrived`), `:890` (the tautology), `tests/seam_registry.py:113` (`registry_current`). |
+| Location | `tests/test_env_declaration.py` — `test_the_table_partition_would_catch_a_new_table_and_a_vanished_one` (the tautology); `tests/seam_registry.py::registry_current` (untested). Function names, not line numbers: this entry has cited stale ones before. |
 
-**`arrived` is not filtered by the names this package reads.** `changed` is; `arrived` is computed over every row of every table this package depends on. Measured on the live registry: **25 rows, 8 of which this package never reads** — six of them keys and callers belonging to other repositories. So views-appwrite issuing one more key for an unrelated repo turns both partner parametrizations red here, with a message demanding a `SEAM_CONTRACT` re-pin for a coordinate this package cannot use.
+**~~`arrived` is not filtered by the names this package reads.~~ RESOLVED 2026-08-12 (#245) — deleted; see the mitigation below. Left visible because the reasoning it prompted is the entry's most useful part.** `changed` is; `arrived` is computed over every row of every table this package depends on. Measured on the live registry: **25 rows, 8 of which this package never reads** — six of them keys and callers belonging to other repositories. So views-appwrite issuing one more key for an unrelated repo turns both partner parametrizations red here, with a message demanding a `SEAM_CONTRACT` re-pin for a coordinate this package cannot use.
 
 That is the exact failure class C-86 records and that PR #239 was written to remove, and the same test's docstring seven lines above says **"Silent through: prose edits, `[meta]` bumps, and rows belonging to anyone else."** The prose describes the check that was designed; the code implements a wider one.
 
-There is a real question underneath, and it should be decided rather than inherited: a *new* coordinate in a table we read may be one we must adopt — `[contract.*]` arrived exactly that way and nothing else here would have seen it. That argues for table-granularity on arrival and row-granularity on change. If that is the intent it is defensible, and then the docstring is wrong; if the docstring is right, the code is. **They cannot both stand.**
+There is a real question underneath, and it should be decided rather than inherited: a *new* coordinate in a table we read may be one we must adopt. That argues for table-granularity on arrival and row-granularity on change. **They cannot both stand.**
+
+**DECIDED 2026-08-12 (#245): the docstring won, and the cost is real.** The arrival half was deleted. A coordinate views-appwrite issues *for this package* — or a second `[contract.*]` row for a future partner such as views-productionapi — is now **silent** until a human reads the registry: no test, no run-time assert, nothing. `assert_env_declared` cannot see it, because it iterates the names this package already declares. That is the accepted price of not being reddened by every unrelated row, and it is recorded here rather than left to be discovered. *(The half's own defence — that `[contract.*]` "arrived exactly this way and nothing else here would have seen it" — was false at table granularity, where the partition check catches it, and true at row granularity, which is exactly the cost now accepted.)*
 
 **The partition's mutation proof cannot fail.** `assert not _unclassified_tables(base)` where `base = {name: {} for name in _TABLE_ROLE}` reduces to `set(_TABLE_ROLE) - set(_TABLE_ROLE)`, empty for every possible input. Its message — *"the real registry's tables must all classify"* — asserts a fact about a file this test never opens. It is decoration inside the test whose own docstring is about removing decoration.
 
@@ -515,14 +517,29 @@ description, where deferrals go to be forgotten:
 Cross-refs for this amendment: **C-57** (the drift detector this rides on), ADR-016 §7a/§7b,
 views-appwrite#76 (**delivered**, registry v1.6.0).
 
-**⚠ CORRECTED 2026-08-12, and RESOLVED the same day (#245).** The paragraph beginning
-*"Partial mitigation 2026-08-11"* claimed the replacement checks "match on the facts this
-repository actually declares". **One of the three did not.** The drift check's arrival half
-ran over every row of every table this package depends on, with no filter for the names it
-reads — measured on the live registry, **each partner reads 13 of 25 rows, and 8 belong to
-no repository here**. So an API key issued upstream for someone else reddened this
-repository and blocked a release, which is this entry's own failure class arriving through
-the guard meant to reduce it.
+**⚠ CORRECTED 2026-08-12, and PARTLY RESOLVED the same day (#245).** The paragraph
+beginning *"Partial mitigation 2026-08-11"* claimed the replacement checks "match on the
+facts this repository actually declares". **Two of the three did not**, and an earlier
+draft of this correction said one — the review that caught it is the reason this paragraph
+is longer than it wants to be.
+
+**The first, now fixed.** The drift check's arrival half ran over every row of every table
+this package depends on, with no filter for the names it reads. Measured on the live
+registry: each partner reads **13 of 25** rows, and **6 belong to other repositories**
+(three platform key slots, three caller keys). The other two rows this package does not
+read are its own delivery labels — both declare `producer = "views-postprocessing"` — and
+they are covered by `tests/test_product.py`, not by this check. *An earlier draft of this
+paragraph said "8 belong to no repository here", which upgraded a careful claim in C-90
+into a false one and propagated it to four places.*
+
+**And it never actually fired in anger.** Measured: **zero rows have arrived in the
+depended-on tables since the pin** — the arrival half was green on every real edition it
+ever saw, from its introduction on 2026-08-11 to its deletion on 2026-08-12. An earlier
+draft said an upstream key "reddened this repository and blocked a release". That is a
+mutation result written in the past tense. What is true: a mutation shows it *would* fire,
+and it *would* block once C-81's required check lands — `protect_main` today carries
+`deletion, non_fast_forward, pull_request` and no required status check, which is this
+entry's own "latent rather than live" paragraph.
 
 **The arrival half is now deleted** (#245). The drift check fires on exactly one condition —
 a row this partner declares differs between the pinned edition and the sibling's `main` —
@@ -533,8 +550,17 @@ above it.
 
 Mutation-proven both ways against the live registry: an unrelated API key and a third
 partner's contract row are now **silent**; a rotation and a removal of a row this partner
-reads still **fire**. The rate claim in the paragraph above is therefore accurate as
-written, which it was not before.
+reads still **fire**. A new test asserts the silence direction, so a third widening meets
+an objection rather than a paragraph.
+
+**The second inaccuracy stands, and is this entry's remaining rate risk.** *"Every
+top-level table upstream must be classified here"* fires on any new table regardless of
+whether this repository declares anything about it — and **it has already fired for exactly
+that reason**: `[edition]` arrived at v1.6.0, an edition the registry's own `[meta]` calls
+*"additive and opt-in; obliges nobody"*, and it reddened this repository. That event is
+recorded further down this entry as the partition "earning its keep", which is true of the
+detection and not of the cost. Adopting `[edition].obliges_consumers` is the deferral that
+would fix it, and its trigger is below.
 
 
 ---
