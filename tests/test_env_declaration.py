@@ -736,6 +736,20 @@ def test_nothing_this_repo_reads_has_changed_since_the_pin(partner):
 
     **Silent through:** prose edits, ``[meta]`` bumps, and rows belonging to anyone else.
     Measured across the real v1.4.4 -> v1.5.2 window (three editions, one week): green.
+
+    **The stopping rule, because this check has been widened once already.** It fires on
+    exactly one condition: *a row named in this partner's* ``expected_class`` *differs
+    between the pinned edition and the sibling's* ``main``. Nothing else.
+
+    Any proposal to add a condition must name the delivery failure it prevents and show
+    that failure is not already prevented by ``assert_env_declared`` at run time. If it
+    is, the condition is refused. An arrival half was added and deleted for failing that
+    test: it fired on every row of every table this package depends on — measured, 12 of
+    25 rows are ones this partner never reads and 8 belong to no repository here — so an
+    API key issued upstream for someone else blocked a release. It defended itself by
+    claiming ``[contract.*]`` "arrived exactly this way and nothing else here would have
+    seen it", which is false: ``[contract]`` is a top-level *table*, and
+    ``test_every_table_in_the_registry_is_classified_here`` above catches those.
     """
     repo = require_sibling("views-appwrite")
     module, _, expected_class = _PARTNER_ENV[partner]
@@ -744,19 +758,6 @@ def test_nothing_this_repo_reads_has_changed_since_the_pin(partner):
 
     names = set(expected_class)
     then, now = _projection(pinned, names), _projection(current, names)
-
-    arrived = sorted(
-        set(_rows(current, _TABLES_WE_DEPEND_ON)) - set(_rows(pinned, _TABLES_WE_DEPEND_ON))
-    )
-    assert not arrived, (
-        f"[{partner}] the registry gained coordinate(s) {arrived} in a table this package "
-        f"reads, since the edition it was verified against "
-        f"(v{module.SEAM_CONTRACT_VERSION}). Decide whether this package must adopt them "
-        "— that is a human read, which is why this reports rather than guesses — then "
-        "move SEAM_CONTRACT_VERSION and SEAM_CONTRACT_COMMIT together. This is the half "
-        "of the deleted edition check that was worth keeping: `[contract.*]` arrived "
-        "exactly this way, and nothing else here would have seen it."
-    )
 
     changed = _describe_changes(then, now, names)
     assert not changed, (

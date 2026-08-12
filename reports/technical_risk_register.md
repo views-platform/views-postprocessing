@@ -355,6 +355,12 @@ There is a real question underneath, and it should be decided rather than inheri
 
 **`registry_current` has no test.** The module `tests/seam_registry.py` was extracted for one reason: two copies of the reader disagreed about whether to read the sibling's `main` or its working tree, and reading the working tree is issue #196 verbatim. The function that settles it is called by five tests and is the subject of none. Replacing its body with `rev-parse HEAD` — the defect it exists to prevent — leaves the suite at its exact baseline. Three of its error branches are executed by nothing.
 
+**Partial mitigation 2026-08-12 (#245) — the false-alarm half is gone; the two proof defects are not.**
+
+`arrived` is **deleted**. Measured before deleting: each partner reads 13 of the 25 rows in the tables this package depends on, and 8 of those rows belong to no repository here — so the check subscribed this repository to another repo's changelog. Mutation-proven after: an unrelated API key and a third partner's contract row are silent; a rotation and a removal still fire. The docstring and the code now agree, and the stopping rule sits above the check.
+
+**Still open, and routed to #246**: the partition's mutation proof is a tautology (`base` is built from `_TABLE_ROLE`, so `_unclassified_tables(base)` is empty for every possible input), and `registry_current` — the function `tests/seam_registry.py` was extracted to create — has no test, so replacing it with a working-tree read leaves the suite at baseline. This entry stays open until both land.
+
 Cross-refs: **C-86** (whose partial-mitigation paragraph this falsifies), **C-89** (the sibling defect in the no-copy scan), **C-93**, **C-91**, ADR-014 §1/§2, issue #196.
 
 ---
@@ -509,18 +515,26 @@ description, where deferrals go to be forgotten:
 Cross-refs for this amendment: **C-57** (the drift detector this rides on), ADR-016 §7a/§7b,
 views-appwrite#76 (**delivered**, registry v1.6.0).
 
-**⚠ CORRECTED 2026-08-12 — the partial mitigation above overstates what shipped.** The
-paragraph beginning *"Partial mitigation 2026-08-11"* says the replacement checks "match on
-the facts this repository actually declares". **One of the three does not.** The arrival
-half of the drift check is computed over every row of every table this package depends on,
-with no filter for the names it reads — 8 of 25 rows on the live registry belong to other
-repositories. So the false-alarm class this entry records is *narrowed*, not removed:
-observation-only edits no longer fire it, but any new coordinate for any repo still does.
+**⚠ CORRECTED 2026-08-12, and RESOLVED the same day (#245).** The paragraph beginning
+*"Partial mitigation 2026-08-11"* claimed the replacement checks "match on the facts this
+repository actually declares". **One of the three did not.** The drift check's arrival half
+ran over every row of every table this package depends on, with no filter for the names it
+reads — measured on the live registry, **each partner reads 13 of 25 rows, and 8 belong to
+no repository here**. So an API key issued upstream for someone else reddened this
+repository and blocked a release, which is this entry's own failure class arriving through
+the guard meant to reduce it.
 
-The measurement quoted above (v1.4.4 → v1.5.2, three editions, green) remains true and was
-not the wrong measurement — none of those editions added a row. It was simply not a
-measurement of the case that now fires. Registered as **C-90**, and this entry's rate claim
-should be re-stated once that is fixed rather than before.
+**The arrival half is now deleted** (#245). The drift check fires on exactly one condition —
+a row this partner declares differs between the pinned edition and the sibling's `main` —
+and that stopping rule is written above the check itself. Its self-defence turned out to be
+false: it claimed `[contract.*]` *"arrived exactly this way and nothing else here would have
+seen it"*, but `[contract]` is a top-level **table**, caught by the partition check directly
+above it.
+
+Mutation-proven both ways against the live registry: an unrelated API key and a third
+partner's contract row are now **silent**; a rotation and a removal of a row this partner
+reads still **fire**. The rate claim in the paragraph above is therefore accurate as
+written, which it was not before.
 
 
 ---
