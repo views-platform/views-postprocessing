@@ -736,6 +736,30 @@ def test_nothing_this_repo_reads_has_changed_since_the_pin(partner):
 
     **Silent through:** prose edits, ``[meta]`` bumps, and rows belonging to anyone else.
     Measured across the real v1.4.4 -> v1.5.2 window (three editions, one week): green.
+
+    **The stopping rule, because this check has been widened once already.** It fires on
+    exactly one condition: *a row named in this partner's* ``expected_class`` *differs
+    between the pinned edition and the sibling's* ``main``.
+
+    Any proposal to widen it must state two things: which delivery failure it prevents,
+    **and its false-alarm surface measured against the live registry**. If that surface
+    includes rows this package does not read, it is refused. (An earlier version of this
+    rule asked instead whether ``assert_env_declared`` already prevented the failure at
+    run time. That rule is wrong in both directions: an unadopted upstream coordinate is
+    not prevented by it, so arrival detection would pass — and a removed coordinate *is*
+    caught by it, so the removal detection this check does perform would fail.)
+
+    An arrival half failed the surface test and was deleted (#245): it compared every row
+    of every depended-on table, and measured, each partner reads 13 of 25 while 6 belong
+    to no repository here. It defended itself by claiming ``[contract.*]``
+    "arrived exactly this way and nothing else here would have seen it" — false at table
+    granularity, where ``test_every_table_in_the_registry_is_classified_here`` catches it.
+
+    **What that deletion costs, stated rather than implied.** A coordinate views-appwrite
+    issues *for this package* is now silent until a human reads the registry — no test, no
+    run-time assert, nothing. So is a second ``[contract.*]`` row for a future partner.
+    That is the accepted price of not being reddened by every unrelated row, and it is
+    carried in register C-90 rather than here.
     """
     repo = require_sibling("views-appwrite")
     module, _, expected_class = _PARTNER_ENV[partner]
@@ -744,19 +768,6 @@ def test_nothing_this_repo_reads_has_changed_since_the_pin(partner):
 
     names = set(expected_class)
     then, now = _projection(pinned, names), _projection(current, names)
-
-    arrived = sorted(
-        set(_rows(current, _TABLES_WE_DEPEND_ON)) - set(_rows(pinned, _TABLES_WE_DEPEND_ON))
-    )
-    assert not arrived, (
-        f"[{partner}] the registry gained coordinate(s) {arrived} in a table this package "
-        f"reads, since the edition it was verified against "
-        f"(v{module.SEAM_CONTRACT_VERSION}). Decide whether this package must adopt them "
-        "— that is a human read, which is why this reports rather than guesses — then "
-        "move SEAM_CONTRACT_VERSION and SEAM_CONTRACT_COMMIT together. This is the half "
-        "of the deleted edition check that was worth keeping: `[contract.*]` arrived "
-        "exactly this way, and nothing else here would have seen it."
-    )
 
     changed = _describe_changes(then, now, names)
     assert not changed, (
@@ -962,6 +973,84 @@ def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(pa
             "and never the value: this repository is public, its CI logs are "
             "world-readable, and they cannot be redacted afterwards."
         )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_drift_check_is_silent_on_a_row_this_partner_does_not_read(partner, monkeypatch):
+    """The stopping rule above, as a check rather than a paragraph.
+
+    Paired with ``test_the_drift_check_fires_when_a_row_this_partner_reads_rotates``,
+    which is the positive direction through the same harness. Neither is optional: alone,
+    this one is a check that can only pass, and alone the twin says nothing about what the
+    check ignores.
+
+    An earlier version of this docstring vouched for the two proofs either side — "rotation
+    fires, a rename fires" — and neither is about this check. One calls the helper
+    underneath it; the other belongs to the class check. That is this file's own recurring
+    defect (C-80, C-82), so the vouching is gone and the twin is real.
+
+    **It drives the real check**, through the real registry readers, rather than calling
+    the projection helpers underneath it. A first version called ``_describe_changes``
+    directly and was worthless: re-adding the deleted arrival half to the check left the
+    whole suite green, because that half never lived in the helper this was asking. A
+    guard has to be pointed at the thing it claims to guard.
+    """
+    expected_class = _PARTNER_ENV[partner][2]
+    targets = sorted(n for n, cls in expected_class.items() if cls == "target")
+    assert targets, (
+        f"[{partner}] declares no coordinate of class 'target', so this fixture has "
+        "nothing to file under [target] and would prove nothing. (An earlier version "
+        "asserted that the chosen name's class was 'target' — true by construction, "
+        "since the name was selected by that condition. A proof that cannot fail is the "
+        "defect this entry's own C-90 records.)"
+    )
+    mine = targets[0]
+
+    pinned = {
+        "meta": {"version": "0.0.0-fixture"},
+        "connection": {"APPWRITE_ENDPOINT": {"class": "connection", "value": "e"}},
+        "target": {mine: {"class": "target", "value": "unchanged"}},
+    }
+    # The same registry, plus one coordinate belonging to another repository.
+    current = {**pinned, "secret": {"SOMEBODY_ELSES_API_KEY": {"class": "secret"}}}
+
+    here = sys.modules[__name__]
+    monkeypatch.setattr(here, "require_sibling", lambda name: Path("/nonexistent"))
+    monkeypatch.setattr(here, "_registry_at", lambda repo, ref: pinned)
+    monkeypatch.setattr(here, "_registry_current", lambda repo: current)
+
+    test_nothing_this_repo_reads_has_changed_since_the_pin(partner)
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_drift_check_fires_when_a_row_this_partner_reads_rotates(partner, monkeypatch):
+    """The positive twin of the silence guard, through the same real check.
+
+    Without this, the check's entire ``assert not changed`` could be deleted and the suite
+    would stay green — measured. Its two apparent proofs are not about it: the rotation
+    proof above calls ``_describe_changes``, the helper underneath, and the rename proof
+    calls ``_declared_classes``, which belongs to a different check altogether. So the
+    silence guard was the only test driving this one, and a guard that can only pass is
+    the same defect as a guard pointed at the wrong subject.
+    """
+    targets = sorted(n for n, cls in _PARTNER_ENV[partner][2].items() if cls == "target")
+    assert targets, f"[{partner}] declares no 'target' coordinate to rotate"
+    mine = targets[0]
+
+    pinned = {
+        "meta": {"version": "0.0.0-fixture"},
+        "connection": {"APPWRITE_ENDPOINT": {"class": "connection", "value": "e"}},
+        "target": {mine: {"class": "target", "value": "at-the-pin"}},
+    }
+    rotated = {**pinned, "target": {mine: {"class": "target", "value": "after-rotation"}}}
+
+    here = sys.modules[__name__]
+    monkeypatch.setattr(here, "require_sibling", lambda name: Path("/nonexistent"))
+    monkeypatch.setattr(here, "_registry_at", lambda repo, ref: pinned)
+    monkeypatch.setattr(here, "_registry_current", lambda repo: rotated)
+
+    with pytest.raises(AssertionError, match=mine):
+        test_nothing_this_repo_reads_has_changed_since_the_pin(partner)
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)

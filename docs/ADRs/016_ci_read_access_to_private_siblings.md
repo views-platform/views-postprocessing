@@ -44,9 +44,11 @@ this repository makes about a different repository** is still true.
 The clearest example. Each partner's `appwrite_env.py` records which edition of the
 shared configuration registry it was verified against, by naming a commit in another
 repository. Tests open that repository at that commit and ask whether anything this
-package reads has moved since — a rename, a reclassification, a rotated value, or a new
-coordinate that has arrived. *(Until 2026-08-11 they asked a cruder question — whether the
-edition **label** still matched — which fired on every upstream edit. See §7b's erratum.)*
+package reads has moved since — a rename, a reclassification, a rotated value. *(Until
+2026-08-11 they asked a cruder question — whether the edition **label** still matched —
+which fired on every upstream edit. A second attempt also asked whether any coordinate had
+**arrived**, which fired on other repositories' rows and was deleted on 2026-08-12. See
+§7b's erratum.)*
 
 This is not hypothetical housekeeping. On 2026-08-05 that test failed — the registry had
 moved to a new edition while nobody here was looking. Two days earlier, the same family of
@@ -248,9 +250,14 @@ So the two categories above become three:
 - **Reachability checks** read a pinned commit; movement is noise.
 - **Differential tripwires** read **both** — a pinned edition as the baseline, the
   sibling's `main` as the comparison — and fire when something *we declare* differs between
-  them, or when a coordinate arrives in a table we read. This is the shape the registry
-  check now has. It catches a rotation, which is invisible to the other two, and it is
-  silent through prose edits and version bumps.
+  them. This is the shape the registry check now has. It catches a rotation, which is
+  invisible to the other two, and it is silent through prose edits and version bumps.
+
+  *(Erratum, 2026-08-12. This paragraph read "…or when a coordinate **arrives** in a table
+  we read" and called that the check's current shape. That half was deleted the same day: it
+  compared every row of every table this package depends on, so another repository's key
+  reddened this one. The cost of removing it — a coordinate issued **for** this package now
+  goes unnoticed until a human reads the registry — is carried in register C-90.)*
 
 *(Corrected twice on 2026-08-11, and the second time is the instructive one. The first
 implementation compared against the sibling's **working tree** — so a developer whose clone
