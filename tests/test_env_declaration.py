@@ -137,8 +137,13 @@ _EXPECTED_NAMES = {name for _, _, expected in _PARTNER_ENV.values() for name in 
 _DOTENV_CALLS = {"load_dotenv", "find_dotenv", "dotenv_values"}
 
 
-def _dotenv_use(source: str) -> list[str]:
+def _dotenv_use(path: Path) -> list[str]:
     """Real imports of, and calls into, python-dotenv — parsed, not grepped.
+
+    Takes a **path**, not the file's text. pytest renders a frame's arguments in a
+    traceback, so a helper that accepts source text publishes that text whenever it
+    raises — and ``ast.parse`` raises on any malformed module. A package file that both
+    fails to parse and carries a coordinate value would have printed itself in full.
 
     **Prose is not a violation and must not be treated as one.** ``appwrite_env.py``'s
     own docstring explains what the retired borrow was, spelling it exactly; a token
@@ -148,7 +153,7 @@ def _dotenv_use(source: str) -> list[str]:
     or a comment, so the guard can cover the whole package without lying about prose.
     """
     found = []
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(ast.parse(path.read_text())):
         if isinstance(node, ast.Import):
             found += [a.name for a in node.names if a.name.split(".")[0] == "dotenv"]
         elif isinstance(node, ast.ImportFrom):
@@ -195,7 +200,7 @@ def test_the_dotenv_borrow_is_dead():
     offenders = {
         source.relative_to(_PKG).as_posix(): used
         for source in sorted(_PKG.rglob("*.py"))
-        for used in [_dotenv_use(source.read_text())]
+        for used in [_dotenv_use(source)]
         if used
     }
     assert not offenders, (
@@ -1041,12 +1046,14 @@ def test_no_coordinate_value_is_copied_into_this_repo():
 
     **Two wrong narrowings before this one, both instructive.**
 
-    A substring text scan over every ``.py`` flagged three "leaks": the function name
-    ``file_metadata`` in ``contract/store_metadata.py``, and the values of
+    A substring text scan over every ``.py`` flagged three "leaks", none of them a copy:
+    a **function name** in ``contract/store_metadata.py`` that happens to be spelled the
+    same as the value of ``APPWRITE_METADATA_DATABASE_ID``, and the values of
     ``APPWRITE_PROD_FORECASTS_BUCKET_ID`` and ``APPWRITE_UNFAO_BUCKET_ID`` where they
     appear only in refusal labels and in docstrings naming which store a function serves.
-    None was a copy, and a guard that fails on ``def file_metadata(record)`` gets deleted
-    — after which the real rule is unguarded.
+    A guard that fails on an ordinary ``def`` gets deleted — after which the real rule is
+    unguarded. (Three declared values cannot be told from ordinary code by string
+    equality at all: that one, and this package's two directory names. Register C-97.)
 
     Narrowing to *assignments and default arguments* then went too far the other way: it
     caught neither a dict value nor a keyword argument, and the keyword argument is the
@@ -1194,7 +1201,7 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     )
 
 
-def test_the_scan_reports_a_copy_without_reprinting_it(tmp_path, monkeypatch):
+def test_the_scan_reports_a_copy_without_reprinting_it(tmp_path, monkeypatch, capsys, caplog):
     """Feed the real scan a planted copy and read what it says. **The rule, behaviourally.**
 
     This replaces a source-reading guard that asserted every finding was *routed* through
@@ -1212,7 +1219,11 @@ def test_the_scan_reports_a_copy_without_reprinting_it(tmp_path, monkeypatch):
     Both halves are exercised, because C-89 was one half being taught a rule the other
     half was not.
     """
-    planted, coordinate = "fixture-value-2f9c-not-a-real-coordinate", "APPWRITE_UNFAO_BUCKET_ID"
+    # Opaque on purpose. A first draft planted a readable string containing the word
+    # "coordinate" — which also appears in the check's own failure prose, so the
+    # eight-character window test below fired on the test's own English. The fixture must
+    # share no fragment with anything the report legitimately says.
+    planted, coordinate = "Zq7xVb9KdLm1RnTs3Wy8Pj5Hc2Gf", "APPWRITE_UNFAO_BUCKET_ID"
 
     pkg = tmp_path / "views_postprocessing"
     pkg.mkdir()
@@ -1250,8 +1261,80 @@ def test_the_scan_reports_a_copy_without_reprinting_it(tmp_path, monkeypatch):
     assert coordinate in message, (
         f"the report must name the coordinate so a maintainer can find it: {message}"
     )
-    assert planted not in message, (
-        "THE SCAN PRINTED THE VALUE IT EXISTS TO HIDE. This repository is public, its CI "
-        "logs are world-readable, and they cannot be redacted afterwards. However the "
-        "finding was built, the finished text must never carry the value."
-    )
+    # Every channel pytest publishes, not just the assertion text. A debug `print` left
+    # beside the append is an ordinary accident, and pytest renders captured stdout and
+    # captured logs in the same report as the failure — so "the message is clean" is only
+    # part of "the run is clean".
+    captured = capsys.readouterr()
+    for channel, text in (
+        ("the assertion message", message),
+        ("captured stdout", captured.out),
+        ("captured stderr", captured.err),
+        ("captured logs", caplog.text),
+    ):
+        assert not _carries(text, planted), (
+            f"THE SCAN PUBLISHED THE VALUE IT EXISTS TO HIDE, via {channel}. This "
+            "repository is public, its CI logs are world-readable, and they cannot be "
+            "redacted afterwards. However the finding was built and wherever it was "
+            "written, no recoverable form of the value may leave this test."
+        )
+
+
+def _carries(text: str, value: str) -> bool:
+    """Is ``value`` recoverable from ``text`` — not merely present in it?
+
+    Equality and ``in`` are too weak for a no-print rule. An adversarial review defeated a
+    substring check with ``value[:12]`` and again with ``value[::-1]``, both of which a
+    reader recovers instantly. So this asks the question that matters: does any eight-
+    character window of the value, forwards or backwards, appear?
+
+    Eight is a judgement, not a law: long enough that ordinary English and file paths do
+    not collide with a coordinate, short enough that a truncation or a reversal is caught.
+    """
+    windows = {value[i:i + 8] for i in range(len(value) - 7)} or {value}
+    return any(w in text or w[::-1] in text for w in windows)
+
+
+def test_the_drift_report_never_carries_a_value_in_any_recoverable_form():
+    """``_describe_changes`` is the drift check's reporter, and it had no test of its own.
+
+    The rotation proof above exercises it, but only through one shape — a value present
+    on both sides — and with fixture strings shorter than every real coordinate. An
+    adversarial review walked through both gaps: a ``digest()`` that returns the raw value
+    only when it is longer than the fixture's, and the ``appeared``/``removed`` branches
+    that the both-sides fixture never reaches. Three leaks, all green.
+
+    So this drives the reporter directly, with a value longer than any the registry
+    declares, through every branch that can produce text.
+    """
+    # Longer than every value the registry declares, and opaque so no window of it
+    # can collide with the report's own wording.
+    value = "Xk4mQ8zRv2Ld7NpTb5Wc1Hy9Ja6Fg3Ss"
+    other = "Bn6tYp3Kq9Vx2Mw8Lz5Rd1Cf7Hj4Gu0Ee"
+    name = "APPWRITE_FIXTURE_COORDINATE"
+
+    reports = [
+        # rotated: present on both sides, different
+        _describe_changes({name: ("target", "target", value)},
+                          {name: ("target", "target", other)}, {name}),
+        # appeared: absent at the pin, valued now
+        _describe_changes({name: ("target", "target", _ABSENT)},
+                          {name: ("target", "target", value)}, {name}),
+        # removed: valued at the pin, absent now
+        _describe_changes({name: ("target", "target", value)},
+                          {name: ("target", "target", _ABSENT)}, {name}),
+    ]
+
+    for shape, report in zip(("rotated", "appeared", "removed"), reports):
+        assert name in report, (
+            f"the {shape} shape produced no report for {name}: {report}. A reporter that "
+            "says nothing about a change it was handed is the silent half of a drift check."
+        )
+        text = report[name]
+        for secret in (value, other):
+            assert not _carries(text, secret), (
+                f"the {shape} report carries a coordinate value in a recoverable form: "
+                f"{text!r}. This repository is public and its CI logs are world-readable. "
+                "Name the field that moved and digest the value; never emit it, and never "
+                "emit a prefix or a transform of it."
+            )
