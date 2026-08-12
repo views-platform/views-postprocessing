@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-12                           |
 | Total Concerns    | 97                                   |
-| Open Concerns     | 23                                   |
-| Resolved Concerns | 74                                   |
+| Open Concerns     | 22                                   |
+| Resolved Concerns | 75                                   |
 
 ---
 
@@ -310,39 +310,6 @@ Net **−140 lines**, leaving the file **+55 over its pre-story size** rather th
 2. **`test_the_drift_check_would_catch_a_rename` re-types its subject's comparison inline** rather than calling it, so blanking that subject's assertions leaves the proof green — the same defect its two siblings had repaired. Pre-existing, found while reading for this change. **Routed to #243**, which is already in this file.
 
 Cross-refs: **C-57** (the scan's own entry and its history), **C-93** (why the author's own proof did not find this), **C-90** (the sibling defect in the drift checks), ADR-014 §1, issues #242, #243.
-
----
-
-### C-90: A mutation proof that cannot fail, and the untested function a module was extracted to create
-
-| Field | Value |
-|-------|-------|
-| ID | C-90 |
-| Tier | 2 — this is the entry PR #239 was written to close, reopened by the code that closed it. It reinstates release-blocking false alarms on the path that is this project's production release, and it does so under a docstring saying the opposite. |
-| Source | `/code-review max` on PR #239 post-merge, 2026-08-11; verified by direct measurement against views-appwrite `origin/main` |
-| Trigger | **Both remaining halves are proof defects, not runtime ones.** (a) Someone mutates `_unclassified_tables` or `_TABLE_ROLE` and believes the tautological proof covers it. (b) Someone changes `registry_current` — the reason `tests/seam_registry.py` exists — and the suite stays green. *(The original trigger, an unrelated coordinate arriving upstream, died with `arrived` in #245.)* |
-| Owner | This repository. |
-| Location | `tests/test_env_declaration.py` — `test_the_table_partition_would_catch_a_new_table_and_a_vanished_one` (the tautology); `tests/seam_registry.py::registry_current` (untested). Function names, not line numbers: this entry has cited stale ones before. |
-
-**~~`arrived` is not filtered by the names this package reads.~~ RESOLVED 2026-08-12 (#245) — deleted; see the mitigation below. Left visible because the reasoning it prompted is the entry's most useful part.** `changed` is; `arrived` is computed over every row of every table this package depends on. Measured on the live registry: **25 rows, 8 of which this package never reads** — six of them keys and callers belonging to other repositories. So views-appwrite issuing one more key for an unrelated repo turns both partner parametrizations red here, with a message demanding a `SEAM_CONTRACT` re-pin for a coordinate this package cannot use.
-
-That is the exact failure class C-86 records and that PR #239 was written to remove, and the same test's docstring seven lines above says **"Silent through: prose edits, `[meta]` bumps, and rows belonging to anyone else."** The prose describes the check that was designed; the code implements a wider one.
-
-There is a real question underneath, and it should be decided rather than inherited: a *new* coordinate in a table we read may be one we must adopt. That argues for table-granularity on arrival and row-granularity on change. **They cannot both stand.**
-
-**DECIDED 2026-08-12 (#245): the docstring won, and the cost is real.** The arrival half was deleted. A coordinate views-appwrite issues *for this package* — or a second `[contract.*]` row for a future partner such as views-productionapi — is now **silent** until a human reads the registry: no test, no run-time assert, nothing. `assert_env_declared` cannot see it, because it iterates the names this package already declares. That is the accepted price of not being reddened by every unrelated row, and it is recorded here rather than left to be discovered. *(The half's own defence — that `[contract.*]` "arrived exactly this way and nothing else here would have seen it" — was false at table granularity, where the partition check catches it, and true at row granularity, which is exactly the cost now accepted.)*
-
-**The partition's mutation proof cannot fail.** `assert not _unclassified_tables(base)` where `base = {name: {} for name in _TABLE_ROLE}` reduces to `set(_TABLE_ROLE) - set(_TABLE_ROLE)`, empty for every possible input. Its message — *"the real registry's tables must all classify"* — asserts a fact about a file this test never opens. It is decoration inside the test whose own docstring is about removing decoration.
-
-**`registry_current` has no test.** The module `tests/seam_registry.py` was extracted for one reason: two copies of the reader disagreed about whether to read the sibling's `main` or its working tree, and reading the working tree is issue #196 verbatim. The function that settles it is called by five tests and is the subject of none. Replacing its body with `rev-parse HEAD` — the defect it exists to prevent — leaves the suite at its exact baseline. Three of its error branches are executed by nothing.
-
-**Partial mitigation 2026-08-12 (#245) — the false-alarm half is gone; the two proof defects are not.**
-
-`arrived` is **deleted**. Measured before deleting: each partner reads 13 of the 25 rows in the tables this package depends on, and 8 of those rows belong to no repository here — so the check subscribed this repository to another repo's changelog. Mutation-proven after: an unrelated API key and a third partner's contract row are silent; a rotation and a removal still fire. The docstring and the code now agree, and the stopping rule sits above the check.
-
-**Still open, and routed to #246**: the partition's mutation proof is a tautology (`base` is built from `_TABLE_ROLE`, so `_unclassified_tables(base)` is empty for every possible input), and `registry_current` — the function `tests/seam_registry.py` was extracted to create — has no test, so replacing it with a working-tree read leaves the suite at baseline. This entry stays open until both land.
-
-Cross-refs: **C-86** (whose partial-mitigation paragraph this falsifies), **C-89** (the sibling defect in the no-copy scan), **C-93**, **C-91**, ADR-014 §1/§2, issue #196.
 
 ---
 
@@ -1058,6 +1025,48 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-90: A mutation proof that cannot fail, and the untested function a module was extracted to create — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-90 |
+| Tier | 2 — this is the entry PR #239 was written to close, reopened by the code that closed it. It reinstates release-blocking false alarms on the path that is this project's production release, and it does so under a docstring saying the opposite. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11; verified by direct measurement against views-appwrite `origin/main` |
+| Trigger | **Both remaining halves are proof defects, not runtime ones.** (a) Someone mutates `_unclassified_tables` or `_TABLE_ROLE` and believes the tautological proof covers it. (b) Someone changes `registry_current` — the reason `tests/seam_registry.py` exists — and the suite stays green. *(The original trigger, an unrelated coordinate arriving upstream, died with `arrived` in #245.)* |
+| Owner | This repository. |
+| Location | `tests/test_env_declaration.py` — `test_the_table_partition_would_catch_a_new_table_and_a_vanished_one` (the tautology); `tests/seam_registry.py::registry_current` (untested). Function names, not line numbers: this entry has cited stale ones before. |
+
+**~~`arrived` is not filtered by the names this package reads.~~ RESOLVED 2026-08-12 (#245) — deleted; see the mitigation below. Left visible because the reasoning it prompted is the entry's most useful part.** `changed` is; `arrived` is computed over every row of every table this package depends on. Measured on the live registry: **25 rows, 8 of which this package never reads** — six of them keys and callers belonging to other repositories. So views-appwrite issuing one more key for an unrelated repo turns both partner parametrizations red here, with a message demanding a `SEAM_CONTRACT` re-pin for a coordinate this package cannot use.
+
+That is the exact failure class C-86 records and that PR #239 was written to remove, and the same test's docstring seven lines above says **"Silent through: prose edits, `[meta]` bumps, and rows belonging to anyone else."** The prose describes the check that was designed; the code implements a wider one.
+
+There is a real question underneath, and it should be decided rather than inherited: a *new* coordinate in a table we read may be one we must adopt. That argues for table-granularity on arrival and row-granularity on change. **They cannot both stand.**
+
+**DECIDED 2026-08-12 (#245): the docstring won, and the cost is real.** The arrival half was deleted. A coordinate views-appwrite issues *for this package* — or a second `[contract.*]` row for a future partner such as views-productionapi — is now **silent** until a human reads the registry: no test, no run-time assert, nothing. `assert_env_declared` cannot see it, because it iterates the names this package already declares. That is the accepted price of not being reddened by every unrelated row, and it is recorded here rather than left to be discovered. *(The half's own defence — that `[contract.*]` "arrived exactly this way and nothing else here would have seen it" — was false at table granularity, where the partition check catches it, and true at row granularity, which is exactly the cost now accepted.)*
+
+**The partition's mutation proof cannot fail.** `assert not _unclassified_tables(base)` where `base = {name: {} for name in _TABLE_ROLE}` reduces to `set(_TABLE_ROLE) - set(_TABLE_ROLE)`, empty for every possible input. Its message — *"the real registry's tables must all classify"* — asserts a fact about a file this test never opens. It is decoration inside the test whose own docstring is about removing decoration.
+
+**`registry_current` has no test.** The module `tests/seam_registry.py` was extracted for one reason: two copies of the reader disagreed about whether to read the sibling's `main` or its working tree, and reading the working tree is issue #196 verbatim. The function that settles it is called by five tests and is the subject of none. Replacing its body with `rev-parse HEAD` — the defect it exists to prevent — leaves the suite at its exact baseline. Three of its error branches are executed by nothing.
+
+**Partial mitigation 2026-08-12 (#245) — the false-alarm half is gone; the two proof defects are not.**
+
+`arrived` is **deleted**. Measured before deleting: each partner reads 13 of the 25 rows in the tables this package depends on, and 8 of those rows belong to no repository here — so the check subscribed this repository to another repo's changelog. Mutation-proven after: an unrelated API key and a third partner's contract row are silent; a rotation and a removal still fire. The docstring and the code now agree, and the stopping rule sits above the check.
+
+**RESOLVED 2026-08-12 (#246) — both proof defects closed.**
+
+The tautology is gone. `assert not _unclassified_tables(base)` where `base` was built from `_TABLE_ROLE` reduced to `set(x) - set(x)`, empty for every possible input, while claiming *"the real registry's tables must all classify"* about a file the test never opens. The silent direction is now asserted against an input the function did not derive from itself, and mutation-proven by making `_unclassified_tables` report everything.
+
+`registry_current` has tests — three of them, plus two for `registry_at`'s refusal branches that nothing reached. The scratch repository differs on `main`, on `origin/main` and on disk, so preferring the wrong one is visible. Mutation-proven four ways: reading `HEAD` (issue #196's defect, which used to leave the suite green), preferring `main` over `origin/main`, dropping the unreadable-blob refusal, and dropping the TOML-parse wrapper. All four now fail.
+
+The scratch repository also runs git with `-c commit.gpgsign=false -c core.hooksPath=/dev/null`, which is C-91's third item arriving early: a contributor's global signing config would otherwise fail opaquely or block on pinentry with no timeout.
+
+Cross-refs: **C-86** (whose partial-mitigation paragraph this falsifies), **C-89** (the sibling defect in the no-copy scan), **C-93**, **C-91**, ADR-014 §1/§2, issue #196.
+
+---
+
+---
+
 
 ### C-93: A mutation proof written by whoever wrote the guard tests that author's imagination, not the guard — RESOLVED
 
