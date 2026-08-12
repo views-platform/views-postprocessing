@@ -266,7 +266,17 @@ The no-copy scan exists because README.md once carried four real coordinate valu
 
 The three share a cause: the no-print rule lives in prose and in one implementation, and nothing asserts it about the guard as a whole.
 
-Cross-refs: **C-57** (the scan's own entry and its history), **C-93** (why the author's own proof did not find this), **C-90** (the sibling defect in the drift checks), ADR-014 §1.
+**Mitigated 2026-08-12 (#242) — the leak is closed and the rule now has a check.**
+
+Two of the three are fixed, and the third moved:
+
+1. **The AST branch no longer receives the value.** Both branches build their finding through `_report_a_copy(where, coordinates)`, whose signature *has no value parameter* — so a future call site cannot print one however it is written. The report names the coordinate instead, and names **all** coordinates sharing that value: measured against the live registry, two pairs share one (the prod-forecasts bucket and collection share both id and name), so a `value -> name` map would have named the wrong coordinate half the time in the message a maintainer uses to find the copy.
+2. **The rotation proof asserts both sides absent.** Mutation-proven: leaking the post-rotation side while keeping the pinned side digested fails now and **passed before** — which is exactly the half the old assertion missed, and the more damaging half.
+3. **The rule is asserted about the scan as a whole**, by `test_every_finding_goes_through_the_one_reporter` — an AST check that every `copied.append` calls the one reporter. This is the guard whose absence let the two branches drift for a day; mutation-proven by restoring the original defect and watching it fail.
+
+**Deliberately still open, and moved rather than closed:** the `secret` exemption at `:1042` and the ban-set's package-name collision are the *scope* of the scan, not its reporting, and belong with the matcher rewrite in **#243**. This entry stays open until they land, because closing it now would close a Tier 2 on two-thirds of its content.
+
+Cross-refs: **C-57** (the scan's own entry and its history), **C-93** (why the author's own proof did not find this), **C-90** (the sibling defect in the drift checks), ADR-014 §1, issues #242, #243.
 
 ---
 

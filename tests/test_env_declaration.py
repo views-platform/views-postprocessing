@@ -934,10 +934,21 @@ def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(pa
         f"[{partner}] a rotated value went unnoticed. Name and class are identical on "
         "both sides, so nothing else in this file can see it."
     )
-    assert "value:" in changed[canary] and "at-the-pin" not in changed[canary], (
-        "the report must name the field that moved and must NOT print the value — this "
-        "repository is public and its CI logs are world-readable"
+    assert "value:" in changed[canary], (
+        f"[{partner}] the report must name the FIELD that moved, or a maintainer reading "
+        "the failure cannot tell a rotation from a reclassification."
     )
+    # BOTH sides, and the second one is the one that matters. An earlier version asserted
+    # only that the pinned value was absent, so a regression that digested one side and
+    # interpolated the other passed — while printing the freshly rotated coordinate, which
+    # is the more damaging of the two, into a public CI log on the single event this check
+    # exists to fire on (register C-89).
+    for side in ("at-the-pin", "after-rotation"):
+        assert side not in changed[canary], (
+            f"[{partner}] the report printed the {side!r} value. It must name the field "
+            "and never the value: this repository is public, its CI logs are "
+            "world-readable, and they cannot be redacted afterwards."
+        )
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)
@@ -998,6 +1009,77 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
     return out
 
 
+def _report_a_copy(where: str, coordinates: tuple[str, ...]) -> str:
+    """One finding from the no-copy scan: WHERE the copy is and WHICH coordinate it is.
+
+    **The value itself is not a parameter.** That is the whole design: a helper that is
+    never handed the value cannot print it, whatever a future call site does.
+
+    **Why this is a function and not two f-strings — it was two f-strings.** The markdown
+    branch was taught not to print the value on 2026-08-11; the AST branch was not, and
+    went on interpolating it for a further day. So the guard against publishing a
+    coordinate published one itself, into a world-readable CI log, on precisely the event
+    it exists to catch (register **C-89**). A rule applied at two call sites is a rule
+    only until someone writes a third, which is why
+    ``test_every_finding_goes_through_the_one_reporter`` exists below.
+
+    ``coordinates`` is a tuple because two coordinates may legitimately declare the same
+    value — measured against the live registry, two pairs do — and naming one of them
+    would be wrong half the time in the message a maintainer uses to find the copy.
+    """
+    return f"{where} carries the value declared for {', '.join(coordinates)}"
+
+
+def test_every_finding_goes_through_the_one_reporter():
+    """The no-print rule, asserted about the scan as a whole rather than branch by branch.
+
+    This is the guard whose absence let **C-89** happen. The rule "never print a
+    coordinate value" was stated in prose, applied to one of two branches, and nothing
+    compared the branches — so they drifted for a day and the drift was invisible because
+    both branches were individually plausible.
+
+    So: every finding the scan appends must be built by :func:`_report_a_copy`, which
+    cannot be handed a value. Adding a third branch that formats its own message fails
+    here, whether or not that message happens to be safe today.
+
+    Read as source rather than run, because the branch that leaked only executes when a
+    coordinate has actually been copied — a state this repository is never in, and must
+    never be in, so a behavioural test of it would have nothing to observe.
+    """
+    scan = next(
+        node for node in ast.walk(ast.parse(Path(__file__).read_text()))
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "test_no_coordinate_value_is_copied_into_this_repo"
+    )
+
+    homemade = []
+    for node in ast.walk(scan):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "append"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "copied"
+        ):
+            continue
+        built_by_the_reporter = (
+            len(node.args) == 1
+            and isinstance(node.args[0], ast.Call)
+            and isinstance(node.args[0].func, ast.Name)
+            and node.args[0].func.id == "_report_a_copy"
+        )
+        if not built_by_the_reporter:
+            homemade.append(node.lineno)
+
+    assert not homemade, (
+        f"the no-copy scan builds a finding without _report_a_copy at line(s) {homemade}. "
+        "Every finding must go through that helper: it is not given the value, so it "
+        "cannot print one. This repository is public and its CI logs are world-readable "
+        "and are not retroactively redactable — a branch that formats its own message is "
+        "how C-89 happened, and it stayed invisible because each branch read fine alone."
+    )
+
+
 def test_no_coordinate_value_is_copied_into_this_repo():
     """The registry's own rule: *"never bake a value into code, an example, or a
     dataclass default."* Consumers READ and VALIDATE; the launcher supplies values.
@@ -1041,15 +1123,20 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     scanned_sections = tuple(
         name for name, role in _TABLE_ROLE.items() if role == "CONSUMED" and name != "secret"
     )
-    values = {
-        body["value"]
-        for section in scanned_sections
-        for body in registry.get(section, {}).values()
-        # No length floor: it excluded two five-character coordinates and,
-        # measured, removing it keeps the suite green — so it was buying nothing
-        # while narrowing a security check.
-        if isinstance(body.get("value"), str) and body["value"].strip()
-    }
+    # value -> every coordinate declaring it. A LIST, not a single name: two coordinates
+    # may legitimately share a value, and measured against the live registry two pairs do
+    # (the prod-forecasts bucket and collection share both their id and their name). A
+    # `value -> name` dict would silently keep the last and name the wrong coordinate half
+    # the time, in the message a maintainer uses to find the copy.
+    declared_by_value: dict[str, list[str]] = {}
+    for section in scanned_sections:
+        for name, body in registry.get(section, {}).items():
+            # No length floor: it excluded two five-character coordinates and,
+            # measured, removing it keeps the suite green — so it was buying nothing
+            # while narrowing a security check.
+            if isinstance(body.get("value"), str) and body["value"].strip():
+                declared_by_value.setdefault(body["value"], []).append(name)
+    values = set(declared_by_value)
 
     copied = []
     for source in sorted(_PKG.rglob("*.py")):
@@ -1062,7 +1149,10 @@ def test_no_coordinate_value_is_copied_into_this_repo():
                 and node.value in values
                 and id(node) not in docstrings
             ):
-                copied.append(f"{source.relative_to(_PKG)}:{node.lineno} = {node.value!r}")
+                copied.append(_report_a_copy(
+                    f"{source.relative_to(_PKG)}:{node.lineno}",
+                    tuple(sorted(declared_by_value[node.value])),
+                ))
     # Markdown too — the AST half cannot see a fenced ``bash`` block, and that is exactly
     # where four production-forecasts values sat: in README.md's Configuration section,
     # two lines below the sentence promising they are never copied, in a PUBLIC
@@ -1132,10 +1222,11 @@ def test_no_coordinate_value_is_copied_into_this_repo():
             match = assignment.search(line)
             captured = next((g for g in match.groups()[1:] if g is not None), None) if match else None
             if captured is not None and captured.strip() in values:
-                copied.append(
-                    f"{doc.relative_to(_REPO)}:{number} assigns a registry value to "
-                    f"{match.group(1)}"
-                )
+                # The assignment names its own coordinate, so report THAT one rather than
+                # everything sharing the value — it is the more useful of the two answers.
+                copied.append(_report_a_copy(
+                    f"{doc.relative_to(_REPO)}:{number}", (match.group(1),)
+                ))
 
     assert not copied, (
         f"coordinate value(s) from the registry are copied into this repo: {copied}. The "
