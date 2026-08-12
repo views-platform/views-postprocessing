@@ -525,8 +525,12 @@ is longer than it wants to be.
 
 **The first, now fixed.** The drift check's arrival half ran over every row of every table
 this package depends on, with no filter for the names it reads. Measured on the live
-registry: each partner reads **13 of 25** rows, and **6 belong to other repositories**
-(three platform key slots, three caller keys). The other two rows this package does not
+registry: each partner reads **13 of 25** rows, and **6 belong to no repository here** —
+three caller keys for other consumers, and three platform key slots still marked
+`status = "planned"`, one of which names *"un_fao delivery"* among the identities it would
+be issued for. C-90's original wording was "belong to no repository here"; an earlier draft
+of this paragraph upgraded it to "other repositories entirely", which is the same
+overstatement this paragraph exists to correct, two sentences from correcting it. The other two rows this package does not
 read are its own delivery labels — both declare `producer = "views-postprocessing"` — and
 they are covered by `tests/test_product.py`, not by this check. *An earlier draft of this
 paragraph said "8 belong to no repository here", which upgraded a careful claim in C-90
@@ -567,8 +571,9 @@ top-level table upstream must be classified here"* fires on any new table regard
 whether this repository declares anything about it — and **it has already fired for exactly
 that reason**: `[edition]` arrived at v1.6.0, an edition the registry's own `[meta]` calls
 *"additive and opt-in; obliges nobody"*, and it reddened this repository. That event is
-recorded further down this entry as the partition "earning its keep", which is true of the
-detection and not of the cost. Adopting `[edition].obliges_consumers` is the deferral that
+recorded **earlier** in this entry — the partition "went red on it unprompted", "which is
+the whole reason that check is directional" — and that record is true of the *detection*
+and silent about the *cost*. Adopting `[edition].obliges_consumers` is the deferral that
 would fix it, and its trigger is below.
 
 

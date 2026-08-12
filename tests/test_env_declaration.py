@@ -751,7 +751,7 @@ def test_nothing_this_repo_reads_has_changed_since_the_pin(partner):
 
     An arrival half failed the surface test and was deleted (#245): it compared every row
     of every depended-on table, and measured, each partner reads 13 of 25 while 6 belong
-    to other repositories entirely. It defended itself by claiming ``[contract.*]``
+    to no repository here. It defended itself by claiming ``[contract.*]``
     "arrived exactly this way and nothing else here would have seen it" — false at table
     granularity, where ``test_every_table_in_the_registry_is_classified_here`` catches it.
 
@@ -979,10 +979,15 @@ def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(pa
 def test_the_drift_check_is_silent_on_a_row_this_partner_does_not_read(partner, monkeypatch):
     """The stopping rule above, as a check rather than a paragraph.
 
-    The proofs either side of this one are positive — rotation fires, a rename fires.
-    Nothing asserted the *silence* direction, so a third widening of this check would have
-    met no objection and the rule forbidding it would have been prose with a guard on the
-    other half only. That is this file's own recurring defect (C-80, C-82).
+    Paired with ``test_the_drift_check_fires_when_a_row_this_partner_reads_rotates``,
+    which is the positive direction through the same harness. Neither is optional: alone,
+    this one is a check that can only pass, and alone the twin says nothing about what the
+    check ignores.
+
+    An earlier version of this docstring vouched for the two proofs either side — "rotation
+    fires, a rename fires" — and neither is about this check. One calls the helper
+    underneath it; the other belongs to the class check. That is this file's own recurring
+    defect (C-80, C-82), so the vouching is gone and the twin is real.
 
     **It drives the real check**, through the real registry readers, rather than calling
     the projection helpers underneath it. A first version called ``_describe_changes``
@@ -990,7 +995,12 @@ def test_the_drift_check_is_silent_on_a_row_this_partner_does_not_read(partner, 
     whole suite green, because that half never lived in the helper this was asking. A
     guard has to be pointed at the thing it claims to guard.
     """
-    mine = sorted(_PARTNER_ENV[partner][2])[0]
+    expected_class = _PARTNER_ENV[partner][2]
+    mine = sorted(n for n, cls in expected_class.items() if cls == "target")[0]
+    assert expected_class[mine] == "target", (
+        f"[{partner}] this fixture files {mine} under [target]; if this package no longer "
+        "classifies it that way the fixture is lying about the registry's shape."
+    )
 
     pinned = {
         "meta": {"version": "0.0.0-fixture"},
@@ -1006,6 +1016,36 @@ def test_the_drift_check_is_silent_on_a_row_this_partner_does_not_read(partner, 
     monkeypatch.setattr(here, "_registry_current", lambda repo: current)
 
     test_nothing_this_repo_reads_has_changed_since_the_pin(partner)
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_drift_check_fires_when_a_row_this_partner_reads_rotates(partner, monkeypatch):
+    """The positive twin of the silence guard, through the same real check.
+
+    Without this, the check's entire ``assert not changed`` could be deleted and the suite
+    would stay green — measured. Its two apparent proofs are not about it: the rotation
+    proof below calls ``_describe_changes``, the helper underneath, and the rename proof
+    calls ``_declared_classes``, which belongs to a different check altogether. So the
+    silence guard was the only test driving this one, and a guard that can only pass is
+    the same defect as a guard pointed at the wrong subject.
+    """
+    expected_class = _PARTNER_ENV[partner][2]
+    mine = sorted(n for n, cls in expected_class.items() if cls == "target")[0]
+
+    pinned = {
+        "meta": {"version": "0.0.0-fixture"},
+        "connection": {"APPWRITE_ENDPOINT": {"class": "connection", "value": "e"}},
+        "target": {mine: {"class": "target", "value": "at-the-pin"}},
+    }
+    rotated = {**pinned, "target": {mine: {"class": "target", "value": "after-rotation"}}}
+
+    here = sys.modules[__name__]
+    monkeypatch.setattr(here, "require_sibling", lambda name: Path("/nonexistent"))
+    monkeypatch.setattr(here, "_registry_at", lambda repo, ref: pinned)
+    monkeypatch.setattr(here, "_registry_current", lambda repo: rotated)
+
+    with pytest.raises(AssertionError, match=mine):
+        test_nothing_this_repo_reads_has_changed_since_the_pin(partner)
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)
