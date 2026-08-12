@@ -65,10 +65,34 @@ def registry_at(repo: Path, ref: str) -> dict:
         capture_output=True, text=True, check=False, timeout=30,
     )
     if resolved.returncode != 0 or not resolved.stdout.strip():
+        # Two conditions used to share this message, and they have different remedies.
+        # A ref this clone has never heard of is an environment problem — a shallow or
+        # `--single-branch` clone, or one made before the pin. A ref that resolves to
+        # something that is not a commit is a pin defect. Only the second is this
+        # repository's fault; only the first is fixed by fetching (register C-91).
+        if not ref.strip():
+            raise RegistryReadError(
+                "the pin is empty, and an empty ref does not resolve to a commit — "
+                "`git show ':<path>'` reads the INDEX, so a blanked pin would compare "
+                "the registry to itself and report green against every future edition. "
+                "This is a defect in the pin, not in the checkout."
+            )
+        known = subprocess.run(
+            ["git", "-C", str(repo), "cat-file", "-e", f"{ref}^{{object}}"],
+            capture_output=True, text=True, check=False, timeout=30,
+        ).returncode == 0
+        if not known:
+            raise RegistryReadError(
+                f"{repo} has no object {ref!r}. This is almost always a clone that is "
+                "shallow, `--single-branch`, or simply older than the pin — run "
+                f"`git -C {repo} fetch --tags origin` and try again. It is not a defect "
+                "in the pin: nothing here can tell whether that commit is good until "
+                "this checkout can see it."
+            )
         raise RegistryReadError(
-            f"{ref!r} does not resolve to a commit in {repo}. A pin must name a frozen "
-            "commit: an empty ref reads the index and a branch reads a moving tip, and "
-            "either would make the comparison compare the registry to itself."
+            f"{ref!r} exists in {repo} but does not resolve to a commit. A pin must name "
+            "a frozen commit: an empty ref reads the index and a branch reads a moving "
+            "tip, and either would make the comparison compare the registry to itself."
         )
     if not resolved.stdout.strip().startswith(ref):
         raise RegistryReadError(
@@ -146,8 +170,20 @@ def rows(registry: dict, sections: tuple) -> dict[str, tuple]:
     The one shared projection. Two hand-copied versions had already diverged on null
     handling — one raised ``AttributeError`` on a null section, the other did not.
     """
-    return {
-        name: (section, body.get("class"), body.get("value", ABSENT))
-        for section in sections
-        for name, body in (registry.get(section) or {}).items()
-    }
+    out = {}
+    for section in sections:
+        for name, body in (registry.get(section) or {}).items():
+            if not isinstance(body, dict):
+                # `[test_environment]` on the live registry is exactly this — top-level
+                # strings, not sub-tables. Reaching it means someone classified such a
+                # table CONSUMED, which the partition check's own remediation message
+                # invites. Refusing by name beats an AttributeError from a comprehension
+                # in the module whose justification is failing legibly (register C-91).
+                raise RegistryReadError(
+                    f"[{section}].{name} is a bare {type(body).__name__}, not a table. "
+                    "This section's rows are scalars, so it carries no class or value to "
+                    "read — it cannot be CONSUMED. Classify it IGNORED with a reason, or "
+                    "read it with something other than `rows()`."
+                )
+            out[name] = (section, body.get("class"), body.get("value", ABSENT))
+    return out

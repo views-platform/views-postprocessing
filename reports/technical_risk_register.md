@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-12                           |
 | Total Concerns    | 97                                   |
-| Open Concerns     | 22                                   |
-| Resolved Concerns | 75                                   |
+| Open Concerns     | 21                                   |
+| Resolved Concerns | 76                                   |
 
 ---
 
@@ -310,27 +310,6 @@ Net **−140 lines**, leaving the file **+55 over its pre-story size** rather th
 2. **`test_the_drift_check_would_catch_a_rename` re-types its subject's comparison inline** rather than calling it, so blanking that subject's assertions leaves the proof green — the same defect its two siblings had repaired. Pre-existing, found while reading for this change. **Routed to #243**, which is already in this file.
 
 Cross-refs: **C-57** (the scan's own entry and its history), **C-93** (why the author's own proof did not find this), **C-90** (the sibling defect in the drift checks), ADR-014 §1, issues #242, #243.
-
----
-
-### C-91: The git plumbing this arc added turns ordinary developer states into hard errors, bare tracebacks, and one possible hang
-
-| Field | Value |
-|-------|-------|
-| ID | C-91 |
-| Tier | 3 — no wrong data and nothing silent. It taxes every contributor who does not already have the exact sibling checkout this repository assumes, and it does so with diagnoses that point at the wrong cause. |
-| Source | `/code-review max` on PR #239 post-merge, 2026-08-11 |
-| Trigger | Any of: a contributor clones views-appwrite shallow, single-branch, or before the pinned commit; a table classified `CONSUMED` upstream is written as flat keys rather than sub-tables; a contributor has `commit.gpgsign` or a global `core.hooksPath` set. |
-| Owner | This repository. |
-| Location | `tests/seam_registry.py:71` (refusal diagnoses), `:150` (`rows`), `tests/test_env_declaration.py:820` (the scratch repo). |
-
-**A stale clone produces four errors carrying the wrong explanation.** The reader the extraction replaced read the file off disk, so an older checkout simply read an older file. Now a clone that predates the pinned commit — or is shallow, or was made `--single-branch`, which matters because views-appwrite's default branch is not `main` — raises *"does not resolve to a commit … an empty ref reads the index and a branch reads a moving tip"*. That names neither cause and does not say `git fetch`. Meanwhile `test_the_pinned_commit_is_reachable_from_the_contract_repos_main` detects the identical root cause and *skips* with the right remedy. One condition, one skip, four errors, three explanations.
-
-**`rows()` raises a bare `AttributeError` on a shape the live registry already has.** It guards a null section and not a scalar row. Verified: views-appwrite's `[test_environment]` holds `status` and `fact` as top-level strings. That table is `IGNORED`, so nothing breaks today — but when the partition check fires on a new upstream table, its own message instructs the maintainer to classify it `CONSUMED` or `MIRRORED`, and doing so for a table written that way returns a traceback pointing into a dict comprehension. From the module whose docstring says a helper justified by failing legibly must not hand back a bare traceback.
-
-**The scratch repo inherits the developer's global git config and has no timeout.** `test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong` sets `user.name` and `user.email` and stops. With `commit.gpgsign = true` it fails with a bare `CalledProcessError` — `capture_output=True` swallows git's explanation. With a passphrase-protected key it blocks on pinentry with no `timeout`, hanging the whole run; `conftest.git_output`, which this helper bypasses, caps at 30 seconds. The leak was anticipated for identity and not for the setting that blocks.
-
-Cross-refs: **C-90** (the same module's untested core), **C-88** (why the module exists outside `conftest.py`), ADR-008 (explicit failure), issue #196.
 
 ---
 
@@ -1025,6 +1004,40 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-91: The git plumbing this arc added turns ordinary developer states into hard errors, bare tracebacks, and one possible hang — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-91 |
+| Tier | 3 — no wrong data and nothing silent. It taxes every contributor who does not already have the exact sibling checkout this repository assumes, and it does so with diagnoses that point at the wrong cause. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11 |
+| Trigger | Any of: a contributor clones views-appwrite shallow, single-branch, or before the pinned commit; a table classified `CONSUMED` upstream is written as flat keys rather than sub-tables; a contributor has `commit.gpgsign` or a global `core.hooksPath` set. |
+| Owner | This repository. |
+| Location | `tests/seam_registry.py:71` (refusal diagnoses), `:150` (`rows`), `tests/test_env_declaration.py:820` (the scratch repo). |
+
+**A stale clone produces four errors carrying the wrong explanation.** The reader the extraction replaced read the file off disk, so an older checkout simply read an older file. Now a clone that predates the pinned commit — or is shallow, or was made `--single-branch`, which matters because views-appwrite's default branch is not `main` — raises *"does not resolve to a commit … an empty ref reads the index and a branch reads a moving tip"*. That names neither cause and does not say `git fetch`. Meanwhile `test_the_pinned_commit_is_reachable_from_the_contract_repos_main` detects the identical root cause and *skips* with the right remedy. One condition, one skip, four errors, three explanations.
+
+**`rows()` raises a bare `AttributeError` on a shape the live registry already has.** It guards a null section and not a scalar row. Verified: views-appwrite's `[test_environment]` holds `status` and `fact` as top-level strings. That table is `IGNORED`, so nothing breaks today — but when the partition check fires on a new upstream table, its own message instructs the maintainer to classify it `CONSUMED` or `MIRRORED`, and doing so for a table written that way returns a traceback pointing into a dict comprehension. From the module whose docstring says a helper justified by failing legibly must not hand back a bare traceback.
+
+**The scratch repo inherits the developer's global git config and has no timeout.** `test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong` sets `user.name` and `user.email` and stops. With `commit.gpgsign = true` it fails with a bare `CalledProcessError` — `capture_output=True` swallows git's explanation. With a passphrase-protected key it blocks on pinentry with no `timeout`, hanging the whole run; `conftest.git_output`, which this helper bypasses, caps at 30 seconds. The leak was anticipated for identity and not for the setting that blocks.
+
+**RESOLVED 2026-08-12 (#247) — all three.**
+
+**One condition, one diagnosis.** A ref this clone cannot see and a ref that is not a frozen commit used to share a message that named neither cause and never said `git fetch`. They are now separate branches with separate remedies, and a third — an empty pin — is called what it is: a defect in the pin, not the checkout. The bogus-sha case is deliberately classified as *"this clone cannot see it"*, because that is the truth: the reader cannot tell a bad pin from a missing fetch, and the message says so rather than guessing.
+
+**`rows()` refuses a scalar row by name.** `[test_environment]` on the live registry is top-level strings; classifying such a table CONSUMED — which the partition check's own remediation message invites — used to return an `AttributeError` from a dict comprehension, in the module whose justification is failing legibly.
+
+**The scratch repositories are hermetic.** All three now run git with `-c commit.gpgsign=false -c core.hooksPath=/dev/null` and an explicit timeout. Verified by running the suite under a `HOME` whose `.gitconfig` sets `commit.gpgsign = true` and points `core.hooksPath` at a nonexistent directory: four tests pass where they would previously have failed opaquely or blocked on pinentry with no timeout.
+
+Mutation-proven three ways, each reverted: removing the scalar-row refusal, the missing-object branch, and the empty-pin branch.
+
+Cross-refs: **C-90** (the same module's untested core), **C-88** (why the module exists outside `conftest.py`), ADR-008 (explicit failure), issue #196.
+
+---
+
+---
+
 
 ### C-90: A mutation proof that cannot fail, and the untested function a module was extracted to create — RESOLVED
 

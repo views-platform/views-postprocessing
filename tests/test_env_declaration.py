@@ -43,6 +43,7 @@ from tests.seam_registry import (
     registry_at as _registry_at,
     registry_current,
     registry_current as _registry_current,
+    rows,
     rows as _rows,
 )
 from tests.conftest import (
@@ -882,7 +883,15 @@ def test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong(tmp_path):
     import subprocess as sp
 
     def git(*args):
-        return sp.run(["git", "-C", str(tmp_path), *args], capture_output=True, text=True, check=True)
+        # `-c`, and a timeout. A contributor's global `commit.gpgsign` makes `git commit`
+        # fail with a bare CalledProcessError here — capture_output swallows git's
+        # explanation — and with a passphrase-protected key it blocks on pinentry with
+        # stdin inherited and no timeout, hanging the whole run (register C-91).
+        return sp.run(
+            ["git", "-C", str(tmp_path), "-c", "commit.gpgsign=false",
+             "-c", "core.hooksPath=/dev/null", *args],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
 
     git("init", "-q")
     git("config", "user.email", "t@t")
@@ -905,7 +914,11 @@ def test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong(tmp_path):
         "the reader must accept a well-formed registry, or the refusals below prove nothing"
     )
 
-    with pytest.raises(_RegistryReadError, match="does not resolve to a commit"):
+    # The five refusals, and note that two of them now say DIFFERENT things. A ref this
+    # clone cannot see and a ref that is not a commit used to share one message; they have
+    # different remedies — `git fetch` versus fix the pin — and conflating them sent
+    # contributors to the wrong one (register C-91).
+    with pytest.raises(_RegistryReadError, match="the pin is empty"):
         _registry_at(tmp_path, "")          # a blanked pin reads the INDEX
     with pytest.raises(_RegistryReadError, match="annotated TAG|does not start with it"):
         _registry_at(tmp_path, "v1")        # a tag object: git peels it, the URL 404s
@@ -913,8 +926,9 @@ def test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong(tmp_path):
         _registry_at(tmp_path, empty)       # exits 0, stdout empty
     with pytest.raises(_RegistryReadError, match="no meta.version or no"):
         _registry_at(tmp_path, anchorless)  # parses, but is not the registry
-    with pytest.raises(_RegistryReadError, match="does not resolve to a commit"):
-        _registry_at(tmp_path, "0" * 40)    # a pin that names nothing
+    with pytest.raises(_RegistryReadError, match="has no object"):
+        _registry_at(tmp_path, "0" * 40)    # this clone cannot see it; it cannot tell
+                                            # a bad pin from a missing fetch, and says so
 
 
 def test_the_role_vocabulary_is_closed():
@@ -1470,3 +1484,20 @@ def test_registry_at_refuses_a_commit_whose_registry_is_missing_or_unparseable(t
         registry_at(tmp_path, absent)
     with pytest.raises(RegistryReadError, match="did not parse as TOML"):
         registry_at(tmp_path, garbage)
+
+
+def test_rows_refuses_a_section_whose_entries_are_not_tables():
+    """`[test_environment]` on the live registry is scalars, not sub-tables.
+
+    Nothing breaks today because that table is IGNORED — but the partition check's own
+    remediation message tells a maintainer to classify a new table CONSUMED, and doing
+    that for one written this way used to return an `AttributeError` from a dict
+    comprehension. Register C-91.
+    """
+    scalars = {"test_environment": {"status": "none", "fact": "a sentence"}}
+    with pytest.raises(RegistryReadError, match=r"\[test_environment\]\.(status|fact) is a bare str"):
+        rows(scalars, ("test_environment",))
+
+    # and the ordinary shape still works, or the refusal above proves nothing
+    tables = {"target": {"APPWRITE_X": {"class": "target", "value": "v"}}}
+    assert rows(tables, ("target",)) == {"APPWRITE_X": ("target", "target", "v")}
