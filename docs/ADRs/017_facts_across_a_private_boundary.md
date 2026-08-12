@@ -165,16 +165,17 @@ typing.
 mechanism. Both facts belong here, and an earlier draft of this erratum got the first one
 backwards.**
 
-Both partners' step 3 landed. views-faoapi#379 merged on 11 August; views-crafdapi#53
-closed at 12:15 on the 12th. So the constraint stated above was **satisfied**, not
+Both partners' step 3 landed. views-faoapi#379 closed on 11 August (commit `8615574`);
+views-crafdapi#53 at 12:15 on the 12th (commit `0c493ae`). So the constraint stated above was **satisfied**, not
 bypassed — and the first version of this erratum claimed the opposite, that "neither
 partner's step 3 is what removed them". That was false when written, six hours after the
 second one landed. It is corrected here rather than quietly, because an ADR that repeals
 its own rule on a false claim about another repository is §3's failure inside §5's text.
 
-**What actually happened is more useful than what that draft said.** In both repositories
-the commit that satisfied step 3 was *the same commit* that broke our source-reading
-check: each consumer, while binding its served name to the registry, tidied
+**What actually happened is more useful than what that draft said, and it is checked
+rather than asserted.** In both repositories the commit that satisfied step 3 was *the
+same commit* that broke our source-reading check — verified: `8615574` and `0c493ae` each
+introduce the named constant and add that repository's registry-binding test: each consumer, while binding its served name to the registry, tidied
 `APIPathManager("literal")` into `APIPathManager(CONSUMER_DOCUMENT_NAME)`. The improvement
 and the breakage were one edit. Twice, a day apart.
 
