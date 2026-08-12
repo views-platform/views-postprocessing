@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-12                           |
-| Total Concerns    | 96                                   |
-| Open Concerns     | 23                                   |
+| Total Concerns    | 97                                   |
+| Open Concerns     | 24                                   |
 | Resolved Concerns | 73                                   |
 
 ---
@@ -161,6 +161,31 @@ that indexes only deleted code is noise.
 
 ## Open Concerns
 
+### C-97: Thirty-three coordinate values sit in docstrings and comments, where the scan deliberately does not look
+
+| Field | Value |
+|-------|-------|
+| ID | C-97 |
+| Tier | 3 — a decided position, not an accident, and the decision is defensible. It is registered because the decision was taken before anyone counted, and because a docstring is printed by pytest in a way a code constant is not. |
+| Source | `/code-review max` on #242, 2026-08-12; count reproduced here |
+| Trigger | **Either.** (a) A check whose failing function contains one of these values starts firing in CI. (b) Someone proposes widening the no-copy scan to docstrings — at which point this entry is the measurement that says what that would cost. |
+| Owner | This repository. |
+| Location | Measured across `git ls-files '*.py'`: 33 standalone occurrences in 9 files, including `views_postprocessing/{unfao,crafd}/managers/`, `contract/store_metadata.py`, `contract/wire/sink.py`. |
+
+The no-copy scan compares string **constants** and excludes docstrings outright. That exclusion is C-57's recorded lesson: an early draft fired on refusal labels and on docstrings naming which store a function serves, and *"a guard that fails on `def file_metadata(record)` gets deleted — after which the real rule is unguarded"* (ADR-014 §3).
+
+The position is still right. What was not known when it was taken is the count, and one consequence:
+
+**A value in a docstring is printed by pytest that a value in a constant is not.** When any test fails, `--tb=auto` prints the failing function's source. So a registry value in the docstring of a *test* reaches a world-readable CI log on that test's next failure — which is how #242 found that the no-copy scan's own docstring carried three. That one is fixed. The others sit in functions that fail less predictably.
+
+**Three of the values cannot be distinguished from ordinary code at all.** Measured: two are this repository's own package directory names, and one is the name of a function in `contract/store_metadata.py`. Exact-string matching cannot separate a copy from a coincidence for these, which is the same measurement #243 needs for the ban-set — recorded here once rather than twice.
+
+**What is deliberately not proposed:** scanning docstrings. It would fire on every sentence naming a store, which is the false-alarm class that gets guards deleted. The honest options are to leave it (current), to scan only *test* docstrings (where the traceback amplification is), or to stop writing values in prose going forward without rewriting history. None is urgent.
+
+Cross-refs: **C-57** (the exclusion and why), **C-89** (the traceback amplification, found here), **C-86**, issues #242, #243.
+
+---
+
 ### C-96: The registry table that says which live checks this package may build is classified as none of our business
 
 | Field | Value |
@@ -254,7 +279,7 @@ Cross-refs: **C-57** and **C-89** (the guard this was measured on), **C-90** (a 
 | Source | `/code-review max` on PR #239 post-merge, 2026-08-11; every element verified in this repository |
 | Trigger | A literal coordinate value is committed into a `.py` under `views_postprocessing/` — the violation the scan exists for — on any branch whose CI runs. |
 | Owner | This repository. |
-| Location | `tests/test_env_declaration.py:1065` (the AST branch), `:1042` (the `secret` exemption), `:937` (the half-sided rotation proof). |
+| Location | `tests/test_env_declaration.py:1152` (the AST branch), `:1124` (the `secret` exemption), `:946` (the rotation proof). Line numbers as of 2026-08-12 — the 2026-08-11 filing cited `:1065`/`:1042`/`:937`, which the fix itself moved. |
 
 The no-copy scan exists because README.md once carried four real coordinate values, two lines below the sentence promising they are never copied, in a public repository. It has three parts and they do not agree with each other about the one rule that matters.
 
@@ -266,13 +291,21 @@ The no-copy scan exists because README.md once carried four real coordinate valu
 
 The three share a cause: the no-print rule lives in prose and in one implementation, and nothing asserts it about the guard as a whole.
 
-**Mitigated 2026-08-12 (#242) — the leak is closed and the rule now has a check.**
+**Partial mitigation 2026-08-12 (#242) — the leak is closed; the scan's scope is not.**
+
+*(The heading matters. An earlier draft of this paragraph said "Mitigated", which is neither of the two phrasings this register declares — `Mitigation — landed` and `Partial mitigation`, enforced by `tests/test_register_integrity.py`. Inventing a third phrasing passes that guard by evading its string rather than by complying, which is the identical escape ADR-014 §5 records C-15 making. This entry is partial by its own next sentence.)*
 
 Two of the three are fixed, and the third moved:
 
-1. **The AST branch no longer receives the value.** Both branches build their finding through `_report_a_copy(where, coordinates)`, whose signature *has no value parameter* — so a future call site cannot print one however it is written. The report names the coordinate instead, and names **all** coordinates sharing that value: measured against the live registry, two pairs share one (the prod-forecasts bucket and collection share both id and name), so a `value -> name` map would have named the wrong coordinate half the time in the message a maintainer uses to find the copy.
-2. **The rotation proof asserts both sides absent.** Mutation-proven: leaking the post-rotation side while keeping the pinned side digested fails now and **passed before** — which is exactly the half the old assertion missed, and the more damaging half.
-3. **The rule is asserted about the scan as a whole**, by `test_every_finding_goes_through_the_one_reporter` — an AST check that every `copied.append` calls the one reporter. This is the guard whose absence let the two branches drift for a day; mutation-proven by restoring the original defect and watching it fail.
+1. **The AST branch no longer receives the value.** Both branches build their finding through `_report_a_copy(where, coordinates)`, which takes no value. The report names the coordinate instead, and names **all** coordinates sharing that value: measured, two pairs share one (the prod-forecasts bucket and collection share both id and name), so a `value -> name` map would have named the wrong coordinate half the time in the message a maintainer uses to find the copy.
+2. **The rotation proof asserts both sides absent**, taken from the fixture's own variables rather than from two literals a rename would quietly orphan. Mutation-proven: leaking the post-rotation side while keeping the pinned side digested fails now and **passed before** — the more damaging half, unchecked.
+3. **The rule is asserted behaviourally**, by `test_the_scan_reports_a_copy_without_reprinting_it`: plant a value in a fixture tree, run the real scan, read the finished message.
+
+**And the third one took two attempts, which is the part worth recording.** The first version asserted that every finding was *routed* through `_report_a_copy` — an AST walk over the scan's own source. Five independent reviewers were run against it and **routing turned out not to be safety**: the value could be smuggled through either of that helper's two parameters, appended with `extend` or `+=`, or reported from a renamed accumulator. Six of eight mutations survived, and one legitimate refactor *failed* it — a guard that misses the thing and fires on the innocent, which is C-82's shape and ADR-014 §3's deletion criterion at once. The docstring's claim that a caller "cannot print one however it is written" was false when written.
+
+Reading the finished message instead makes the whole class unreachable: it does not matter how a finding is built, which branch builds it, or what the final assertion interpolates. All five surviving mutations are now caught, including one that leaked the entire ban-set through the assertion message rather than through a finding.
+
+4. **The scan's own docstring carried three registry values**, and pytest prints the failing function's source — so the guard would have published them on exactly the event it exists to catch. The message was clean; the traceback was not. Now it names coordinates. **The wider finding is registered separately as C-97**: 33 standalone values sit in docstrings and comments across nine files, production modules included, and the AST scan excludes docstrings by a deliberate C-57 decision taken before anyone counted them.
 
 **Deliberately still open, and moved rather than closed:** the `secret` exemption at `:1042` and the ban-set's package-name collision are the *scope* of the scan, not its reporting, and belong with the matcher rewrite in **#243**. This entry stays open until they land, because closing it now would close a Tier 2 on two-thirds of its content.
 

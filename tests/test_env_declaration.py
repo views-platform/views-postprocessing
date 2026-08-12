@@ -28,6 +28,7 @@ import hashlib
 import logging
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -923,8 +924,9 @@ def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(pa
             "target": {canary: {"class": "target", "value": value}},
         }
 
-    then = _projection(edition("at-the-pin"), names)
-    now = _projection(edition("after-rotation"), names)
+    was, rotated = "at-the-pin", "after-rotation"
+    then = _projection(edition(was), names)
+    now = _projection(edition(rotated), names)
 
     assert then[canary][:2] == now[canary][:2], (
         "this fixture must differ ONLY in the value, or it is not proving what it claims"
@@ -938,12 +940,10 @@ def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(pa
         f"[{partner}] the report must name the FIELD that moved, or a maintainer reading "
         "the failure cannot tell a rotation from a reclassification."
     )
-    # BOTH sides, and the second one is the one that matters. An earlier version asserted
-    # only that the pinned value was absent, so a regression that digested one side and
-    # interpolated the other passed — while printing the freshly rotated coordinate, which
-    # is the more damaging of the two, into a public CI log on the single event this check
-    # exists to fire on (register C-89).
-    for side in ("at-the-pin", "after-rotation"):
+    # Both sides, taken from the fixture's own variables. Asserting the two literals
+    # instead let a fixture rename turn this into "two dead strings are absent" — and the
+    # rotated side is the one that matters, which an earlier version never checked.
+    for side in (was, rotated):
         assert side not in changed[canary], (
             f"[{partner}] the report printed the {side!r} value. It must name the field "
             "and never the value: this repository is public, its CI logs are "
@@ -1012,16 +1012,13 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
 def _report_a_copy(where: str, coordinates: tuple[str, ...]) -> str:
     """One finding from the no-copy scan: WHERE the copy is and WHICH coordinate it is.
 
-    **The value itself is not a parameter.** That is the whole design: a helper that is
-    never handed the value cannot print it, whatever a future call site does.
-
-    **Why this is a function and not two f-strings — it was two f-strings.** The markdown
-    branch was taught not to print the value on 2026-08-11; the AST branch was not, and
-    went on interpolating it for a further day. So the guard against publishing a
-    coordinate published one itself, into a world-readable CI log, on precisely the event
-    it exists to catch (register **C-89**). A rule applied at two call sites is a rule
-    only until someone writes a third, which is why
-    ``test_every_finding_goes_through_the_one_reporter`` exists below.
+    The value is not a parameter, so the ordinary way of writing a finding cannot print
+    one. That is a convention with a shape, **not a guarantee** — an earlier version of
+    this docstring claimed a caller "cannot print one however it is written", and an
+    independent review falsified it in two lines by smuggling the value through ``where``
+    and again through ``coordinates``. What actually holds the rule is
+    :func:`test_the_scan_reports_a_copy_without_reprinting_it`, which reads the finished
+    message rather than the syntax that produced it (register **C-89**, **C-93**).
 
     ``coordinates`` is a tuple because two coordinates may legitimately declare the same
     value — measured against the live registry, two pairs do — and naming one of them
@@ -1030,78 +1027,37 @@ def _report_a_copy(where: str, coordinates: tuple[str, ...]) -> str:
     return f"{where} carries the value declared for {', '.join(coordinates)}"
 
 
-def test_every_finding_goes_through_the_one_reporter():
-    """The no-print rule, asserted about the scan as a whole rather than branch by branch.
-
-    This is the guard whose absence let **C-89** happen. The rule "never print a
-    coordinate value" was stated in prose, applied to one of two branches, and nothing
-    compared the branches — so they drifted for a day and the drift was invisible because
-    both branches were individually plausible.
-
-    So: every finding the scan appends must be built by :func:`_report_a_copy`, which
-    cannot be handed a value. Adding a third branch that formats its own message fails
-    here, whether or not that message happens to be safe today.
-
-    Read as source rather than run, because the branch that leaked only executes when a
-    coordinate has actually been copied — a state this repository is never in, and must
-    never be in, so a behavioural test of it would have nothing to observe.
-    """
-    scan = next(
-        node for node in ast.walk(ast.parse(Path(__file__).read_text()))
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "test_no_coordinate_value_is_copied_into_this_repo"
-    )
-
-    homemade = []
-    for node in ast.walk(scan):
-        if not (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "append"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "copied"
-        ):
-            continue
-        built_by_the_reporter = (
-            len(node.args) == 1
-            and isinstance(node.args[0], ast.Call)
-            and isinstance(node.args[0].func, ast.Name)
-            and node.args[0].func.id == "_report_a_copy"
-        )
-        if not built_by_the_reporter:
-            homemade.append(node.lineno)
-
-    assert not homemade, (
-        f"the no-copy scan builds a finding without _report_a_copy at line(s) {homemade}. "
-        "Every finding must go through that helper: it is not given the value, so it "
-        "cannot print one. This repository is public and its CI logs are world-readable "
-        "and are not retroactively redactable — a branch that formats its own message is "
-        "how C-89 happened, and it stayed invisible because each branch read fine alone."
-    )
-
 
 def test_no_coordinate_value_is_copied_into_this_repo():
     """The registry's own rule: *"never bake a value into code, an example, or a
     dataclass default."* Consumers READ and VALIDATE; the launcher supplies values.
 
+    **This docstring names coordinates and never values, and that is not fussiness.**
+    An earlier version quoted three real registry values as worked examples. When this
+    check fails, pytest prints the failing function's own source — so the guard against
+    publishing a coordinate would have published three, into a world-readable CI log, on
+    exactly the event it exists to catch. The message was clean and the traceback was not
+    (register **C-89**).
+
     **Two wrong narrowings before this one, both instructive.**
 
-    A substring text scan over every ``.py`` flagged three "leaks": ``file_metadata``
-    (a **function name** in ``contract/store_metadata.py``), ``production_forecasts``
-    and ``unfao_bucket`` (only in refusal labels and docstrings naming which store a
-    function serves). None was a copy, and a guard that fails on
-    ``def file_metadata(record)`` gets deleted — after which the real rule is unguarded.
+    A substring text scan over every ``.py`` flagged three "leaks": the function name
+    ``file_metadata`` in ``contract/store_metadata.py``, and the values of
+    ``APPWRITE_PROD_FORECASTS_BUCKET_ID`` and ``APPWRITE_UNFAO_BUCKET_ID`` where they
+    appear only in refusal labels and in docstrings naming which store a function serves.
+    None was a copy, and a guard that fails on ``def file_metadata(record)`` gets deleted
+    — after which the real rule is unguarded.
 
-    Narrowing to *assignments and default arguments* then went too far in the other
-    direction: it caught neither a dict value nor a keyword argument, and the keyword
-    argument is the shape this repo would actually produce —
-    ``AppwriteConfig(bucket_id=...)`` is how every store is configured, and swapping one
-    ``os.getenv`` for a literal there is the violation.
+    Narrowing to *assignments and default arguments* then went too far the other way: it
+    caught neither a dict value nor a keyword argument, and the keyword argument is the
+    shape this repo would actually produce — ``AppwriteConfig(bucket_id=...)`` is how
+    every store is configured, and swapping one ``os.getenv`` for a literal there is the
+    violation.
 
     The right axis was **exact equality on string constants**, not statement shape. It
     catches dict values and kwargs, while all three original false positives fall out on
-    their own: a function name is not a ``Constant``; ``"unfao_bucket datastore"`` is not
-    equal to ``"unfao_bucket"``; docstrings are excluded outright.
+    their own: a function name is not a ``Constant``; a value with a word appended is not
+    equal to the value; docstrings are excluded outright.
     """
     # `require_sibling`, like every other reader in this file. The hand-rolled skip that
     # stood here said only "checkout not found — set VIEWS_APPWRITE", which is the
@@ -1123,11 +1079,8 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     scanned_sections = tuple(
         name for name, role in _TABLE_ROLE.items() if role == "CONSUMED" and name != "secret"
     )
-    # value -> every coordinate declaring it. A LIST, not a single name: two coordinates
-    # may legitimately share a value, and measured against the live registry two pairs do
-    # (the prod-forecasts bucket and collection share both their id and their name). A
-    # `value -> name` dict would silently keep the last and name the wrong coordinate half
-    # the time, in the message a maintainer uses to find the copy.
+    # value -> every coordinate declaring it. A list, because two coordinates may share
+    # a value and measured against the live registry two pairs do.
     declared_by_value: dict[str, list[str]] = {}
     for section in scanned_sections:
         for name, body in registry.get(section, {}).items():
@@ -1161,7 +1114,8 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     #
     # **What counts as a copy, and what does not.** A first draft flagged any line
     # containing a registry value and immediately fired on a dozen documents that merely
-    # *name* a store in prose — "six stranded documents in unfao_bucket". That is not a
+    # *name* a store in prose — a sentence counting stranded documents in the UNFAO
+    # bucket, written with the bucket's declared value. That is not a
     # copy; it is a sentence. C-57 recorded the identical false-positive class over `.py`
     # and the identical lesson: when a guard cries wolf, the matching is wrong before the
     # scope is (ADR-014 §3).
@@ -1222,10 +1176,14 @@ def test_no_coordinate_value_is_copied_into_this_repo():
             match = assignment.search(line)
             captured = next((g for g in match.groups()[1:] if g is not None), None) if match else None
             if captured is not None and captured.strip() in values:
-                # The assignment names its own coordinate, so report THAT one rather than
-                # everything sharing the value — it is the more useful of the two answers.
+                # Report the coordinate(s) that DECLARE the value, not the one the
+                # assignment happens to name. Those differ exactly when a document
+                # pastes one coordinate's value beside another's name — the ordinary
+                # copy-paste slip — and naming the assignment would then assert a false
+                # fact and hide the coordinate actually leaked.
                 copied.append(_report_a_copy(
-                    f"{doc.relative_to(_REPO)}:{number}", (match.group(1),)
+                    f"{doc.relative_to(_REPO)}:{number}",
+                    tuple(sorted(declared_by_value[captured.strip()])),
                 ))
 
     assert not copied, (
@@ -1233,4 +1191,67 @@ def test_no_coordinate_value_is_copied_into_this_repo():
         "registry is referenced, never copied — values reach this package through the "
         "environment the launcher assembles, validated by assert_env_declared. In a "
         "document, write the NAME and leave the value to the launcher."
+    )
+
+
+def test_the_scan_reports_a_copy_without_reprinting_it(tmp_path, monkeypatch):
+    """Feed the real scan a planted copy and read what it says. **The rule, behaviourally.**
+
+    This replaces a source-reading guard that asserted every finding was *routed* through
+    ``_report_a_copy``. Routing is not safety, and an independent review proved it: the
+    value could be smuggled through either of that helper's two parameters, or appended
+    with ``extend``/``+=``, or reported from a renamed accumulator — **six of eight
+    mutations survived**, while one legitimate refactor failed it. A guard that misses the
+    thing and fires on the innocent is decoration with a proof attached (register C-82).
+
+    Reading the finished message instead makes the whole class unreachable. It does not
+    matter how a finding is built, which branch builds it, or what the final assertion
+    interpolates — if a value reaches the text, this fails. That is the difference between
+    enumerating the mutations you thought of (register **C-93**) and making them moot.
+
+    Both halves are exercised, because C-89 was one half being taught a rule the other
+    half was not.
+    """
+    planted, coordinate = "fixture-value-2f9c-not-a-real-coordinate", "APPWRITE_UNFAO_BUCKET_ID"
+
+    pkg = tmp_path / "views_postprocessing"
+    pkg.mkdir()
+    (pkg / "leaky.py").write_text(f'BUCKET_ID = "{planted}"\n')
+    (tmp_path / "README.md").write_text(f"{coordinate}={planted}\n")
+    for args in (("init", "-q"), ("add", "-A")):
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "-c", "commit.gpgsign=false", *args],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+
+    here = sys.modules[__name__]
+    monkeypatch.setattr(here, "_PKG", pkg)
+    monkeypatch.setattr(here, "_REPO", tmp_path)
+    monkeypatch.setattr(here, "require_sibling", lambda name: tmp_path)
+    monkeypatch.setattr(here, "_registry_current", lambda repo: {
+        "meta": {"version": "0.0.0-fixture"},
+        "connection": {"APPWRITE_ENDPOINT": {"class": "connection", "value": "e"}},
+        "target": {coordinate: {"class": "target", "value": planted}},
+    })
+
+    with pytest.raises(AssertionError) as caught:
+        test_no_coordinate_value_is_copied_into_this_repo()
+    message = str(caught.value)
+
+    # Named files, not a count: pytest's assertion rewriting echoes the message, so
+    # counting substrings of it counts each finding twice. Naming both planted files is
+    # what stops this passing vacuously — a scan that finds nothing reports nothing, and
+    # "no value in the message" is trivially true of an empty message.
+    for half in ("leaky.py", "README.md"):
+        assert half in message, (
+            f"the {half} half of the scan did not report the planted copy: {message}. "
+            "C-89 was one branch being taught a rule the other was not, so both must fire."
+        )
+    assert coordinate in message, (
+        f"the report must name the coordinate so a maintainer can find it: {message}"
+    )
+    assert planted not in message, (
+        "THE SCAN PRINTED THE VALUE IT EXISTS TO HIDE. This repository is public, its CI "
+        "logs are world-readable, and they cannot be redacted afterwards. However the "
+        "finding was built, the finished text must never carry the value."
     )
