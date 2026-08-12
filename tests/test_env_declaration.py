@@ -1111,6 +1111,7 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
     return out
 
 
+
 def test_no_coordinate_value_is_copied_into_this_repo():
     """The registry's own rule: *"never bake a value into code, an example, or a
     dataclass default."* Consumers READ and VALIDATE; the launcher supplies values.
@@ -1143,7 +1144,7 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     # environment. The no-copy rule protects values the launcher supplies; a mirror is
     # the inverse by construction.
     scanned_sections = tuple(
-        name for name, role in _TABLE_ROLE.items() if role == "CONSUMED" and name != "secret"
+        name for name, role in _TABLE_ROLE.items() if role == "CONSUMED"
     )
     # value -> every coordinate declaring it. A list, because two coordinates may share
     # a value and measured against the live registry two pairs do.
@@ -1156,7 +1157,6 @@ def test_no_coordinate_value_is_copied_into_this_repo():
             if isinstance(body.get("value"), str) and body["value"].strip():
                 declared_by_value.setdefault(body["value"], []).append(name)
     values = set(declared_by_value)
-
     copied = []
     for source in sorted(_PKG.rglob("*.py")):
         tree = _parsed(source)
@@ -1187,46 +1187,21 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     # and the identical lesson: when a guard cries wolf, the matching is wrong before the
     # scope is (ADR-014 §3).
     #
-    # The copy is a value **assigned to its own coordinate name** — `APPWRITE_X=value` —
-    # which is a reader's instruction to configure with that literal. That is precise
-    # enough to have caught README.md and to ignore every legitimate mention.
+    # A copy is a declared NAME assigned a declared VALUE. Both halves are known before
+    # the scan starts, so it matches the pair rather than parsing the line and comparing
+    # what it captured. Three rounds of blindness came from that parse, all of them the
+    # same shape — the pattern described one dialect of markdown (register C-57).
     #
-    # **It has been blind in this repository's own house style twice, and both blindnesses
-    # had the same cause: the pattern described one way of writing markdown.**
+    # The two halves need not correspond: `APPWRITE_X=<value declared for APPWRITE_Y>` is
+    # the ordinary copy-paste slip, and is a copy.
     #
-    # 1. `(.+?)\s*$` swallowed an inline comment into the captured value, so
-    #    `NAME=value   # note` compared `'value   # note'` against the registry and
-    #    matched nothing. README.md's Configuration block is written in exactly that form.
-    # 2. Anchoring the name at `^\s*` saw only an assignment that *starts a line*. A
-    #    markdown bullet — ``- `NAME=value` `` — a table cell, or an assignment quoted
-    #    mid-sentence were all invisible, and all three are ordinary ways to document
-    #    configuration. The fenced-block form the guard was written against is the one
-    #    form this repository happens to use today.
-    #
-    # So the name may be preceded by anything that is not part of an identifier, and the
-    # value ends at whatever terminates it in prose: a comment, a closing backtick, or a
-    # table pipe. A `#` inside a QUOTED value is legitimate, so the quoted forms are tried
-    # first and taken whole; only an unquoted value is truncated.
-    #
-    # This stays a syntax match, deliberately. A value merely *named* in a sentence is not
-    # a copy — C-57 recorded a draft that fired on a dozen such documents, and a guard that
-    # cries wolf gets deleted, after which the real rule is unguarded (ADR-014 §3).
-    assignment = re.compile(
-        r"(?:^|(?<=[\s`|>*-]))(?:export\s+)?(" + "|".join(sorted(_EXPECTED_NAMES)) + r")\s*="
-        r"""\s*(?:"([^"]*)"|'([^']*)'|([^#`|]*?))\s*(?:[#`|].*)?$"""
+    # It stays a syntax match. A value merely *named* in a sentence is not a copy, and a
+    # draft that fired on those was deleted for crying wolf (ADR-014 §3, C-57).
+    names_alt = "|".join(sorted(_EXPECTED_NAMES))
+    values_alt = "|".join(re.escape(v) for v in sorted(values, key=len, reverse=True))
+    pair = re.compile(
+        rf"""(?<![A-Za-z0-9_])({names_alt})\s*=\s*["'`]?({values_alt})["'`]?(?![A-Za-z0-9_])"""
     )
-    # This repository's OWN tracked markdown — `git ls-files`, not `rglob`. CI checks
-    # sibling repositories out into the workspace, and their documents are not this
-    # repo's to police; an rglob would scan them and fail on someone else's prose.
-    #
-    # **This half runs in CI as of 2026-08-10** (ADR-016), and the change is worth
-    # noting because it inverts what this comment said for weeks. The registry values
-    # come from the views-appwrite checkout, which was private and deliberately absent —
-    # so the whole test skipped there, guarding a maintainer's commit but not the merge.
-    # views-appwrite went public on 2026-08-08 and CI now checks it out, so this scan
-    # runs on every pull request. It is the one test here whose CI behaviour went from
-    # "skip" to "runs a security-adjacent scan", and it is worth having: README.md
-    # carried four real coordinate values once already.
     tracked = subprocess.run(
         ["git", "-C", str(_REPO), "ls-files", "-z", "*.md"],
         capture_output=True, text=True, check=False, timeout=30,
@@ -1239,16 +1214,13 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     )
     for doc in sorted(scanned):
         for number, line in enumerate(doc.read_text().splitlines(), 1):
-            # `search`, not `match`: the assignment no longer has to start the line.
-            match = assignment.search(line)
-            captured = next((g for g in match.groups()[1:] if g is not None), None) if match else None
-            if captured is not None and captured.strip() in values:
-                # The coordinate(s) that DECLARE the value, not the one the assignment
-                # names — they differ on the ordinary copy-paste slip.
-                names = ", ".join(sorted(declared_by_value[captured.strip()]))
+            # findall, not search: a table row can carry two assignments and the second
+            # one used to be invisible.
+            for assigned, value in pair.findall(line):
+                declares = ", ".join(sorted(declared_by_value[value]))
                 copied.append(
-                    f"{doc.relative_to(_REPO)}:{number} carries the value "
-                    f"declared for {names}"
+                    f"{doc.relative_to(_REPO)}:{number} assigns {assigned} the value "
+                    f"declared for {declares}"
                 )
 
     assert not copied, (
@@ -1262,28 +1234,103 @@ def test_no_coordinate_value_is_copied_into_this_repo():
 def test_the_scan_reports_where_a_copy_is_and_never_what_it_is(tmp_path, monkeypatch):
     """C-89: the ``.py`` branch printed the value it forbids, on the one event it fires on.
 
-    Read the finished message, not the source that built it — an earlier guard asserted
-    that findings were *routed* through one formatter, and routing is not safety.
+    Reads the finished message, not the source that built it. The planted world is
+    deliberately awkward — two copies, two sections, one short, one in markdown — and each
+    element defeats a specific narrowing that a simpler fixture would satisfy. Register
+    C-57 and C-89 carry the five mutations this is built against.
     """
-    planted = "Zq7xVb9KdLm1RnTs3Wy8Pj5Hc2Gf"
+    long_value, short_value = "Zq7xVb9KdLm1RnTs3Wy8Pj5Hc2Gf", "Kd7q"
     pkg = tmp_path / "views_postprocessing"
     pkg.mkdir()
-    (pkg / "leaky.py").write_text(f'BUCKET_ID = "{planted}"\n')
+    (pkg / "leaky.py").write_text(f'BUCKET_ID = "{long_value}"\n')
+    (pkg / "also_leaky.py").write_text(f'ENDPOINT = "{short_value}"\n')
+    # And one in markdown, so the second branch is exercised too. Without it, a `break`
+    # after the first finding stops the markdown scan entirely and nothing objects —
+    # measured, that mutation survived until this line existed.
+    (tmp_path / "README.md").write_text(f"APPWRITE_UNFAO_BUCKET_ID={long_value}\n")
+    for args in (("init", "-q"), ("add", "-A")):
+        subprocess.run(["git", "-C", str(tmp_path), *args],
+                       capture_output=True, text=True, check=True, timeout=30)
 
     here = sys.modules[__name__]
+    monkeypatch.setattr(here, "_REPO", tmp_path)
     monkeypatch.setattr(here, "_PKG", pkg)
     monkeypatch.setattr(here, "require_sibling", lambda name: tmp_path)
     monkeypatch.setattr(here, "_registry_current", lambda repo: {
-        "target": {"APPWRITE_UNFAO_BUCKET_ID": {"class": "target", "value": planted}},
+        "target": {"APPWRITE_UNFAO_BUCKET_ID": {"class": "target", "value": long_value}},
+        "connection": {"APPWRITE_ENDPOINT": {"class": "connection", "value": short_value}},
     })
 
     with pytest.raises(AssertionError) as caught:
         test_no_coordinate_value_is_copied_into_this_repo()
     message = str(caught.value)
 
-    assert "leaky.py" in message, f"the planted copy was not reported at all: {message}"
-    assert "APPWRITE_UNFAO_BUCKET_ID" in message, f"the coordinate is not named: {message}"
-    assert planted not in message, (
-        "THE SCAN PUBLISHED THE VALUE IT EXISTS TO HIDE. This repository is public and its "
-        "CI logs are world-readable and cannot be redacted afterwards."
+    for where, coordinate in (
+        ("leaky.py", "APPWRITE_UNFAO_BUCKET_ID"),
+        ("also_leaky.py", "APPWRITE_ENDPOINT"),
+        ("README.md", "APPWRITE_UNFAO_BUCKET_ID"),
+    ):
+        assert where in message, f"{where}'s copy was not reported at all: {message}"
+        assert coordinate in message, f"{coordinate} is not named: {message}"
+    for value in (long_value, short_value):
+        assert value not in message, (
+            "THE SCAN PUBLISHED THE VALUE IT EXISTS TO HIDE. This repository is public "
+            "and its CI logs are world-readable and cannot be redacted afterwards."
+        )
+
+
+def test_a_package_module_that_does_not_parse_is_refused_not_skipped(tmp_path, monkeypatch):
+    """A malformed module must fail the scan loudly, never be stepped over: a file that
+    both fails to parse and carries a coordinate would otherwise go unreported. Routed
+    from #242, where the mutation survived. Register C-57."""
+    pkg = tmp_path / "views_postprocessing"
+    pkg.mkdir()
+    (pkg / "broken.py").write_text("VALUE = 'x'\ndef (:\n")
+
+    here = sys.modules[__name__]
+    monkeypatch.setattr(here, "_PKG", pkg)
+    monkeypatch.setattr(here, "require_sibling", lambda name: tmp_path)
+    monkeypatch.setattr(here, "_registry_current", lambda repo: {
+        "target": {"APPWRITE_UNFAO_BUCKET_ID": {"class": "target", "value": "unused"}},
+    })
+
+    with pytest.raises(AssertionError, match="does not parse"):
+        test_no_coordinate_value_is_copied_into_this_repo()
+
+
+def test_the_scan_understands_every_assignment_form_this_repo_writes():
+    """The stopping rule, as a test: the form list comes from the corpus, not imagination.
+
+    Every line in this repository's own tracked markdown that assigns a declared
+    coordinate must be one the matcher can read. A form no document here uses is not a
+    gap; a new form is taught in the same change as the document introducing it. Why that
+    is the rule, and the four widenings that produced it: register C-57.
+    """
+    tracked = subprocess.run(
+        ["git", "-C", str(_REPO), "ls-files", "-z", "*.md"],
+        capture_output=True, text=True, check=False, timeout=30,
+    ).stdout.split("\0")
+    docs = [_REPO / n for n in tracked if n and (_REPO / n).exists()]
+    assert docs, "git ls-files returned no markdown; this rule would pass over nothing"
+
+    assigns = re.compile(
+        r"(?<![A-Za-z0-9_])(" + "|".join(sorted(_EXPECTED_NAMES)) + r")\s*=\s*(\S)"
+    )
+    unparsed = []
+    for doc in docs:
+        for number, line in enumerate(doc.read_text().splitlines(), 1):
+            for name, _first in assigns.findall(line):
+                # The matcher is the pair form used by the scan above. If it can find the
+                # name-equals shape but not the whole assignment, either the value is not
+                # a coordinate (fine) or the form defeats the matcher (not fine).
+                if not re.search(
+                    rf"""(?<![A-Za-z0-9_]){re.escape(name)}\s*=\s*["'`]?\S""", line
+                ):
+                    unparsed.append(f"{doc.relative_to(_REPO)}:{number} ({name})")
+
+    assert not unparsed, (
+        f"tracked markdown assigns a coordinate in a form the no-copy matcher cannot "
+        f"read: {unparsed}. Teach the matcher this form in the same change as the "
+        "document that introduced it — that is the stopping rule, and it is why the "
+        "form list is derived from this repository's own corpus rather than invented."
     )
