@@ -976,34 +976,36 @@ def test_the_drift_check_would_catch_a_rotation_that_names_and_classes_cannot(pa
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)
-def test_the_drift_check_is_silent_on_a_row_this_partner_does_not_read(partner):
+def test_the_drift_check_is_silent_on_a_row_this_partner_does_not_read(partner, monkeypatch):
     """The stopping rule above, as a check rather than a paragraph.
 
     The proofs either side of this one are positive — rotation fires, a rename fires.
-    Nothing asserted the *silence* direction, so a third widening of this check would
-    have met no objection, and the rule forbidding it would have been prose with a guard
-    on the other half only. That is this file's own recurring defect (C-80, C-82).
+    Nothing asserted the *silence* direction, so a third widening of this check would have
+    met no objection and the rule forbidding it would have been prose with a guard on the
+    other half only. That is this file's own recurring defect (C-80, C-82).
+
+    **It drives the real check**, through the real registry readers, rather than calling
+    the projection helpers underneath it. A first version called ``_describe_changes``
+    directly and was worthless: re-adding the deleted arrival half to the check left the
+    whole suite green, because that half never lived in the helper this was asking. A
+    guard has to be pointed at the thing it claims to guard.
     """
-    _, _, expected_class = _PARTNER_ENV[partner]
-    names = set(expected_class)
-    mine = next(iter(names))
+    mine = sorted(_PARTNER_ENV[partner][2])[0]
 
-    pinned = {"target": {mine: {"class": "target", "value": "unchanged"}}}
-    current = {
+    pinned = {
+        "meta": {"version": "0.0.0-fixture"},
+        "connection": {"APPWRITE_ENDPOINT": {"class": "connection", "value": "e"}},
         "target": {mine: {"class": "target", "value": "unchanged"}},
-        # Somebody else's coordinate, arriving in a table this package depends on.
-        "secret": {"SOMEBODY_ELSES_API_KEY": {"class": "secret", "slot": "theirs"}},
     }
+    # The same registry, plus one coordinate belonging to another repository.
+    current = {**pinned, "secret": {"SOMEBODY_ELSES_API_KEY": {"class": "secret"}}}
 
-    changed = _describe_changes(
-        _projection(pinned, names), _projection(current, names), names
-    )
-    assert not changed, (
-        f"[{partner}] the drift check objected to a row this package does not read: "
-        f"{changed}. It must be silent on another repository's coordinates — an arrival "
-        "half that was not was deleted in #245 for exactly this, and re-adding one is "
-        "refused by the stopping rule in the check's own docstring."
-    )
+    here = sys.modules[__name__]
+    monkeypatch.setattr(here, "require_sibling", lambda name: Path("/nonexistent"))
+    monkeypatch.setattr(here, "_registry_at", lambda repo, ref: pinned)
+    monkeypatch.setattr(here, "_registry_current", lambda repo: current)
+
+    test_nothing_this_repo_reads_has_changed_since_the_pin(partner)
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)

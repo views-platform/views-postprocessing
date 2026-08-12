@@ -553,6 +553,15 @@ partner's contract row are now **silent**; a rotation and a removal of a row thi
 reads still **fire**. A new test asserts the silence direction, so a third widening meets
 an objection rather than a paragraph.
 
+*(That silence test needed two attempts, and the first is worth recording because it is
+this entry's own disease. It called `_describe_changes` directly — the helper underneath
+the check — and was worthless: re-adding the deleted arrival half to the real check left
+the whole suite green, because that half never lived in the helper the test was asking.
+The "mutation proof" offered for it was invalid too: it mutated the test rather than the
+code, which proves nothing. It now drives the real check through monkeypatched readers,
+and re-adding the arrival half fails it. **A guard must be pointed at the thing it claims
+to guard**, which is the sentence this whole entry keeps re-learning.)*
+
 **The second inaccuracy stands, and is this entry's remaining rate risk.** *"Every
 top-level table upstream must be classified here"* fires on any new table regardless of
 whether this repository declares anything about it — and **it has already fired for exactly
