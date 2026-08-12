@@ -28,8 +28,9 @@ import json
 import os
 from pathlib import Path
 
-import pandas as pd
+import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from views_postprocessing.contract.gaul_schema import (
@@ -76,21 +77,21 @@ def _resolve_datafactory() -> Path:
     return sibling
 
 
-def _load_source(datafactory: Path) -> pd.DataFrame:
-    """Join the 7 GAUL parquets on gid into one wide frame (source names)."""
+def _load_source(datafactory: Path) -> pa.Table:
+    """Join the 7 GAUL parquets on gid into one wide table (source names).
+
+    Arrow throughout since #90 — the sources are parquet, the output is parquet, and
+    pandas was only ever the thing in the middle. The join is an inner join on ``gid``:
+    a cell missing from any one source has no complete row to contribute, and the
+    completeness filter in ``build`` would drop it anyway.
+    """
     gaul_dir = datafactory / "data" / "raw" / "gaul_admin"
-    frames = {}
+    table = None
     for src_col in SOURCE_RENAME:
-        t = pq.read_table(gaul_dir / f"{src_col}.parquet")
-        s = pd.Series(
-            t.column("value").to_pylist(),
-            index=t.column("gid").to_pylist(),
-            name=src_col,
-        )
-        frames[src_col] = s
-    df = pd.DataFrame(frames)
-    df.index.name = "gid"
-    return df
+        one = pq.read_table(gaul_dir / f"{src_col}.parquet").select(["gid", "value"])
+        one = one.rename_columns(["gid", src_col])
+        table = one if table is None else table.join(one, keys="gid", join_type="inner")
+    return table
 
 
 def _region_gids(datafactory: Path, region: str) -> set[int] | None:
@@ -197,46 +198,82 @@ def _provenance(datafactory: Path, *, datasets: tuple[str, ...]) -> dict:
     return out
 
 
-def build(datafactory: Path, region: str, out: Path) -> pd.DataFrame:
+def build(datafactory: Path, region: str, out: Path) -> pa.Table:
+    """Build the lookup and write it. Arrow end to end (#90).
+
+    **What must not change, and is asserted by the fidelity suite:** the nine declared
+    columns in ``METADATA_COLS`` order with ``priogrid_gid`` last, the four name columns
+    dictionary-encoded, codes ``int64``, coordinates ``float64``, rows sorted by cell id,
+    and the declared metadata keys. The delivered artifact is read as arrow by its only
+    consumer (``contract.gaul_lookup.load``), so those are the observable contract.
+
+    **One deliberate difference from the pandas build:** the written file no longer
+    carries a ``pandas`` schema-metadata blob. It described an index that arrow does not
+    have, nothing in this repository reads the lookup with pandas, and reproducing it
+    would have meant keeping knowledge of pandas' metadata format in the one script this
+    change exists to remove pandas from.
+    """
     src = _load_source(datafactory)
 
     # Optionally restrict to a region's cell set.
     region_gids = _region_gids(datafactory, region)
     if region_gids is not None:
-        src = src.loc[src.index.intersection(sorted(region_gids))]
+        wanted = pa.array(sorted(region_gids), type=src.column("gid").type)
+        src = src.filter(pc.is_in(src.column("gid"), value_set=wanted))
 
-    # Rename to the contract names.
-    df = src.rename(columns=SOURCE_RENAME)
+    # Rename to the contract names, keeping `gid` alongside.
+    table = src.rename_columns(
+        ["gid"] + [SOURCE_RENAME[c] for c in src.column_names if c != "gid"]
+    ) if src.column_names[0] == "gid" else src.rename_columns(
+        [SOURCE_RENAME.get(c, c) for c in src.column_names]
+    )
 
-    # Keep only fully-complete cells. Incomplete cells must NOT enter the
-    # lookup: an unknown/incomplete gid then merges to null downstream and the
-    # manager's _validate() gate crashes (fail-loud) instead of shipping a hole
-    # or a -1 sentinel. Never carry -1 / "" as a value.
-    complete = pd.Series(True, index=df.index)
+    # Keep only fully-complete cells. Incomplete cells must NOT enter the lookup: an
+    # unknown/incomplete gid then gathers to null downstream and the delivery's null
+    # gate fails loud instead of shipping a hole or a -1 sentinel. Never carry -1 / "".
+    # Typed explicitly: on an empty table `pa.array([True] * 0)` infers NULL type, and
+    # `pc.and_` then raises ArrowNotImplementedError before the zero-row guard below can
+    # say anything useful. Found by the guard's own mutation test.
+    complete = pa.array([True] * table.num_rows, type=pa.bool_())
     for c in CODE_COLS:
-        complete &= df[c].notna() & (df[c] != -1)
+        col = table.column(c)
+        complete = pc.and_(complete, pc.and_(pc.is_valid(col), pc.not_equal(col, -1)))
     for c in NAME_COLS:
-        complete &= df[c].notna() & (df[c].astype(str).str.len() > 0)
-    dropped = int((~complete).sum())
-    df = df[complete].copy()
+        col = table.column(c).cast(pa.string())
+        complete = pc.and_(
+            complete,
+            pc.and_(pc.is_valid(col), pc.greater(pc.utf8_length(col), 0)),
+        )
+    dropped = int(pc.sum(pc.invert(complete)).as_py() or 0)
+    table = table.filter(complete)
 
-    # Coordinates from the gid (no geometry needed).
-    gids = df.index.to_numpy()
-    df["pg_xcoord"] = [xcoord(int(g)) for g in gids]
-    df["pg_ycoord"] = [ycoord(int(g)) for g in gids]
+    # Coordinates from the gid (no geometry needed). Vectorised over the id array
+    # rather than a Python loop per row — the formula is the declared one either way.
+    gids = table.column("gid").to_numpy(zero_copy_only=False).astype(np.int64)
+    table = table.append_column(
+        "pg_xcoord", pa.array([xcoord(int(g)) for g in gids], type=pa.float64())
+    ).append_column(
+        "pg_ycoord", pa.array([ycoord(int(g)) for g in gids], type=pa.float64())
+    )
 
-    # dtypes: codes numeric, coords float64, names/iso categorical (C-32 memory).
-    for c in CODE_COLS:
-        df[c] = df[c].astype("int64")
-    for c in COORD_COLS:
-        df[c] = df[c].astype("float64")
-    for c in NAME_COLS:
-        df[c] = df[c].astype("category")
-
-    df = df[METADATA_COLS]
-    df.index = df.index.astype("int64")
-    df.index.name = "priogrid_gid"
-    df = df.sort_index()
+    # dtypes: codes int64, coords float64, names dictionary-encoded. The dictionary
+    # encoding is the artifact's shipped type — it was `category` under pandas and the
+    # committed file carries dictionary<values=string, indices=int32>.
+    cast = {c: pa.int64() for c in CODE_COLS}
+    cast.update({c: pa.float64() for c in COORD_COLS})
+    columns, names = [], []
+    for c in METADATA_COLS:
+        col = table.column(c)
+        if c in NAME_COLS:
+            col = pc.dictionary_encode(col.cast(pa.string()))
+        else:
+            col = col.cast(cast[c])
+        columns.append(col)
+        names.append(c)
+    columns.append(table.column("gid").cast(pa.int64()))
+    names.append("priogrid_gid")
+    table = pa.Table.from_arrays(columns, names=names)
+    table = table.sort_by([("priogrid_gid", "ascending")])
 
     # Hard invariants — the lookup must be clean by construction.
     #
@@ -245,14 +282,20 @@ def build(datafactory: Path, region: str, out: Path) -> pd.DataFrame:
     # identical on disk (register C-61). The -1 check in particular has no downstream
     # backstop — -1 is non-null, so every gate in the delivery chain would pass it
     # straight through to FAO, which is exactly the resolved C-35 defect recurring.
-    if not df.index.is_unique:
-        dupes = df.index[df.index.duplicated()].unique().tolist()
+    key = table.column("priogrid_gid")
+    if len(pc.unique(key)) != table.num_rows:
+        counts = key.value_counts()
+        dupes = [
+            counts.field("values")[i].as_py()
+            for i in range(len(counts))
+            if counts.field("counts")[i].as_py() > 1
+        ]
         raise LookupBuildError(
-            f"{len(dupes)} duplicate gid(s) in the lookup index: {dupes[:10]}. "
-            "A duplicated key multiplies rows through the enricher's left-merge with "
-            "every value non-null, so no downstream gate can see it (C-59)."
+            f"{len(dupes)} duplicate gid(s) in the lookup key: {dupes[:10]}. "
+            "A duplicated key multiplies rows through a keyed gather with every value "
+            "non-null, so no downstream gate can see it (C-59)."
         )
-    n_null = int(df.isna().sum().sum())
+    n_null = sum(table.column(c).null_count for c in table.column_names)
     if n_null:
         raise LookupBuildError(
             f"lookup contains {n_null} null value(s); only fully-complete cells may "
@@ -260,20 +303,31 @@ def build(datafactory: Path, region: str, out: Path) -> pd.DataFrame:
             "downstream."
         )
     for c in CODE_COLS:
-        n_sentinel = int((df[c] == -1).sum())
+        n_sentinel = int(pc.sum(pc.equal(table.column(c), -1)).as_py() or 0)
         if n_sentinel:
             raise LookupBuildError(
                 f"{c} contains {n_sentinel} -1 sentinel(s). -1 is non-null, so it would "
                 "reach FAO through every gate as a country/admin code (cf. C-35)."
             )
+    # Register C-76: a build that filtered every cell out is not a result. Downstream
+    # this fails late and confusingly — `build_historical_table` raises about missing
+    # geography rather than about an empty lookup, and by then the artifact is
+    # committed. Two lines here, at the moment a human is present.
+    if table.num_rows == 0:
+        raise LookupBuildError(
+            f"the build produced ZERO cells for region {region!r}. Either the region "
+            "filtered every cell out, or the join found no overlap between the seven "
+            "source parquets. An empty lookup is writable and looks like a result; it "
+            "is not one."
+        )
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    table = pa.Table.from_pandas(df, preserve_index=True)
-    meta = dict(table.schema.metadata or {})
-    meta[b"adr"] = b"ADR-011"
-    meta[b"region"] = region.encode()
-    meta[b"n_cells"] = str(len(df)).encode()
-    meta[b"n_dropped_incomplete"] = str(dropped).encode()
+    meta = {
+        b"adr": b"ADR-011",
+        b"region": region.encode(),
+        b"n_cells": str(table.num_rows).encode(),
+        b"n_dropped_incomplete": str(dropped).encode(),
+    }
     prov = _provenance(datafactory, datasets=(AREA_MAJORITY_DATASET, stamp_dataset(region)))
     # The DECLARED stamp: one flat key, composed here, read verbatim by the consumer
     # (C-60). Key order in parquet metadata carries no meaning; this is a dict.
@@ -282,9 +336,9 @@ def build(datafactory: Path, region: str, out: Path) -> pd.DataFrame:
     table = table.replace_schema_metadata(meta)
     pq.write_table(table, out)
 
-    print(f"region={region}  cells={len(df):,}  dropped_incomplete={dropped:,}")
+    print(f"region={region}  cells={table.num_rows:,}  dropped_incomplete={dropped:,}")
     print(f"wrote {out} ({out.stat().st_size/1e6:.2f} MB)")
-    return df
+    return table
 
 
 def main() -> None:

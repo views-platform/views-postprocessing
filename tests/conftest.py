@@ -1,7 +1,23 @@
-"""Shared test fixtures — currently just one: how to find a sibling repository.
+"""Facts several test modules share, and the helpers that read them.
 
-**Why this exists (S6 / #187, S7 / #188; register C-46, C-57).** Three places needed a
-views-platform sibling checkout and each found it differently:
+**Read this first if you are new.** Despite the name, almost nothing here is a pytest
+fixture. The file holds four separate things:
+
+1. **which packages exist** — ``PARTNER_PACKAGES`` and ``MACHINERY_PACKAGES``, the
+   two kinds of top-level package under ``views_postprocessing/``;
+2. **the sibling repositories** — ``Sibling``/``SIBLINGS`` plus three functions for
+   locating one on disk. A *sibling* is another repository in the views-platform
+   organisation that sits beside this one in a developer's folder — never something we
+   install;
+3. **which repository consumes which partner's delivery** — ``CONSUMER_REPO``;
+4. **two read-only git helpers** used by cross-repository checks.
+
+Those four are not obviously one file's worth of responsibility, and that is recorded
+rather than defended: register **C-88**, with the trigger for splitting it. Read it
+before adding a fifth thing here.
+
+**Why the sibling helpers exist.** Three places needed to locate a views-platform
+sibling checkout and each did it differently:
 
 - ``scripts/build_gaul_lookup.py`` resolved ``$VIEWS_DATAFACTORY``, then the sibling
   directory, with a ``--datafactory`` override and a fail-loud message naming both —
@@ -26,6 +42,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -60,15 +77,99 @@ PARTNER_PACKAGES = ("unfao", "crafd")
 #: either a partner or machinery, and the same test refuses to let it be neither.
 MACHINERY_PACKAGES = ("contract", "delivery")
 
-#: repo name -> the environment variable that overrides its location.
-#: Declared, never derived from the name: ``views-datafactory`` → ``VIEWS_DATAFACTORY``
-#: happens to be mechanical, but a future sibling need not follow the pattern and
-#: guessing it would be the inference ADR-003 forbids.
-SIBLING_ENV = {
-    "views-datafactory": "VIEWS_DATAFACTORY",
-    "views-appwrite": "VIEWS_APPWRITE",
-    "views-faoapi": "VIEWS_FAOAPI",
-    "views-crafdapi": "VIEWS_CRAFDAPI",
+@dataclass(frozen=True, kw_only=True)
+class Sibling:
+    """What this repository declares about one views-platform sibling (ADR-016).
+
+    Three fields. ``env`` says where to find this repository on disk; ``ci_checkout``
+    says whether CI fetches it; ``note`` says why not, whenever the answer is no.
+
+    **An earlier version also carried ``public`` and ``public_checked``.** They were
+    removed on 2026-08-10 after a review found them circular: ``public`` was read by
+    exactly one rule, and that rule existed to protect ``public``'s verifiability.
+    Nothing else consulted either field, and deleting both changed no behaviour. Whether
+    a sibling is public is now simply part of ``note`` — prose, where it belongs, because
+    nothing here could verify it anyway.
+
+    **Keyword-only and frozen.** A plain dict would let a missing ``ci_checkout`` read as
+    ``None`` and silently exempt that sibling from every rule; that is the failure this
+    repository has registered more often than any other. Here the omission is a
+    ``TypeError`` at import.
+
+    **No validation in ``__post_init__``.** See ``broken_sibling_overrides`` below for
+    what raising at import time costs: one typo became three collection errors and zero
+    tests run. The rules live in ``tests/test_ci_sibling_coverage.py``.
+    """
+
+    #: The environment variable that overrides this sibling's location. Declared, never
+    #: derived: ``views-datafactory`` → ``VIEWS_DATAFACTORY`` happens to be mechanical,
+    #: but a future sibling need not follow the pattern and guessing it would be the
+    #: inference ADR-003 forbids.
+    env: str
+    #: Whether CI fetches this sibling.
+    ci_checkout: bool
+    #: Why not, when it is not fetched. Required in that case, and must name a record so
+    #: the non-coverage has an owner rather than a shrug.
+    note: str = ""
+
+
+#: The views-platform repositories whose current state this repository's tests read.
+#:
+#: `views-appwrite` was private until **2026-08-08**, when it was deliberately made
+#: public (`views-appwrite@9d80b75`, "docs: record going public"). The workflow comment
+#: here went on saying PRIVATE afterwards, which is the whole argument for declaring the
+#: fact with a date instead of narrating it in prose.
+SIBLINGS = {
+    "views-datafactory": Sibling(
+        env="VIEWS_DATAFACTORY",
+        ci_checkout=False,
+        note=(
+            "PUBLIC, but its checks need the producer's raw GAUL parquets "
+            "(data/raw/gaul_admin/*.parquet), which are NOT in its git repository. "
+            "Checking it out converts an honest skip into a FileNotFoundError — measured "
+            "2026-08-03, tried and reverted. Closing this needs the data published "
+            "somewhere fetchable, not an access grant. Register C-46."
+        ),
+    ),
+    "views-appwrite": Sibling(
+        env="VIEWS_APPWRITE",
+        ci_checkout=True,
+        note=(
+            "PUBLIC. Fetched, and the fetch is load-bearing rather than convenient: it "
+            "carries the coordinate-registry drift checks, and under ADR-017 it becomes "
+            "the authority source for the delivery-label check too. Pruning it as an "
+            "unused sibling would disable both and leave a green build — the invisible "
+            "skip ADR-016 §6 exists to prevent."
+        ),
+    ),
+    "views-faoapi": Sibling(
+        env="VIEWS_FAOAPI",
+        ci_checkout=False,
+        note=(
+            "PRIVATE — the only one, and that is why it is not fetched. Checking it "
+            "out needs a credential, which is an "
+            "operator decision deferred pending a request to FAO to make the repository "
+            "public. **Nothing is dark because of this any more** (2026-08-11): ADR-017 "
+            "moved the delivery-label check onto the public coordinate registry, which "
+            "needs no credential, so neither side reads the other. This entry stays "
+            "PRIVATE because the fact is still true, not because anything is blocked on "
+            "it. See ADR-017 and register C-81."
+        ),
+    ),
+    "views-crafdapi": Sibling(
+        env="VIEWS_CRAFDAPI",
+        ci_checkout=False,
+        note=(
+            "PUBLIC, and no longer fetched. It served exactly one test — the check that "
+            "read this consumer's source for its query filter — and #248 deleted that "
+            "check rather than repairing it: the same read broke twice in 24 hours "
+            "because both consumers refactored a literal into a named constant, which "
+            "ADR-017 §7 predicted. The declaration stays because CONSUMER_REPO still "
+            "names this repository; only the fetch is gone. What the source read used to "
+            "cover is register C-92, and views-crafdapi#55 is the ask that would close it "
+            "where the fact lives."
+        ),
+    ),
 }
 
 #: partner package -> the repository that CONSUMES its delivery.
@@ -78,10 +179,12 @@ SIBLING_ENV = {
 #: the second one ``un-crafdapi`` while the repository on disk is ``views-crafdapi`` —
 #: exactly the kind of near-miss that makes guessing expensive.
 #:
-#: This exists so the consumer-document-name pin can be checked **across the seam**
-#: rather than asserted locally. A name this repo declares and the consumer filters on
-#: is a fact this repo does not own; declaring it here is right, but only the sibling
-#: checkout can confirm it still matches (ADR-014 §1 — the guarantee needs a check).
+#: It exists so this repository records **who receives each delivery**. It used to also
+#: locate a sibling checkout so the consumer-document-name pin could be read from that
+#: consumer's source; #248 deleted that read (ADR-017 §7 — we were never entitled to
+#: depend on another repository's file layout, and two consumers proved it in a day by
+#: improving theirs). What the map is for now is addressing: it is who register C-92's
+#: cross-repo asks are sent to.
 CONSUMER_REPO = {
     "unfao": "views-faoapi",
     "crafd": "views-crafdapi",
@@ -97,12 +200,12 @@ def sibling_repo(name: str) -> Path | None:
     Returns ``None`` rather than raising so callers can skip; a missing sibling is a
     normal condition in CI, where only this repo is checked out.
     """
-    if name not in SIBLING_ENV:
+    if name not in SIBLINGS:
         raise KeyError(
             f"no environment variable declared for sibling {name!r}; add it to "
-            f"SIBLING_ENV rather than guessing one from the name"
+            f"SIBLINGS rather than guessing one from the name"
         )
-    override = os.environ.get(SIBLING_ENV[name])
+    override = os.environ.get(SIBLINGS[name].env)
     candidate = Path(override) if override else _REPO.parent / name
     return candidate if candidate.exists() else None
 
@@ -122,12 +225,24 @@ def broken_sibling_overrides() -> dict[str, str]:
     ``Interrupted: 3 errors during collection`` and **zero tests run** — trading silent
     under-coverage for total loss of the suite. One clean failure says the same thing
     and lets the other 360 tests report.
+
+    **An EMPTY variable is the case this missed, and it is the one CI produces.** The
+    filter was ``if value and ...``, so ``VIEWS_APPWRITE=""`` read as unset:
+    ``sibling_repo`` fell through to the conventional ``../views-appwrite``, which does
+    not exist in a CI workspace, and seven checks skipped on a green build. A YAML
+    interpolation that resolves to nothing — ``${{ env.TYPO }}`` — produces exactly that
+    empty string, so this is the *likely* misconfiguration in CI, not an exotic one.
+
+    ``.strip()`` and not merely ``if value is not None`` because **``Path("").exists()``
+    is ``True``** — it resolves to the current directory. Dropping the truthiness test
+    without the strip would report an empty override as a perfectly good checkout, which
+    is worse than the bug being fixed.
     """
     return {
         var: value
-        for var in SIBLING_ENV.values()
+        for var in (s.env for s in SIBLINGS.values())
         for value in [os.environ.get(var)]
-        if value and not Path(value).exists()
+        if value is not None and (not value.strip() or not Path(value).exists())
     }
 
 
@@ -141,7 +256,7 @@ def require_sibling(name: str) -> Path:
     path = sibling_repo(name)
     if path is None:
         pytest.skip(
-            f"{name} checkout not found — set {SIBLING_ENV[name]}=/path/to/{name}, "
+            f"{name} checkout not found — set {SIBLINGS[name].env}=/path/to/{name}, "
             f"or place it alongside this repo at {(_REPO.parent / name)}"
         )
     return path

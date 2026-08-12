@@ -51,7 +51,6 @@ Contracts must be clear enough that:
 ## Active Contracts
 
 - `UNFAOPostProcessorManager.md` — Pipeline orchestration manager (read → transform → validate → save)
-- `GaulLookupEnricher.md` — Precomputed GAUL lookup enrichment (ADR-011; replaced the runtime mapper)
 
 ---
 

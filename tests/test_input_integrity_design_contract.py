@@ -79,9 +79,16 @@ def test_manager_does_not_inherit_forecasting_model_manager():
 
 
 # housekeeping --------------------------------------------------------------
-def test_enrichment_does_not_call_a_dataframe_a_prediction_frame():
-    src = (_PKG / "contract" / "enrichment.py").read_text().lower()
-    assert "prediction frame" not in src
+# `test_enrichment_does_not_call_a_dataframe_a_prediction_frame` was removed with
+# `contract/enrichment.py` in #90 (register C-75). It asserted that one module did not
+# call a DataFrame a "prediction frame" — vocabulary hygiene in a module that no longer
+# exists.
+#
+# Nothing replaces it, and that is the honest position rather than an oversight: the
+# confusion it guarded against was possible only while a pandas object sat next to a
+# frame-shaped API. `test_delivery_invariants_are_pandas_free` above, and the
+# now-empty type-only-pandas assertion in `test_doc_accuracy.py`, together mean there
+# is no DataFrame left in the package to mislabel.
 
 
 def test_no_lingering_mapping_directory():

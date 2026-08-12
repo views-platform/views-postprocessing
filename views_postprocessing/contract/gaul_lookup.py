@@ -7,11 +7,10 @@ that never touched the instance, and the delivery read the ~880 KiB parquet **th
 times per run** (C-66) — once eagerly into a pandas enricher it never used, then
 twice more through pyarrow.
 
-The artifact's identity does not belong to the enricher. ``GaulLookupEnricher`` is
-one *consumer* of this asset (the pandas merge used by the build/verification path);
-the contract delivery is another, and it wants the table and the stamp, not the
-merge. Splitting them lets the delivery read the file once, in arrow, with no pandas
-anywhere on the path.
+The artifact's identity never belonged to that class, which is why splitting them was
+the fix: the delivery wants the table and the stamp, not a merge. It reads the file
+**once**, in arrow, with no pandas anywhere on the path. The enricher itself was retired
+in #90 (register **C-75**) once it was established it had no production caller.
 
 Verified by ``tests/test_gaul_lookup_fidelity.py``: the committed artifact matches
 views-datafactory's authoritative GAUL parquets value-for-value, its key is unique,

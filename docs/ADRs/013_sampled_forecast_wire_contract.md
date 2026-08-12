@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-07-15
-**Deciders:** Project maintainer (PRIO MD&D Team) — explicit sign-off, views-models#149
+**Decider:** Simon Polichinel von der Maase — explicit sign-off, views-models#149
 **Supersedes:** the "platform ADR-046" that platform issues cited as the format authority — no such *format* document ever existed (a pipeline-core ADR-046 exists but covers storage infrastructure only; see Erratum E2 in the Post-adoption record) — and the v1 proposal comment on views-models#149 (2026-07-02).
 
 ---
@@ -352,11 +352,53 @@ identifier arrays mean (`time` is the VIEWS month-id; `unit` is the `priogrid_id
 this platform has already paid once for leaving id vocabulary implicit (the gid/id
 epic: a past platform-wide cleanup needed just to disambiguate what its integer
 identifier columns meant). `provenance` is exactly the three keys shown (strings/bool). **Caveat:**
-`pipeline_core_version` is self-reported and will be unreliable until pipeline-core's
-release train (their #261) cuts real releases (status at adoption, 2026-07-15: none
-yet) — consumers must not treat it as authoritative before then. The lift of this
-caveat is tracked as a reminder in pipeline-core: their issue #279 (filed
-2026-07-19) fires when the first real release ships.
+`pipeline_core_version` is self-reported. It was declared unreliable at adoption
+(2026-07-15) because pipeline-core's release train had cut no real releases yet, and
+consumers were told not to treat it as authoritative. **That caveat is lifted in part —
+see Erratum E3 below, which also explains why "in part" is the accurate word.**
+
+**§2.2a Amendment A2 — run maturity, drafted 2026-08-05, NOT YET IN FORCE.**
+
+Requested by views-postprocessing #133 on behalf of views-faoapi (its ADR-033, epic
+#244) so that a consumer can tell a production run from a test one. This clause defines
+the field and the cost of adopting it. **It is not adopted, and `contract_version`
+remains 1.5.** Nothing in this section describes bytes that ship today.
+
+*The field.* A fourth key inside `provenance`:
+
+| key | type | meaning |
+|---|---|---|
+| `status` | string | the producing run's maturity in views-models ADR-017's vocabulary — `graduate`, `candidate`, and the rest. Never inferred; absent is not `graduate`. |
+
+*Why this is an amendment and not a free addition.* §2.1 clause 1 opens the header to
+new **top-level** keys and closes the three sub-objects. `provenance` is one of them, so
+a fourth key is a contract change by this document's own rule. It is purely additive, so
+it is a **MINOR** bump — 1.5 → 1.6 — and a reader built for 1.5 still accepts a 1.6
+artifact.
+
+*What adoption actually costs, which is the reason it is deferred.* `contract_version`
+is written **inside the header bytes**, and §10 pins those bytes. So a MINOR bump is not
+a free-standing edit: it rebuilds the golden fixture, and §10 requires all three
+implementing repositories to re-vendor the new bytes and re-pin their root hashes
+together. The full coordination cost is paid for one optional field.
+
+*Who can stamp it, and it is not this repository.* Hop-B shard headers are the Hop-A
+headers **re-embedded untouched** (`contract/wire/sink.py`). This repository forwards
+provenance; it does not compose it, and it does not know a run's maturity. Synthesising
+one here would be a producer guessing at a fact it was not told — precisely the
+inference this platform's declare-don't-infer rule exists to forbid. **The stamp belongs
+to the Hop-A producer (views-models),** and this repository's part is to forward it,
+which requires no code change once the key is admitted.
+
+*Named trigger for adoption (ADR-014 §4).* Adopt A2 **when the next re-vendor of the
+§10 fixture happens for another reason** — the pyarrow fix tracked as register C-72 /
+issue #174 is the one currently expected, since it also changes delivered bytes and also
+requires all three repos to move together. Riding along costs nothing extra; going alone
+costs a three-repo coordination for a field the consumer has stated it only surfaces.
+**Owner:** whoever executes that re-vendor. If views-faoapi ever promotes `status` from a
+surfaced label to a serving gate, that supersedes this trigger and A2 should be adopted
+on its own.
+
 
 **§2.3 Governance hook.** Changing `sample_count` (wire thinning) or `dtype` on the
 **FAO delivery** changes the published HDI/MAP numbers, and is therefore a
@@ -890,6 +932,53 @@ runs can therefore never touch the live bucket by accident.
 Dated events after adoption. Errata correct errors in this document; other entries
 record execution progress against it.
 
+- **2026-08-10 — Erratum E3 (§2.2, `pipeline_core_version`; `contract_version` stays
+  1.5):** the adoption-time caveat said this field would be unreliable until pipeline-core
+  cut a real release. **views-pipeline-core 3.0.0 shipped to PyPI on 2026-08-03**, so the
+  condition is met — but the honest lift is narrower than "the field is now reliable", and
+  splits by how the *producing* pipeline-core was installed.
+
+  **Authoritative when the producer ran a released distribution.** A wheel's recorded
+  version is written by the release that built it, so it cannot disagree with the code
+  beside it. In force now, for 3.0.0 onward.
+
+  **`"unknown"` when the producer ran an editable install** — and this half is **not yet in
+  any released version**, which is the part the originating request (#228) stated too
+  strongly. An editable install's recorded version is fixed at the moment `pip install -e`
+  last ran and never tracks the source afterwards; pipeline-core#403 makes that case report
+  `"unknown"` instead of a stale number. That fix merged **2026-08-04**, a day and a half
+  *after* 3.0.0 was uploaded (2026-08-03 02:06 UTC), so **no released version contains it.**
+  It becomes true of producers at pipeline-core's next release.
+
+  Verified here rather than taken on trust, 2026-08-10: in this repository's development
+  environment `importlib.metadata` reports pipeline-core **2.3.0** while the source beside
+  it is **3.0.0** — a full major version stale, exactly the value that would have been
+  stamped into published provenance. With the fix present, `_pipeline_core_version()`
+  returns `"unknown"` instead.
+
+  **What consumers must do, and it is the operational point.** Treat `"unknown"` as *"do
+  not infer the producing version"*, never as an error. The set of runs producing
+  `"unknown"` will **widen** at pipeline-core's next release, because every developer run
+  joins it. A consumer that starts rejecting `"unknown"` on the strength of this lift would
+  break exactly those runs.
+
+  This repository does not produce the value — Hop-B re-embeds the Hop-A header untouched
+  (`contract/wire/sink.py`) — so nothing here changes. The field is declared by this
+  contract, which is why the lift is recorded here. Arises from #228; pipeline-core #279
+  (closed), #403, and their register C-280.
+
+- **2026-08-05 — Amendment A2 drafted, not in force (§2.2a; `contract_version` stays
+  1.5):** views-postprocessing #133 asked for three declared fields on the run manifest —
+  `maturity`, `source`, and a required schema version. Measured against what is actually
+  delivered and actually read, **two of the three already ship**, and the third is not
+  ours to stamp. `source` is `provenance.ensemble`, forwarded from the Hop-A header and
+  read by views-faoapi as exactly that. The schema version is `contract_version`, present
+  on the run manifest and in every shard header. Only maturity is missing, it belongs in
+  `provenance`, and `provenance` is a closed sub-object — hence A2 rather than a silent
+  addition. The request was written against the manifest; the consumer reads the shard
+  header. Recorded because an accepted ask nobody re-measured would have produced a
+  three-repo fixture re-vendor to add two fields that were already there.
+
 - **2026-08-02 — Erratum E2 (§7d links; `contract_version` stays 1.5):** §7d's first
   link was **broken and had never resolved**. Issue #158 renamed the cross-repo contract
   from `PLATFORM-001` to *the Appwrite Seam Contract* and the rename was applied as a
@@ -1120,7 +1209,7 @@ record execution progress against it.
   **4.73 GB peak, 108 shards, 5 min, zero store calls** (interlock held).
   **(B) the historical path is pandas-free** (#126): actuals fetched as a
   `views_frames.FeatureFrame` (the frame path's FIRST production consumer —
-  C-40's gate lifted), artifact built by `unfao/historical.py` via pyarrow —
+  C-40's gate lifted), artifact built by `contract/historical.py` via pyarrow —
   reader-level parity with a legacy characterization golden proven through
   faoapi's own reader semantics. Two ghosts found in the legacy artifact and
   deliberately exorcised (faoapi reader verified safe on both): junk `row`/`col`
@@ -1142,8 +1231,8 @@ record execution progress against it.
   passed at 128 draws, sidecar + manifest staged, zero store calls.
 - **2026-07-20 — HOP-B SINK LEG SHIPPED (epic #105 complete; upload-disabled).**
   The contract's missing middle exists in fixture-proven code:
-  `unfao/wire/` (naming, header, shard, sidecar, run_manifest, source_selection,
-  sink) + `unfao/product.py` + `delivery/parity.py`, wired into the manager
+  `contract/wire/` (naming, header, shard, sidecar, run_manifest, source_selection,
+  sink) + each partner's `product.py` + `delivery/parity.py`, wired into the manager
   behind an explicit declared `wire_contract` launch key. Settled by shipping:
   **§4.2a's configuration home is `unfao/product.py`**; **§5.2's parity
   invariant is `delivery/parity.py`**; the §11.4 upload interlock is live in
@@ -1177,7 +1266,7 @@ record execution progress against it.
   merged 2026-07-15 and run-0 uploaded 2026-07-27, so the sequencing constraint was
   satisfied. The legacy reader it protected has now been **deleted**: this repo
   reads forecasts only through the contract path (manifest selection,
-  `unfao/wire/source_selection.py`) and historical actuals only as a
+  `contract/wire/source_selection.py`) and historical actuals only as a
   `views_frames.FeatureFrame` (#126).
 
   **The retired guard, recorded here because the code that carried it is gone.**
@@ -1204,7 +1293,7 @@ record execution progress against it.
   this ADR should know the surrounding code changed shape and the wire did not.
 
   **What changed.** The pandas delivery this contract replaced was retired (#149) along
-  with the config fork that silently selected it; `delivery/identity.py` was retired
+  with the config fork that silently selected it; `delivery/identity.py` was retired <!-- legacy-ok: post-adoption record of what was retired and when -->
   because the contract path enforces declared identity **per shard header** instead
   (#150, §4.2a); the duplicate representation seam collapsed (#151); the GAUL lookup
   became one artifact read once (#152); and the partner-neutral machinery — the whole

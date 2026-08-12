@@ -3,14 +3,14 @@
 
 **Status:** Active  
 **Owner:** PRIO MD&D Team  
-**Last reviewed:** 2026-06-02  
+**Last reviewed:** 2026-08-05  
 **Related ADRs:** ADR-001, ADR-002, ADR-008, ADR-009  
 
 ---
 
 > **Corrected 2026-08-03 — this document named a collaborator the manager has never
-> called.** Six statements described enrichment as delegated to `GaulLookupEnricher`,
-> one naming the call `GaulLookupEnricher.enrich_dataframe_with_pg_info()`. The manager
+> called.** Six statements described enrichment as delegated to `GaulLookupEnricher`, <!-- legacy-ok: the 2026-08-03 correction note; naming the error is the record -->
+> one naming the call `GaulLookupEnricher.enrich_dataframe_with_pg_info()`. The manager <!-- legacy-ok: the 2026-08-03 correction note; naming the error is the record -->
 > contains **zero** references to it — `tests/test_gaul_lookup_access.py` actively
 > asserts its absence — and the sibling CIC has long said *"the manager does not call
 > this class."* Two contract documents asserted opposite things about the same call.

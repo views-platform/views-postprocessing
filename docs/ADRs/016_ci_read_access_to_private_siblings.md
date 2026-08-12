@@ -1,0 +1,401 @@
+# ADR-016: Which sibling repositories CI downloads
+
+**Status:** Accepted
+**Date:** 2026-08-10
+**Decider:** Simon Polichinel von der Maase
+**Scope:** repositories CI **can** download — that is, public ones. What to do when a
+repository **cannot** be downloaded is a different decision, taken in
+[ADR-017](017_facts_across_a_private_boundary.md) and accepted alongside this one.
+**Related:** [ADR-014](014_claims_and_the_guards_that_carry_them.md) §2 (a guard nobody has
+watched fail is decoration) and §4 (a deferral names a trigger and an owner)
+
+---
+
+## The decision in three sentences
+
+A few of this repository's tests read **other** repositories to check that things we say
+about them are still true. Those tests only work when the other repository is on disk, so
+they ran on a developer's laptop and skipped in CI. **CI now downloads the repositories
+those tests need**, and a test fails if CI stops downloading one that the code says it
+should.
+
+*Throughout, a "sibling" is another repository in the views-platform organisation that sits
+beside this one in a developer's folder — never a dependency we install.*
+
+## What this document does not cover
+
+Downloading a repository requires being able to read it, so **everything here applies only
+to repositories that are public.** A private one cannot be downloaded by our CI at all,
+and no amount of workflow configuration changes that.
+
+That is not a gap in this decision; it is a different problem with a different answer, and
+that answer is [ADR-017](017_facts_across_a_private_boundary.md). This document stops at
+the boundary and says so, rather than implying a coverage it does not have.
+
+---
+
+## Context
+
+### §1 What these tests actually do
+
+Most tests here check our own code. A few check something different: whether a **claim
+this repository makes about a different repository** is still true.
+
+The clearest example. Each partner's `appwrite_env.py` records which edition of the
+shared configuration registry it was verified against, by naming a commit in another
+repository. Tests open that repository at that commit and ask whether anything this
+package reads has moved since — a rename, a reclassification, a rotated value. *(Until
+2026-08-11 they asked a cruder question — whether the edition **label** still matched —
+which fired on every upstream edit. A second attempt also asked whether any coordinate had
+**arrived**, which fired on other repositories' rows and was deleted on 2026-08-12. See
+§7b's erratum.)*
+
+This is not hypothetical housekeeping. On 2026-08-05 that test failed — the registry had
+moved to a new edition while nobody here was looking. Two days earlier, the same family of
+checks fired **twice in one day**.
+
+### §2 Why they were not running
+
+A test like that needs the other repository present. On a laptop all the platform
+repositories sit in one folder, so it runs. A GitHub Actions job gets **one** repository,
+so it skipped.
+
+The result: **CI verified less than a laptop did, exactly on the checks that span two
+repositories** — the ones no single repository can replace.
+
+### §3 Why nobody noticed for so long
+
+Which repositories CI could download was recorded in a **comment** in the workflow file.
+That comment said `views-appwrite` was private, so its seven checks were assumed to need
+an access credential nobody had issued.
+
+It had gone public on **2026-08-08**. The comment had not changed with it. Seven checks
+stayed switched off for no reason at all, and the first draft of this very document
+proposed issuing a credential to reach them — written one day after the thing that
+justified it stopped being true.
+
+**That is the whole lesson.** A fact about another repository, written in prose, with
+nothing able to check it, will eventually be wrong and nobody will find out.
+
+---
+
+## Decision
+
+### §4 The list of siblings is code, not a comment
+
+`tests/conftest.py` holds one entry per sibling repository, and each entry says:
+
+- **`env`** — the environment variable that overrides where to find it;
+- **`ci_checkout`** — whether CI downloads it;
+- **`note`** — why not, when the answer is no.
+
+That is all. It replaces a comment with something a test can read.
+
+**Where that code lives, and why the question is worth asking.** The declaration sits in
+`tests/conftest.py`, because that is where this repository already keeps facts several
+test modules share. It is not obviously the right home: `conftest.py` is pytest's fixture
+file, and none of these declarations is a fixture — they are statements about the platform
+that tests happen to read.
+
+The cost is already visible. `scripts/build_gaul_lookup.py` needs the same
+sibling-location fact and cannot import it, because a script importing from `tests/` is
+the dependency direction backwards. So it declares the variable name a second time. That
+duplication is defensible on its own merits — the two contracts genuinely differ — but it
+was not a free choice, and a reader should know that a structural constraint and a design
+decision happened to agree.
+
+**Named trigger for moving it (ADR-014 §4):** a second non-test consumer needing one of
+these declarations, or a fifth declaration arriving in that file. The shape it would move
+to is a small module owning the platform declarations, importable by tests and scripts
+alike. Not committed to here, because the second incident is what tells you whether that
+shape is right. Tracked as register **C-88**.
+
+Who is who, once and in one table:
+
+| repository | public? | fetched by CI? | why not, if not |
+|---|---|---|---|
+| **views-appwrite** | yes | **yes** | — carries the registry drift checks |
+| **views-crafdapi** | yes | **no**, since 2026-08-12 | it was fetched for one test; that check read the consumer's source, broke twice in a day when both consumers improved theirs, and was deleted rather than repaired (ADR-017 §7 and its §5 erratum) |
+| **views-datafactory** | yes | no | its checks need raw data that is not in its git repository; fetching it turns an honest skip into a crash |
+| **views-faoapi** | **no** | no | private — no amount of workflow configuration reaches it. That case is [ADR-017](017_facts_across_a_private_boundary.md) |
+
+**What of this table is enforced, and what is not.** `ci_checkout` is: the workflow and
+`SIBLINGS` are compared by `tests/test_ci_sibling_coverage.py`, and disagreement fails.
+The **`public?` column is not, and cannot be** — which is why `public` was deleted from the
+`Sibling` record on 2026-08-10, after a review found nothing could verify it. It is here
+because a reader needs it to follow the argument. Nothing reads this table; if it drifts
+from `SIBLINGS`, only a human will notice.
+
+### §5 CI downloads exactly what that list says, and a test enforces it
+
+The workflow downloads every sibling marked `ci_checkout=True`.
+`tests/test_ci_sibling_coverage.py` fails if the workflow and the list disagree — in
+either direction: a repository the list expects and CI does not fetch, or one CI fetches
+that the list never mentions.
+
+Six rules, and each exists because of something that has actually gone wrong:
+
+| | rule | the incident behind it |
+|---|---|---|
+| G1 | a listed repository is downloaded, and the tests are pointed at it | the tests looked in the wrong place and skipped silently |
+| G2 | anything CI downloads appears in the list | the list is the thing people read; CI is not |
+| G4 | a repository we skip says why, and **every** note names a record | silent non-coverage reads as "nothing to see here" — and a note nothing points at is the prose this file replaces, whether it explains an exclusion or a temporary inclusion |
+| G5 | a download step may not be marked "ignore failures" | one setting and a failed download stops failing the build |
+| G6 | downloads land in `_siblings/` | a sibling put elsewhere made the linter report 745 errors in someone else's code |
+| G7 | download the sibling's `main` branch | a sibling's default branch is not ours to rely on — views-appwrite's was `development` as of 2026-08-10, and is theirs to change again |
+
+Each rule is a plain function, so each is also run against a deliberately broken example
+to prove it objects. A rule only ever tried against a correct file is a rule nobody has
+watched fail.
+
+**One of these downloads was temporary, and it is worth knowing what became of it.**
+`views-crafdapi` was fetched for exactly one test — a check that read the consumer's own
+source. [ADR-017](017_facts_across_a_private_boundary.md) §7 said this repository was never
+entitled to depend on another's file layout, and on 11 and 12 August 2026 both consumers
+proved it by refactoring a literal into a named constant and reddening this repository
+twice in a day. The check was deleted rather than repaired, and the download went with it.
+What that costs is register C-92: nothing here verifies that a consumer's query uses the
+name it declares.
+
+### §6 A repository CI expects but cannot find turns the build red
+
+Skipping is right on a laptop, where a missing sibling is normal. It is wrong in CI once
+we have said the repository should be there — a silent skip puts us back in §2 while
+looking fixed. So CI names the repositories explicitly, and a missing one is a failure.
+
+That guard existed already
+(`tests/test_env_declaration.py::test_no_sibling_override_points_at_a_missing_path`) and
+had a hole, closed here: it treated a variable set to an **empty string** as unset, which
+is exactly what a mis-typed CI setting produces. So the likeliest misconfiguration was the
+one case it could not see.
+
+### §7 A broken sibling can block merging here, and that is accepted
+
+This is the real cost, and it should not be buried. CI now depends on two other
+repositories. If one of them changes in a way that fails a check — say the configuration
+registry moves again — **this repository's builds go red and merges are blocked until
+someone updates the pin.** Since merging to `main` here *is* the release to FAO, that
+matters.
+
+It is accepted for two reasons:
+
+1. The problem being fixed was that these checks were **invisible**. A check that reports
+   but cannot block is invisible again, just more politely.
+2. A red build in that situation is *correct*. It says "re-pin before you ship", and the
+   fix is a small edit rather than an investigation.
+
+**A third reason was offered and withdrawn, because it was not true.** An earlier draft
+said the maintainer administers this repository and can therefore merge over a failing
+check when something is genuinely urgent. Two external reviewers challenged it, and it does
+not survive measurement: the `protect_main` ruleset lists **zero bypass actors**, and a
+ruleset applies to everyone except the actors named there — so administrator status confers
+no exemption. There is no classic branch protection either, hence no `enforce_admins` route.
+
+So **there is currently no escape hatch**, and the coupling here is accepted without one.
+That is defensible — the two reasons above stand on their own — but it should be a chosen
+position rather than a surprise on the day it matters. Adding a bypass actor is a console
+change and would restore the third reason; it has not been made. And an override of that
+kind would be one person's judgement, available only while that person is — the same
+habit-dependence this document criticises in its own alternatives.
+
+### §7a How often this actually bites
+
+*"A small edit"* reads differently at once a quarter than at once a day, so the rate
+belongs here rather than in a reader's imagination.
+
+views-appwrite reports its registry moved through **five editions in four days** — v1.4.0
+on 2026-08-02 through v1.4.4 on 2026-08-05. **Four of the five were observation-driven**,
+recording what a console showed or correcting a key's scopes, and carried no obligation for
+any consumer. Under this section each would have reddened this repository and blocked a
+release until someone re-pinned.
+
+That is not an argument against the decision; it is the honest size of it. It also points
+at a better shape, which that repository has volunteered to make usable: pin against the
+contract **version** and treat observation-only bumps as non-blocking, rather than pinning
+a commit and blocking on every edit — the upstream amendment log already marks which bumps
+carry obligations. **Not adopted here**, because it needs the upstream side first and this
+document should not decide another repository's format.
+
+### §7b Two kinds of coupling, and only one is a tripwire
+
+A reader could take G7 as *"always track the moving tip of `main`"*, which would sit oddly
+beside the rest of the platform, where consumers pin the seam contract by tag and never by
+branch. Both live here, and they answer different questions:
+
+- **Drift tripwires** read the sibling's `main` *because* movement is the signal. The
+  registry-edition check is one: if the registry moved and our pin did not, we want to know,
+  and a red build is the entire point.
+- **Reachability checks** verify that a *pinned* commit is an ancestor of the sibling's
+  `main`. Here movement is noise; what matters is that what we pinned was ratified rather
+  than taken from someone's unmerged branch.
+
+G7 makes both read `main` rather than a default branch. It does not make either of them
+track the tip for its own sake.
+
+**Erratum, 2026-08-11 — there is a third kind, and §7a's "not adopted here" is stale.**
+
+§7a recorded views-appwrite's suggestion — pin against the contract *version* and treat
+observation-only bumps as non-blocking — and marked it *not adopted here, because it needs
+the upstream side first*. That framing was wrong in a way worth correcting rather than
+quietly editing: it treated the noise as something only upstream could fix.
+
+The registry-edition check was matching on `meta.version`, a label meaning *"anything at
+all changed"*. What this repository actually depends on is a set of rows. Matching on the
+rows instead removes the false alarms **without needing anything from upstream** — which
+is ADR-014 §3 applied properly: when a guard fires on something legitimate, the first
+question is whether the matching is wrong, not whether the scope is too wide. The matching
+was wrong.
+
+So the two categories above become three:
+
+- **Drift tripwires** read the sibling's `main` because movement is the signal.
+- **Reachability checks** read a pinned commit; movement is noise.
+- **Differential tripwires** read **both** — a pinned edition as the baseline, the
+  sibling's `main` as the comparison — and fire when something *we declare* differs between
+  them. This is the shape the registry check now has. It catches a rotation, which is
+  invisible to the other two, and it is silent through prose edits and version bumps.
+
+  *(Erratum, 2026-08-12. This paragraph read "…or when a coordinate **arrives** in a table
+  we read" and called that the check's current shape. That half was deleted the same day: it
+  compared every row of every table this package depends on, so another repository's key
+  reddened this one. The cost of removing it — a coordinate issued **for** this package now
+  goes unnoticed until a human reads the registry — is carried in register C-90.)*
+
+*(Corrected twice on 2026-08-11, and the second time is the instructive one. The first
+implementation compared against the sibling's **working tree** — so a developer whose clone
+sat on a feature branch graded this repository against unreviewed content, which is #196's
+shape. The first correction moved **one** check onto `origin/main` and this paragraph then
+claimed all of them did; three others were still reading the working tree. All four read
+`origin/main` now. A sentence written to describe a fix, one fix ahead of the code, is the
+same defect §3 diagnoses.)*
+
+The third kind exists because the no-copy rule forbids writing expected coordinate values
+into this repository. A pinned edition is the only lawful place to keep a baseline for
+comparing them.
+
+views-appwrite#76 has since been done. It shipped on 2026-08-11 as registry version 1.6.0,
+which adds a table naming each edition and saying whether that edition obliges the
+repositories that read the registry. This repository does not read it yet, and does not have
+to: the third kind of check above already tells us whether anything we depend on moved. What
+the new table would add is upstream's own answer to the same question, which is cheaper and
+does not require a pinned baseline at all. That is worth adopting, and it is not urgent.
+
+It is worth saying how we learned it had shipped. Nobody told us. The check that requires
+every table upstream to be classified here went red the first time it met the new one, which
+is what that check is for.
+
+---
+
+This section overrides an earlier internal recommendation not to couple per-pull-request CI
+to another repository at all. That recommendation's stated objection was coupling to another
+repository's *default branch* — which G7 removes, by naming `main` explicitly instead of
+accepting whatever default the other repository happens to be set to. The coupling that
+remains is real, and is the trade described above.
+
+### §8 One repository stays out, and why that is not this document's problem
+
+`views-faoapi` is private. Our CI cannot download it, so the one check that reads it does
+not run here.
+
+**No credential is issued to work around that**, and that is a decision rather than an
+omission. Where that question *is* decided is
+[ADR-017](017_facts_across_a_private_boundary.md): the fact gets declared somewhere public
+that both sides can read, so that neither needs access to the other.
+
+**That decision is accepted but not yet implemented** — it depends on a declaration being
+added to the platform registry, which is another repository's work. Until then the affected
+check runs on a maintainer's machine and not in CI, and the sibling's `note` says so.
+
+Until that declaration exists, the affected check runs on a maintainer's machine and not
+in CI. That is stated in the sibling's `note`, which rule G4 requires and which must name
+the record that owns it.
+
+**Update 2026-08-11.** The declaration now exists (views-appwrite#75), views-faoapi
+checks itself against it (their #379), and this repository's check reads the registry
+rather than that repository's source. So the FAO half is no longer laptop-only, and no
+credential was issued. CRAF'd's consumer-side check landed the next day (views-crafdapi#53, closed 2026-08-12).
+
+**Amended 2026-08-12.** Both source-reads are now gone, and the crafd fetch with them —
+but not because those gates opened. The reads broke twice in twenty-four hours, each time
+because a consumer improved its own code, so the mechanism was abandoned rather than
+sequenced out. ADR-017 §5 carries the erratum; the residual is C-92.
+
+---
+
+## Consequences
+
+**What this buys.** Seven cross-repository checks move from *"run when someone happens to
+run them"* to *"run on every change"*. Two of them fired in earnest the week this was
+written. Separately, the scan that refuses configuration **values** in this public
+repository's documentation now runs on every pull request rather than only on a
+maintainer's machine — worth having, since the README carried four such values once.
+
+**What it costs.** §7: another repository can block merging here. And the list of siblings
+is now something a contributor must keep in step with the workflow, enforced by tests they
+may not have read.
+
+**Where this will go wrong first.** Someone debugging a red build marks a download step
+"ignore failures", or moves it out of `_siblings/`. Both are rules for that reason.
+
+---
+
+## What was tried and removed
+
+An earlier version of this design also recorded, for each sibling, whether it was
+**public** and the date that was last checked — with a rule pairing visibility against
+whether the download used a credential.
+
+A review found the pair circular. The `public` field was read by exactly one rule, and
+that rule existed to protect the `public` field's verifiability.
+
+**This is why §5's table runs G1, G2, G4, G5, G6, G7 with two numbers missing.** The
+removed rules were **G3** (visibility must match whether a credential was used) and **G8**
+(the date must be a plausible one). The remaining rules keep their original names rather
+than being renumbered, so that anything written about "G6" still means G6. Nothing else consulted
+either. Both were deleted on 2026-08-10 and no behaviour changed. The date field was worse
+than useless: nothing could confirm the check had happened, so it manufactured confidence
+rather than recording a fact.
+
+Visibility now lives in a sibling's `note` — prose, where it belongs, because no test here
+can verify it in any case. What still holds without the flag is simpler and needs no
+field: a repository CI cannot read fails to download, and G5 keeps that failure loud.
+
+Recorded because the removed design is more tempting than it looks, and because this
+document once argued for it.
+
+---
+
+## Alternatives considered
+
+**Leave it and rely on running the suite by hand.** The status quo for weeks. It works
+exactly as well as one person's habits, which is not a property a safety check should have.
+
+**Copy the facts here instead of reading them.** Rejected outright: copies of that
+configuration registry were the platform's original failure, and the standing rule is that
+it is referenced and never copied. A test reading a local copy compares a thing to itself.
+
+**Ask GitHub whether a repository is public, from a test.** Rejected. It would be the only
+network call in the suite, would need a credential to answer for private repositories —
+the very thing in question — and would be unreliable exactly when a green build matters.
+
+**Issue an access credential and download the private one too.** Rejected, and the
+reasoning is [ADR-017](017_facts_across_a_private_boundary.md) §9 rather than anything here:
+a credential is the wrong shape of answer to a standing category, and there is a route that
+needs no credential at all.
+
+---
+
+## Appendix — checking it yourself
+
+```
+pytest -q
+```
+
+with the sibling repositories present is the full suite. Then:
+
+```
+VIEWS_APPWRITE=/nonexistent pytest -q
+```
+
+is what CI would see without the download — and it must **fail**, not merely skip. That is
+§6.

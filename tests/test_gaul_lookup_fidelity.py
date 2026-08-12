@@ -37,6 +37,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -217,10 +218,16 @@ def test_lookup_declares_its_provenance(lookup_meta):
 
 
 def test_lookup_version_stamp_resolves(lookup):
-    """The stamp the delivery provenance carries (C-15) must not be 'unknown'."""
-    from views_postprocessing.contract.enrichment import GaulLookupEnricher
+    """The stamp the delivery provenance carries (C-15) must not be 'unknown'.
 
-    version = GaulLookupEnricher(_LOOKUP).lookup_version
+    Read through ``gaul_lookup.version`` — the declared reader the delivery itself uses.
+    It was read through ``GaulLookupEnricher`` until that object was retired (#90, C-75);
+    the enricher was never on the delivery path, so this now checks the same fact through
+    the code that ships.
+    """
+    from views_postprocessing.contract import gaul_lookup
+
+    version = gaul_lookup.version(_LOOKUP)
     assert version != "unknown", (
         "lookup_version resolved to 'unknown' — the delivery would ship untraceable "
         "provenance (C-60). The lookup's embedded source_provenance is absent or reshaped."
@@ -302,22 +309,24 @@ def test_coordinate_formula_matches_every_priogrid_cell():
 # ── the builder's own invariants must not be vacuous ────────────────────────
 
 
-def _synthetic_source(n: int = 6):
-    """A minimal well-formed source frame in the producer's column vocabulary."""
-    import pandas as pd
+def _synthetic_source(n: int = 6) -> pa.Table:
+    """A minimal well-formed source table in the producer's column vocabulary.
 
-    gids = list(range(1, n + 1))
-    return pd.DataFrame(
+    Arrow since #90 — ``_load_source`` returns a table with a ``gid`` COLUMN rather than
+    a frame with a ``gid`` index, because arrow has no index. The builder's contract with
+    this seam is the column vocabulary, which is unchanged.
+    """
+    return pa.table(
         {
-            "gaul0_code": [10] * n,
-            "gaul0_name": ["Country"] * n,
-            "gaul1_code": [20] * n,
-            "gaul1_name": ["Admin1"] * n,
-            "gaul2_code": [30] * n,
-            "gaul2_name": ["Admin2"] * n,
-            "iso3_code": ["ABC"] * n,
-        },
-        index=pd.Index(gids, name="gid"),
+            "gid": pa.array(range(1, n + 1), type=pa.int64()),
+            "gaul0_code": pa.array([10] * n, type=pa.int64()),
+            "gaul0_name": pa.array(["Country"] * n),
+            "gaul1_code": pa.array([20] * n, type=pa.int64()),
+            "gaul1_name": pa.array(["Admin1"] * n),
+            "gaul2_code": pa.array([30] * n, type=pa.int64()),
+            "gaul2_name": pa.array(["Admin2"] * n),
+            "iso3_code": pa.array(["ABC"] * n),
+        }
     )
 
 
@@ -349,16 +358,16 @@ def _build_with(monkeypatch, source, tmp_path, provenance=None):
 def test_builder_rejects_a_duplicate_gid(monkeypatch, tmp_path):
     """C-59: prove the uniqueness guard is not vacuous.
 
-    Note the guard is only *reachable* with ``region="all"``. Under a region filter
-    pandas' ``Index.intersection`` silently de-duplicates first — an accidental
+    Note the guard is only *reachable* with ``region="all"``. Under a region filter the
+    old pandas build de-duplicated silently via ``Index.intersection`` — an accidental
     protection, not a declared one, which is why the explicit raise still earns its
-    place. See the C-59 narrative for the corrected exposure analysis.
+    place. Since #90 the filter is ``pc.is_in``, which does **not** de-duplicate, so the
+    raise is the only thing standing there. See the C-59 narrative.
     """
-    import pandas as pd
     import scripts.build_gaul_lookup as builder
 
     source = _synthetic_source()
-    duplicated = pd.concat([source, source.iloc[[2]]])
+    duplicated = pa.concat_tables([source, source.slice(2, 1)])
     with pytest.raises(builder.LookupBuildError, match="duplicate gid"):
         _build_with(monkeypatch, duplicated, tmp_path)
 
@@ -379,17 +388,48 @@ def test_a_sentinel_code_is_dropped_rather_than_shipped(monkeypatch, tmp_path):
     pandas internals, and a test that fragile is worse than the invariant it guards.
     """
     source = _synthetic_source()
-    source.loc[3, "gaul1_code"] = -1
+    codes = source.column("gaul1_code").to_pylist()
+    codes[2] = -1
+    source = source.set_column(
+        source.column_names.index("gaul1_code"), "gaul1_code",
+        pa.array(codes, type=pa.int64()),
+    )
     result = _build_with(monkeypatch, source, tmp_path)
-    assert 3 not in result.index, "the -1 cell must be dropped from the lookup"
-    assert len(result) == 5
+    assert 3 not in result.column("priogrid_gid").to_pylist(), (
+        "the -1 cell must be dropped from the lookup"
+    )
+    assert result.num_rows == 5
+
+
+def test_builder_refuses_a_build_with_zero_cells(monkeypatch, tmp_path):
+    """Register C-76 — an empty lookup is writable and looks like a result.
+
+    A ``--region`` that filters every cell out, or a join with no overlap across the
+    seven sources, produced a zero-row parquet and printed ``cells=0`` as though that
+    were an outcome. It failed later and confusingly: ``build_historical_table`` raises
+    about *missing geography*, not about an empty lookup, and by then the artifact is
+    committed.
+
+    The first draft of the guard did not survive its own test. On an empty table
+    ``pa.array([True] * 0)`` infers NULL type, so ``pc.and_`` raised
+    ``ArrowNotImplementedError`` in the completeness filter — before the zero-row check
+    could say anything. The mask is now typed, and this asserts the refusal is the one a
+    human can act on.
+    """
+    import scripts.build_gaul_lookup as builder
+
+    empty = _synthetic_source(0)
+    with pytest.raises(builder.LookupBuildError, match="ZERO cells"):
+        _build_with(monkeypatch, empty, tmp_path)
 
 
 def test_builder_accepts_a_clean_source(monkeypatch, tmp_path):
     """The guards must not reject well-formed input."""
     result = _build_with(monkeypatch, _synthetic_source(), tmp_path)
-    assert len(result) == 6
-    assert list(result.columns) == METADATA_COLS
+    assert result.num_rows == 6
+    # The nine declared columns in normative order, with the key last — the artifact's
+    # shipped shape, which #90 had to preserve exactly while changing what builds it.
+    assert result.column_names == METADATA_COLS + ["priogrid_gid"]
 
 
 @_needs_datafactory

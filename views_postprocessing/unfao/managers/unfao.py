@@ -56,17 +56,114 @@ class _ContractStorePort:
         # the claim; its line number moves between releases). It never raises, so a
         # caller that discards the result ships an invisible orphan: run-0's historical
         # artifact, 2026-07-27. This check is the whole mechanism.
-        # (Until 2026-08-03 this comment said the store "only LOGS": false, and
-        # self-defeating — if it only logged, `success` would be True.)
+        #
+        # **Refuse unless success is explicitly True** (register C-79). The earlier
+        # `if success is False` failed OPEN: a result that was None, or lacked the
+        # attribute, or carried a non-bool, sailed through as though the upload had
+        # worked. Today `upload_data` has a single return path and `success` is a
+        # `bool` dataclass field, so the two polarities agree — but the moment that
+        # stops being true is exactly this entry's trigger, and fail-open is the wrong
+        # side to be on when the subject is "did the delivery actually land".
+        #
+        # The old `to_dict()` fallback is gone with it: dead on the real path, and an
+        # unrecognised result should be refused and named, not adapted to silently.
         success = getattr(result, "success", None)
-        if success is None and hasattr(result, "to_dict"):
-            success = result.to_dict().get("success")
-        if success is False:
+        if success is not True:
             error = getattr(result, "error", None) or "unknown store error"
             raise RuntimeError(
-                f"upload of {filename!r} did not fully succeed (file may be an "
-                f"orphan without a metadata document): {error}"
+                f"upload of {filename!r} did not fully succeed (file may be an orphan "
+                f"without a metadata document): {error}. The store reported "
+                f"success={success!r} (result type {type(result).__name__})."
             )
+
+
+def _build_prod_forecasts_store(ensemble_name: str | None) -> DatastoreModule:
+    """The shared internal store (ADR-013's "shared shelf"), built from the
+    launcher-assembled environment (validated fail-loud; þing-01 #134 — no dotenv is
+    loaded here).
+
+    pipeline-core's ``DatastoreModule.get_predictions_by_metadata`` injects an automatic
+    ``name == model_name`` filter on every lookup. The contract read must **not** have
+    it: ADR-013 artifacts are named ``{run_id}__{target}__m{month}.arrow.parquet``
+    (never the bare ensemble name), so an injected ``name == "rusty_bucket"`` matches
+    nothing and also clobbers the wire layer's own run-id / target / name filters.
+    Suppressed unconditionally below — the retired legacy reader was the only caller
+    that needed it on (#149).
+
+    **A function, not a method (register C-40).** It reads no manager state: the
+    ensemble name arrives as an argument rather than through ``self.configs``, and the
+    ``EnsemblePathManager`` is local — it used to be assigned to
+    ``self.ensemble_path_manager`` and then read exactly once, four lines later, in this
+    same body. Nothing else in either partner package, or in views-models, ever read it.
+    A method-local value wearing the costume of manager state.
+
+    The gain is C-40's consequence (a): this is callable, and its refusals observable,
+    with **no manager instance, no views-models path manager and no Appwrite
+    environment** — see ``tests/test_store_construction.py``.
+    """
+    if not ensemble_name:
+        err_msg = "Ensemble name must be provided in configs with the `ensemble` key for forecasting. Cannot proceed."
+        logger.error(err_msg)
+        raise ValueError(err_msg)
+    path_manager = EnsemblePathManager(ensemble_name_or_path=ensemble_name, validate=False)
+
+    appwrite_env.assert_env_declared(
+        appwrite_env.CONNECTION_ENV + appwrite_env.PROD_FORECASTS_ENV,
+        store="production_forecasts datastore",
+    )
+    appwrite_config = AppwriteConfig(
+        path_manager=path_manager,
+        endpoint=os.getenv("APPWRITE_ENDPOINT"),
+        project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
+        credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
+        auth_method="api_key",
+        cache_ttl_hours=24,
+        bucket_id=os.getenv("APPWRITE_PROD_FORECASTS_BUCKET_ID"),
+        bucket_name=os.getenv("APPWRITE_PROD_FORECASTS_BUCKET_NAME"),
+        collection_id=os.getenv("APPWRITE_PROD_FORECASTS_COLLECTION_ID"),
+        collection_name=os.getenv("APPWRITE_PROD_FORECASTS_COLLECTION_NAME"),
+        database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
+        database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
+    )
+    datastore = DatastoreModule(appwrite_file_manager_config=appwrite_config)
+    # Suppress the automatic name==model_name filter (see docstring). model_path is used
+    # by DatastoreModule only for that injection and for uploads; the contract read
+    # neither uploads nor performs any model-scoped lookup.
+    datastore.model_path = None
+    return datastore
+
+
+def _build_partner_store(model_path) -> DatastoreModule:
+    """The partner-facing store (`unfao_bucket`) — a function for the same reason as above.
+
+    ``model_path`` is the framework's own path manager, so it is passed in rather than
+    reached for. That is the whole difference between this and a method, and it is what
+    lets the environment contract be checked without standing up a manager.
+    """
+    return DatastoreModule(appwrite_file_manager_config=_partner_appwrite_config(model_path))
+
+
+def _partner_appwrite_config(model_path) -> AppwriteConfig:
+    """Env → ``AppwriteConfig`` for the partner bucket. Declared names only; the values
+    live in the environment and are never read into this repository's source."""
+    appwrite_env.assert_env_declared(
+        appwrite_env.CONNECTION_ENV + appwrite_env.UNFAO_ENV,
+        store="unfao_bucket datastore",
+    )
+    return AppwriteConfig(
+        path_manager=model_path,
+        endpoint=os.getenv("APPWRITE_ENDPOINT"),
+        project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
+        credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
+        auth_method="api_key",
+        cache_ttl_hours=24,
+        bucket_id=os.getenv("APPWRITE_UNFAO_BUCKET_ID"),
+        bucket_name=os.getenv("APPWRITE_UNFAO_BUCKET_NAME"),
+        collection_id=os.getenv("APPWRITE_UNFAO_COLLECTION_ID"),
+        collection_name=os.getenv("APPWRITE_UNFAO_COLLECTION_NAME"),
+        database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
+        database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
+    )
 
 
 class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
@@ -82,7 +179,6 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         logger.info(f"Initializing {self.__class__.__name__}")
         self._forecast_resolution = None  # {target: TargetLease}, set by _read
         self._historical_frame = None  # views_frames.FeatureFrame, set by _read
-        self.ensemble_path_manager = None
 
     def _read_historical_frame(self):
         """#126: historical actuals as a views_frames.FeatureFrame — the first
@@ -118,66 +214,15 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         """
         # Declaration first: the check reads the queryset, not the loader, so a
         # refused config must not pay for loader construction.
-        launch_config.assert_frame_native_historical(
-            declared_data_format(self._model_path.get_queryset())
-        )
+        #
+        # Read ONCE, and distinguish "could not import it" from "it declares the wrong
+        # thing" (register C-83). Passing None straight into `declared_data_format`
+        # turns a failed import into a confident, wrong claim about the config.
+        queryset = self._model_path.get_queryset()
+        launch_config.assert_queryset_was_importable(queryset)
+        launch_config.assert_frame_native_historical(declared_data_format(queryset))
         self._initialize_data_loader()
         self._read_historical_frame()
-
-    def _prod_forecasts_datastore(self) -> DatastoreModule:
-        """The shared internal store (ADR-013's 'shared shelf'), configured from the
-        launcher-assembled environment (validated fail-loud; þing-01 #134 — no dotenv
-        is loaded here).
-
-        pipeline-core's ``DatastoreModule.get_predictions_by_metadata`` injects an
-        automatic ``name == model_name`` filter on every lookup. The contract read
-        must **not** have it: ADR-013 artifacts are named
-        ``{run_id}__{target}__m{month}.arrow.parquet`` (never the bare ensemble
-        name), so an injected ``name == "rusty_bucket"`` matches nothing and also
-        clobbers the wire layer's own run-id / target / name filters. Suppressed
-        unconditionally below — the retired legacy reader was the only caller that
-        needed it on (#149)."""
-        ensemble_name = self.configs.get("ensemble", None)
-        if not ensemble_name:
-            err_msg = "Ensemble name must be provided in configs with the `ensemble` key for forecasting. Cannot proceed."
-            logger.error(err_msg)
-            raise ValueError(err_msg)
-        self.ensemble_path_manager = EnsemblePathManager(ensemble_name_or_path=ensemble_name, validate=False)
-        # ensemble_configs = EnsembleManager(
-        #     ensemble_path=self.ensemble_path_manager,
-        # ).configs
-
-        # loa = ensemble_configs.get("level", None)
-        loa = "pgm"
-        if not loa:
-            err_msg = "level must be defined in the ensemble configurations (e.g, pgm, cm). Cannot proceed."
-            logger.error(err_msg)
-            raise ValueError(err_msg)
-
-        appwrite_env.assert_env_declared(
-            appwrite_env.CONNECTION_ENV + appwrite_env.PROD_FORECASTS_ENV,
-            store="production_forecasts datastore",
-        )
-        appwrite_config = AppwriteConfig(
-            path_manager=self.ensemble_path_manager,
-            endpoint=os.getenv("APPWRITE_ENDPOINT"),
-            project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
-            credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
-            auth_method="api_key",
-            cache_ttl_hours=24,
-            bucket_id=os.getenv("APPWRITE_PROD_FORECASTS_BUCKET_ID"),
-            bucket_name=os.getenv("APPWRITE_PROD_FORECASTS_BUCKET_NAME"),
-            collection_id=os.getenv("APPWRITE_PROD_FORECASTS_COLLECTION_ID"),
-            collection_name=os.getenv("APPWRITE_PROD_FORECASTS_COLLECTION_NAME"),
-            database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
-            database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
-        )
-        datastore = DatastoreModule(appwrite_file_manager_config=appwrite_config)
-        # Suppress the automatic name==model_name filter (see docstring). model_path
-        # is used by DatastoreModule only for that injection and for uploads; the
-        # contract read neither uploads nor performs any model-scoped lookup.
-        datastore.model_path = None
-        return datastore
 
     def _read_forecast_data_contract(self):
         """ADR-013 contract inbound (epic #105; streaming since the run-0 OOM fix):
@@ -187,7 +232,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         released). The `wire/` package owns the policy; this method only adapts
         the store (DIP) and declares the product facts (region curation +
         coverage expectations live in the lease, where frames exist)."""
-        port = _ContractStorePort(self._prod_forecasts_datastore())
+        port = _ContractStorePort(_build_prod_forecasts_store(self.configs.get("ensemble")))
         region = self.configs.get("region")
         self._forecast_resolution = source_selection.resolve_run(
             port,
@@ -307,7 +352,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         # file itself.
         lookup = gaul_lookup.load()
         upload_enabled = bool(self.configs.get("wire_upload_enabled", product.UPLOAD_ENABLED))
-        store = _ContractStorePort(self._unfao_datastore()) if upload_enabled else None
+        store = _ContractStorePort(_build_partner_store(self._model_path)) if upload_enabled else None
         # The wire is partner-neutral (#153): the manager supplies FAO's product
         # facts explicitly rather than the mechanism reaching for them.
         summary = wire_sink.deliver_run(
@@ -333,7 +378,15 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             store.upload(
                 hist_path,
                 filename=hist_path.name,
-                name=self._model_path.model_name,
+                # The DECLARED consumer name, not `self._model_path.model_name`
+                # (register C-77). Both resolve to the same string today, because
+                # `model_name` is the views-models directory name and that directory
+                # happens to match — but only one of them is a declaration. The other
+                # is a filesystem coincidence in a different repository, and a
+                # directory rename there would strand this artifact silently: the
+                # consumer filters on the declared name, finds nothing, and reports
+                # an empty endpoint rather than an error (ADR-013 §4.1a).
+                name=product.CONSUMER_DOCUMENT_NAME,
                 doc_type="model",
                 category="historical",
                 loa="pgm",
@@ -348,29 +401,6 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             )
         summary["historical"] = hist_path.name
         return summary
-
-    def _unfao_datastore(self) -> DatastoreModule:
-        """The FAO-facing store (`unfao_bucket`)."""
-        return DatastoreModule(appwrite_file_manager_config=self._unfao_appwrite_config())
-
-    def _unfao_appwrite_config(self) -> AppwriteConfig:
-        appwrite_env.assert_env_declared(
-            appwrite_env.CONNECTION_ENV + appwrite_env.UNFAO_ENV, store="unfao_bucket datastore"
-        )
-        return AppwriteConfig(
-            path_manager=self._model_path,
-            endpoint=os.getenv("APPWRITE_ENDPOINT"),
-            project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
-            credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
-            auth_method="api_key",
-            cache_ttl_hours=24,
-            bucket_id=os.getenv("APPWRITE_UNFAO_BUCKET_ID"),
-            bucket_name=os.getenv("APPWRITE_UNFAO_BUCKET_NAME"),
-            collection_id=os.getenv("APPWRITE_UNFAO_COLLECTION_ID"),
-            collection_name=os.getenv("APPWRITE_UNFAO_COLLECTION_NAME"),
-            database_id=os.getenv("APPWRITE_METADATA_DATABASE_ID"),
-            database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
-        )
 
     def _save(self) -> dict:
         """Deliver the run — ADR-013 contract only (#149)."""

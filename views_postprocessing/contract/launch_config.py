@@ -65,6 +65,46 @@ def assert_contract_mode(configs: dict) -> None:
         raise LaunchConfigError(err_msg)
 
 
+def assert_queryset_was_importable(queryset: object | None) -> None:
+    """Raise if the queryset could not be read at all — before asking what it declares.
+
+    **Register C-83: three correct behaviours composing into a lie.** pipeline-core's
+    ``ModelPathManager.get_queryset()`` catches any exception from importing
+    ``config_queryset.py``, logs it, and returns ``None``. ``declared_data_format(None)``
+    then returns ``'dataframe'`` — the documented default for a non-dict. And
+    ``assert_frame_native_historical('dataframe')`` says:
+
+        the queryset declares data_format='dataframe' … Set data_format:
+        'feature_frame' in the postprocessor's config_queryset
+
+    ...pointing at a file that already says ``feature_frame``. A queryset that **failed
+    to import** was indistinguishable from one that **declared the wrong format**, and
+    the message arrived on the live FAO path while someone was fixing a failed run.
+
+    Each layer is faithful on its own. What goes wrong is that the *absence* of an
+    answer is silently given the shape of an answer — ADR-003's rule broken by
+    composition rather than by anyone inferring anything.
+
+    Args:
+        queryset: the return of ``model_path.get_queryset()``.
+
+    Raises:
+        LaunchConfigError: saying the queryset could not be imported, which is a
+            different problem from a queryset that declares the wrong thing.
+    """
+    if queryset is None:
+        err_msg = (
+            "the postprocessor's config_queryset could not be imported — "
+            "`get_queryset()` returned None, which it does for ANY exception raised "
+            "while importing that module (pipeline-core swallows it and logs). This is "
+            "NOT a declaration problem: do not edit data_format until the module "
+            "imports. Check the traceback pipeline-core logged just above this, and a "
+            "missing sibling checkout or dependency first."
+        )
+        logger.error(err_msg)  # ADR-008: logged persistently AND raised
+        raise LaunchConfigError(err_msg)
+
+
 def assert_frame_native_historical(data_format: str | None) -> None:
     """Raise unless the queryset descriptor declares the frame-native historical read.
 
