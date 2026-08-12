@@ -251,7 +251,7 @@ def _g7_siblings_are_taken_from_main(
     Without it `actions/checkout` takes the sibling's own default branch — which for
     views-appwrite is `development`. ADR-014 §3 makes `main` the authority for a claim
     about another repository, and `test_the_pinned_commit_is_reachable_from_the_contract_repos_main`
-    already enforces that. Reading the working tree from `development` while demanding
+    already enforces that. Reading a sibling's `development` while demanding
     reachability from `main` is two guards in one file asking for different things.
     """
     return [

@@ -40,7 +40,7 @@ jobs:
     # `actions/checkout` takes the sibling's OWN default branch — which for
     # views-appwrite is `development` — while ADR-014 §3 says the authority for a claim
     # about another repository is that repository's `main`. Two checks in
-    # test_env_declaration read the working tree and a third demands reachability from
+    # test_env_declaration read the sibling's `main` and a third demands reachability from
     # `main`; pointed at `development` they would eventually demand contradictory things.
     #
     # `actions/checkout` refuses a path outside $GITHUB_WORKSPACE, so the siblings go

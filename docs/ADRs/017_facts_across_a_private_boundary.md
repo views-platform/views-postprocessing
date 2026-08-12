@@ -142,9 +142,6 @@ Concretely, for the delivery label:
 
 ### The order these land in is part of the decision, not an afterthought
 
-**None of those three is in place yet**, and the present tense above describes the decided
-end state rather than today's behaviour.
-
 **The obvious sequence has a hole, and it is green.** If step 1 lands, then step 2 replaces
 the source-reading check with a registry read, and step 3 has not happened yet, the state
 is: the registry declares a string a human typed; we check our copy against that string and

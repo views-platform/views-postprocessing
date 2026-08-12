@@ -514,7 +514,12 @@ _TABLE_ROLE = {
     "contract": "MIRRORED",     # values live in our source by design (ADR-017 §5);
     #                             checked by tests/test_product.py, not by _declared_classes
     "excluded": "IGNORED",      # names the registry records as deliberately NOT coordinates
-    "test_environment": "IGNORED",  # a fact about the platform, not about this package
+    # IGNORED because nothing here READS it, not because it is none of our business —
+    # it is the clause that says which live checks this package may build, and a reader
+    # who believed the older comment spent weeks thinking a permission was a prohibition
+    # (register C-95, C-96). Its rows are bare strings, not tables, so it must stay out of
+    # `rows()` until that is handled (C-91).
+    "test_environment": "IGNORED",
     #: Arrived at registry v1.6.0, and it is views-appwrite#76 delivered — each edition
     #: marked ``obliges_consumers = true|false``, so a consumer can tell a console
     #: observation from a change it must act on. IGNORED only because nothing here reads
@@ -525,12 +530,11 @@ _TABLE_ROLE = {
     "meta": "METADATA",         # the edition and its amendment log
 }
 
-#: direction is deliberately unchecked. (An earlier version of this comment offered
-#: v1.5.1's removal of `[unmodelled]` as the worked example of a silent case. That was
-#: WRONG: `unmodelled` was never in this partition, so against v1.4.4 it would have
-#: been a RED build demanding classification. The rule is right; the illustration
-#: was not, and it had been repeated in three places.)
-#: silent while v1.5.0 adding `[contract]` is a red build with something to do.
+#: An IGNORED table vanishing upstream is deliberately unchecked; a new, unclassified one
+#: is a red build with something to do. (An earlier version of this comment illustrated
+#: the silent case with v1.5.1's removal of `[unmodelled]`, which was wrong — `unmodelled`
+#: was never in this partition, so it would have been a red build demanding
+#: classification. The rule was right; the illustration was not, in three places.)
 #: The only roles that mean anything. A typo in `_TABLE_ROLE` used to be silent, and it
 #: silently narrowed a security scan: mistyping "CONSUMED" dropped `target` from the
 #: no-copy check's sections, taking it from twelve values to two, with no test objecting.
@@ -689,9 +693,8 @@ def test_every_table_in_the_registry_is_classified_here():
     was silently ignoring four.
 
     **Directional on purpose.** Every table upstream must be classified; only the tables
-    we depend on must exist. An IGNORED table disappearing is not our business, which is
-    an IGNORED table disappearing is silent while a new, unclassified one is a red build
-    with something to do. Two such events in the registry's life so far, and this
+    we depend on must exist. An IGNORED table disappearing is not our business, so it is
+    silent, while a new, unclassified one is a red build with something to do. Two such events in the registry's life so far, and this
     repository needed to see both.
 
     *(An earlier draft illustrated the silent case with v1.5.1's removal of
@@ -805,6 +808,34 @@ def test_the_docstring_states_the_same_edition_the_constants_declare(partner):
         f"[{partner}] the docstring says registry v{'/v'.join(sorted(set(stated)))} but "
         f"SEAM_CONTRACT_VERSION declares v{module.SEAM_CONTRACT_VERSION}. The constant is "
         "what the drift detector checks, so the prose is the half that rots silently."
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_docstring_url_points_at_the_commit_the_constant_declares(partner):
+    """The docstring publishes a blob URL. Its sha is a third copy of the pin, unguarded.
+
+    The neighbouring test compares the docstring's *version*; nothing compared its *sha*.
+    That is how an annotated tag reached the pin: git peeled it, every check passed, and
+    two public modules published a URL returning 404 three lines above the sentence "a
+    pinned URL does not rot". Third time this class has bitten — register C-57.
+    """
+    module = _PARTNER_ENV[partner][0]
+    urls = re.findall(
+        r"views-appwrite/blob/([0-9a-f]{7,40})/docs/ADRs/platform/coordinate_registry\.toml",
+        module.__doc__ or "",
+    )
+    assert urls, (
+        f"{partner}/appwrite_env.py's docstring no longer publishes a registry blob URL in "
+        "the expected form. If the URL moved, teach this test its new shape — do not delete "
+        "the check, or the sha goes unguarded again."
+    )
+    wrong = sorted({u for u in urls if not module.SEAM_CONTRACT_COMMIT.startswith(u[:7])})
+    assert not wrong, (
+        f"[{partner}] the docstring's blob URL names commit(s) {wrong} while "
+        f"SEAM_CONTRACT_COMMIT declares {module.SEAM_CONTRACT_COMMIT}. A reader following "
+        "that link reads a different edition from the one this module was verified against, "
+        "and if the sha is not a commit at all the link 404s."
     )
 
 

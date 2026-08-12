@@ -203,7 +203,9 @@ Cross-refs: **C-57** (the exclusion and why), **C-89** (the traceback amplificat
 
 The second half is a **permission**, and this repository spent weeks believing the whole clause was a prohibition. Reclassify and read it, or record why a permission that changes what we may build is not a fact we depend on.
 
-Cross-refs: **C-94** (the mechanism this permission authorises), **C-95** (the mis-citation that compounded it), issue #249.
+**Partly addressed 2026-08-12 (#249).** The classification stays `IGNORED` — nothing here reads the table, and its rows are bare strings rather than sub-tables, so feeding it to `rows()` would raise (C-91). What changed is the *reason*: the comment said "a fact about the platform, not about this package", which is what let a permission read as a prohibition. It now says the table governs which live checks this package may build, and points at C-95 and C-96. Reading it mechanically waits on C-91.
+
+Cross-refs: **C-94** (the mechanism this permission authorises), **C-95** (the mis-citation that compounded it), **C-91** (why it is not read yet), issue #249.
 
 ---
 
@@ -216,7 +218,7 @@ Cross-refs: **C-94** (the mechanism this permission authorises), **C-95** (the m
 | Source | `/expert-code-review` of the standing decisions, 2026-08-12 |
 | Trigger | Anyone reasons from the integration-test prohibition — for a preflight, a drill, or a new ADR. |
 | Owner | This repository. |
-| Location | `reports/technical_risk_register.md` (~:475, ~:1628, ~:1717); anywhere else citing þing-02 D2 for this. |
+| Location | `reports/technical_risk_register.md` — corrected at all three sites 2026-08-12 (#249); this entry is the record, and the remaining mentions of `þing-02 D2` are its own narration. |
 
 This register cites **þing-02 D2** for the ruling that integration tests against the production Appwrite project are forbidden. þing-02 D2 is about identity and key separation. The ruling is **þing-01 D2** (`þingit/01_identity_secrets_config/orð_dómr.md:53-61`), and it differs from the paraphrase in two ways that matter: it is **conditional** (*"until the operator creates one"*), and it **grants** read-only preflight validation as the permitted live check. It also records that creating a test project is **assigned to the operator** and gates the provisioning-path drill — an open assignment, not a closed door.
 
@@ -647,7 +649,7 @@ The FAO delivery authenticates with the `UN FAO` key. That key expires **2026-11
 
 **What this repo can and cannot do.** It cannot rotate anything; it holds no credentials and must not (þing-01 D3). What it can do is fail early and legibly rather than mid-delivery — and it does not currently. `appwrite_env.py` validates that the declared variables are *present*, which an expired key still is. An expired key is indistinguishable from a valid one until the first request comes back unauthorised, by which point a delivery is part-way through.
 
-**Deliberately not fixed here, and the reason is C-84's own shape.** A preflight that checks key validity means an authenticated call at startup, and the only project to make it against is production — which þing-02 **D2** forbids for tests and this would not quite be. The honest position is that this is a *date to act on*, not a mechanism to build, and inventing a mechanism would be building the wrong thing to feel busy. Registered so the date is not discovered by an outage.
+**Deliberately not fixed here, and the reason is C-84's own shape.** A preflight that checks key validity means an authenticated call at startup, and the only project to make it against is production — which **þing-01 D2** forbids for tests and this would not quite be — and which that verdict explicitly permits as *read-only preflight validation*, so the obstacle here is the authenticated call, not the prohibition (see C-95). The honest position is that this is a *date to act on*, not a mechanism to build, and inventing a mechanism would be building the wrong thing to feel busy. Registered so the date is not discovered by an outage.
 
 Cross-refs: **C-81** (the same operator session's other half — branch protection and the CI token), **C-27** (no rotation mechanism for a secret value upstream), **C-57** (the pinned-registry detector, which is how this arrived here at all — it demanded the v1.4.4 bump and the bump is what surfaced the expiry), þing-02 A3(i), views-appwrite C-65 and C-66.
 
@@ -1935,7 +1937,7 @@ Cross-refs: C-15 (the provenance this field serves), C-22 (the recall process th
 
 Replaced by tests of `contract/historical.assert_metadata_complete` — the code that actually gates a delivery — parametrised over the **imported** `METADATA_COLS`, plus source-scan pins that the gate stays at build time and is still invoked. Verified 2026-08-02: `pytest -q tests/test_validation.py` → **14 passed**. Mutation-tested: narrowing the gate to a single column fails **9 of 14**; the old suite passed that mutation untouched, because it was not testing the gate.
 
-**Residual 2 — the enrich→validate end-to-end test — RELOCATED to #18**, per the Register Conventions' relocation rule (a relocation is not complete until the destination exists and is cited by number). Every *leg* is now covered — enrichment (**no longer a leg**: `GaulLookupEnricher` and `test_enrichment.py` were deleted in #90/B3b, the lookup join having moved into the frame build; recorded here because the closure above was argued from a list this deletion shortened), artifact build (`test_historical_builder.py`, 7), reader parity (`test_historical_parity.py`, 3), the invariants on primitives (`test_input_integrity_e2e.py`, 8), the wire end to end (`test_hop_b_sink_e2e.py`, 6), the null-gate (`test_validation.py`, 14). What remains uncovered is **the manager orchestrating them**, which needs views-pipeline-core and a production-like Appwrite environment — and þing-02 **D2** forbids integration tests against the production project, no non-production one existing.
+**Residual 2 — the enrich→validate end-to-end test — RELOCATED to #18**, per the Register Conventions' relocation rule (a relocation is not complete until the destination exists and is cited by number). Every *leg* is now covered — enrichment (**no longer a leg**: `GaulLookupEnricher` and `test_enrichment.py` were deleted in #90/B3b, the lookup join having moved into the frame build; recorded here because the closure above was argued from a list this deletion shortened), artifact build (`test_historical_builder.py`, 7), reader parity (`test_historical_parity.py`, 3), the invariants on primitives (`test_input_integrity_e2e.py`, 8), the wire end to end (`test_hop_b_sink_e2e.py`, 6), the null-gate (`test_validation.py`, 14). What remains uncovered is **the manager orchestrating them**, which needs views-pipeline-core and a production-like Appwrite environment — and **þing-01 D2** forbids integration tests against the production project while no non-production one exists (see C-95 — the ruling is conditional, and creating that project is an open operator assignment).
 
 That gap has **two standing trackers already**, which is why keeping a third here is noise rather than signal: issue **#18** (open since 2026-06-04) and `tests/test_falsification_campaign_3_5.py`, an `xfail(strict)` probe that **flips to XPASS the moment someone writes the test** — a self-surfacing tracker, which is more than this entry was doing. |
 | Tier | 3 |
