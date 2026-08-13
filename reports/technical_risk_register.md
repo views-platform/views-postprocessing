@@ -170,7 +170,7 @@ that indexes only deleted code is noise.
 | Source | `/code-review max` on #242, 2026-08-12; count reproduced here |
 | Trigger | **Either.** (a) A check whose failing function contains one of these values starts firing in CI. (b) Someone proposes widening the no-copy scan to docstrings — at which point this entry is the measurement that says what that would cost. |
 | Owner | This repository. |
-| Location | Measured across `git ls-files '*.py'`, **25 standalone occurrences in 8 files** (2026-08-12, down from 33 in 9 when filed — #242 cleared the no-copy scan's own docstring and #248 cleared `tests/test_product.py`). Includes `views_postprocessing/{unfao,crafd}/managers/`, `contract/store_metadata.py`, `contract/wire/sink.py`. **The count moves whenever prose is edited; re-measure rather than cite it.** |
+| Location | **Counting distinguishable coordinates only** — i.e. excluding the two whose declared values are this package's own directory names, which appear everywhere and are not evidence of anything. On that basis, measured across `git ls-files '*.py'`: **25 standalone occurrences in 8 files** (re-confirmed 2026-08-13; 2026-08-12, down from 33 in 9 when filed — #242 cleared the no-copy scan's own docstring and #248 cleared `tests/test_product.py`). Includes `views_postprocessing/{unfao,crafd}/managers/`, `contract/store_metadata.py`, `contract/wire/sink.py`. **The count moves whenever prose is edited; re-measure rather than cite it — and state which basis you used.** Counting *all* values including the package-name collisions gives 139 in 31 files on the same tree; an audit that did not know the basis reported 75 in 24 and read as a contradiction. The number was never wrong; the method was never written down. |
 
 The no-copy scan compares string **constants** and excludes docstrings outright. That exclusion is C-57's recorded lesson: an early draft fired on refusal labels and on docstrings naming which store a function serves, and *"a guard that fails on `def file_metadata(record)` gets deleted — after which the real rule is unguarded"* (ADR-014 §3).
 
@@ -288,7 +288,7 @@ Two of the three are fixed, and the third moved:
 
 1. **Both branches name the coordinate, never the value.** Each builds its own sentence — two f-strings, deliberately not one shared formatter — and neither has the value in hand. They name **all** coordinates declaring that value: measured, two pairs share one (the prod-forecasts bucket and collection share both id and name), so a `value -> name` map would have named the wrong coordinate half the time in the message a maintainer uses to find the copy.
 2. **The rotation proof asserts both sides absent**, taken from the fixture's own variables rather than from two literals a rename would quietly orphan. Mutation-proven: leaking the post-rotation side while keeping the pinned side digested fails now and **passed before** — the more damaging half, unchecked.
-3. **The rule is asserted behaviourally**, by `test_the_scan_reports_a_copy_without_reprinting_it`: plant a value in a fixture tree, run the real scan, read the finished message.
+3. **The rule is asserted behaviourally**, by `test_the_scan_reports_where_a_copy_is_and_never_what_it_is`: plant a value in a fixture tree, run the real scan, read the finished message.
 
 **And the third one took two attempts, which is the part worth recording.** The first version asserted that every finding was *routed* through `_report_a_copy` — an AST walk over the scan's own source. Five independent reviewers were run against it and **routing turned out not to be safety**: the value could be smuggled through either of that helper's two parameters, appended with `extend` or `+=`, or reported from a renamed accumulator. Six of eight mutations survived, and one legitimate refactor *failed* it — a guard that misses the thing and fires on the innocent, which is C-82's shape and ADR-014 §3's deletion criterion at once. The docstring's claim that a caller "cannot print one however it is written" was false when written.
 
@@ -314,6 +314,15 @@ Net **−140 lines**, leaving the file **+55 over its pre-story size** rather th
 
 **Deliberately still open, and moved rather than closed:** the `secret` exemption at `:1042` and the ban-set's package-name collision are the *scope* of the scan, not its reporting, and belong with the matcher rewrite in **#243**. This entry stays open until they land, because closing it now would close a Tier 2 on two-thirds of its content.
 
+**⚠ The stated closing condition IS met, and this entry stayed open anyway — 2026-08-13.** It said it would stay open "until [the `secret` exemption and the ban-set collision] land" with #243. **#243 closed 2026-08-12 and both landed**: the exemption is gone (`scanned_sections` now filters `_TABLE_ROLE` for `CONSUMED` with no subtraction), and the collision cannot arise because the markdown branch is a NAME=VALUE pair matcher. The length floor went too.
+
+What actually keeps it open is neither of those — it is the two deferrals below, **whose triggers fired while nobody was watching them**:
+
+- Deferral 1's trigger is *"when #243 finishes touching `tests/test_env_declaration.py`"*. #243 finished. The leak guards are still in that file; `tests/test_redaction_guard.py` is only cross-referenced.
+- Deferral 2 was *"routed to #243"* — and #243 closed without it. `test_the_drift_check_would_catch_a_rename` still rebuilds its subject's comparison with its own comprehension rather than driving the checked function.
+
+Both are now unowned, which is worse than deferred. **They need a new home before this entry can close**, and naming that is this amendment's only job.
+
 **Two deferrals, both with triggers (ADR-014 §4).**
 
 1. **The leak guards belong in `tests/test_redaction_guard.py`**, which already owns "what stops us leaking" and which `test_the_environment_refusal_logs_names_and_never_values` already points readers to. The concern is currently split across two files with no shared vocabulary. Not moved here, because moving code while fixing bugs in it is how the next defect arrives. **Trigger: when #243 finishes touching `tests/test_env_declaration.py`.** Owner: this repository.
@@ -338,7 +347,7 @@ PR #239 retired the FAO half of the source-reading check on the strength of view
 
 views-faoapi#379 binds their *served-name constant* to the registry row. The assertion this repository deleted was `'filters["name"] = self.model_path.model_name'` — that they still *query* on it. So views-faoapi can refactor its selection mechanism, leave its name constant untouched, pass #379, pass our registry comparison, and serve an empty endpoint. The deleted assertion carried that exact sentence: *"the name may still match while the consumer filters on something else entirely — same invisibility, different cause."* Nothing carries it now.
 
-**Verified 2026-08-12, and the state is good — which is why this is a risk and not an incident.** Read at `views-faoapi@origin/development`: `_CONSUMER_DOCUMENT_NAME = "un_fao"` (`src/views_faoapi/managers/api.py:59`) reaches `APIPathManager(...)` at `:1282`, and `managers/prediction/manager.py` still filters on it at `:117` and `:435`. Their D2 test — views-faoapi's `tests/test_seam_contract_binding.py` — imports the constant from the production module rather than re-typing it, which is better than it had to be. **The composition is what nothing asserts**: constant↔registry is checked by them, query↔constant was checked by us and is not any more. Also worth recording: their D2 check is on `development`; their `main` is 22 commits behind at PR #357, so a reader taking "#379 merged" to mean "live on their default branch" is over-reading it.
+**Verified 2026-08-12, and the state is good — which is why this is a risk and not an incident.** Read at `views-faoapi@origin/development`: their `CONSUMER_DOCUMENT_NAME` — moved since to `src/views_faoapi/seam_contract.py`, a dedicated module — reaches `APIPathManager(...)` in `managers/api.py`, and `managers/prediction/manager.py` still filters on it at `:117` and `:435`. Their D2 test — views-faoapi's `tests/test_seam_contract_binding.py` — imports the constant from the production module rather than re-typing it, which is better than it had to be. **The composition is what nothing asserts**: constant↔registry is checked by them, query↔constant was checked by us and is not any more. Also worth recording: their D2 check was on `development` while `main` sat 22 commits behind; **as of 2026-08-13 that gap is 2 commits**, so the caveat has all but expired.
 
 **C-87 is not this.** C-87 records that we verify our copy against the declaration rather than the consumer's code against it. This is narrower and worse: for one partner we briefly had the second check and gave it up for something that does not cover the same failure.
 
@@ -474,6 +483,8 @@ classified `IGNORED` in `tests/test_env_declaration.py::_TABLE_ROLE` — declare
 silently unseen. Nothing here reads `obliges_consumers` yet, so the false-alarm rate is
 still carried by the row-level differential rather than by upstream's own flag.
 
+**⚠ The re-pin deferral below is DISCHARGED, 2026-08-13, by upstream rather than by us.** The registry now publishes `obliges_consumers_since = "1.5.2"` — *"the number a consumer should pin against"* — and both `appwrite_env.py` modules already pin exactly `1.5.2`. So the pin is conformant by upstream's own new rule and the "re-pin is **due**" urgency below is withdrawn. Re-pinning further forward is now hygiene with no safety consequence, which is what the deferral originally said before the trigger fired.
+
 **Deferral, with the trigger ADR-014 §4 requires** — this was carried in a pull-request
 description, where deferrals go to be forgotten:
 
@@ -607,6 +618,10 @@ Cross-refs: **C-72** (the re-vendor this would have triggered, and the trigger A
 
 ---
 
+**⚠ This entry has no closing condition, and that is the finding — 2026-08-13.** Its Trigger is a habit (*"check what this repository already delivers before writing code"*), it states *"No guard is proposed, deliberately"*, and its Location says *"Not a code defect."* **No evidence in any tree can ever satisfy it**, so it cannot be closed, only carried — which is what a register is not for.
+
+It is a worked example wearing a risk's clothes. **Give it a real trigger or move it to a lessons artifact**; the post-mortem at `reports/post_mortems/2026-08-12_the_guards_that_did_not_guard.md` is the natural home. Left open here only because relocating a record is itself a change that should be deliberate rather than done in a truth pass (Register Conventions: a relocation is not complete until the destination exists and is cited by number).
+
 ### C-84: Every identity this repo delivers under dies on 2026-11-17, within 3h35m of the other
 
 | Field | Value |
@@ -696,6 +711,17 @@ See also C-25 (same data path, wrong-file variant), C-15 (upload provenance woul
 
 ---
 
+**⚠ The Tier-1 gate is ANSWERED, and the answer is no — 2026-08-13.** This entry says it is Tier 1 *until* someone establishes whether `get_feature_frame` inherits the `fillna(0.0)`. **views-pipeline-core#366 closed 2026-08-04**, and at the version this repository now installs the loader states the opposite in its own docstring: *"no silent `fillna(0.0)` — NaN policy belongs to the engine boundary."*
+
+By this entry's own re-tier rule, Tier 1 is no longer justified.
+
+**Three further claims are now false**, and each would send a reader to the wrong place:
+1. The Location points at a legacy branch in `unfao.py` that **no longer exists** — `_read_historical_data` refuses any queryset not declaring `feature_frame` and calls only `_read_historical_frame`.
+2. *"There is no fill-count logging"* — false upstream; the fill now logs total and per-column counts before substituting.
+3. *"The zarr exposes `last_valid_month_id` … but it is not consulted"* — false here; it is read via `source_metadata.last_valid_month_id`, fabricated months are dropped, and it degrades open with a log line.
+
+**What genuinely survives is upstream and different:** views-datafactory pre-fills its grids with `fill_value=0.0` per its ADR-047, tracked as **views-datafactory#420 (OPEN)**. That is the live risk; the mechanism this entry describes is not.
+
 ### C-28: No timeout on the datafactory zarr fetch — historical path can hang indefinitely
 
 | Field | Value |
@@ -768,11 +794,11 @@ This entry's own Tier-2 rationale was that the design *"forces copy-pasting a 27
     diff views_postprocessing/unfao/managers/unfao.py \
          views_postprocessing/crafd/managers/crafd.py | grep -c '^[<>]'
 
-**32** — sixteen differing lines on each side. Substitute every form of the partner name (case-insensitively, including `un_fao`/`un_crafd` and `faoapi`) and it falls to **2**: one line per side.
+**26** — thirteen differing lines on each side (re-run 2026-08-13 with the command above; it read **32**/sixteen when filed, and the drift is itself the entry's point). Substitute every form of the partner name (case-insensitively, including `un_fao`/`un_crafd` and `faoapi`) and it falls to **2**: one line per side.
 
 The sixteen are, by category: one import, one class name, two partner-named method definitions, their two call sites, one refusal-message string, one line that is *both* the `*_ENV` tuple reference and the store label, the four env-name literals, and four lines of prose.
 
-**None of the difference is behaviour, but "byte-identical" is too strong for one method.** `_read`, `_transform`, `_validate`, `_check_coverage` and `_build_historical_artifact` are byte-identical. `_save_contract` is not: five of the sixteen fall inside it — the datastore call, two comments, and the refusal string. All five are partner-name substitutions; none changes what the method does.
+**None of the difference is behaviour, but "byte-identical" is too strong for one method.** `_read`, `_transform`, `_validate`, `_check_coverage` and `_build_historical_artifact` are byte-identical. `_save_contract` is not: five of the thirteen fall inside it — the datastore call, two comments, and the refusal string. All five are partner-name substitutions; none changes what the method does.
 
 *(**This paragraph was wrong five times, and how it was wrong is the entry's most useful content.** (1) "roughly ten lines", carried from the review that found it and never measured. (2) A normalised count of 4 and a claim that `_save_contract` was byte-identical, neither checked. (3) A story that #211 "fixed two divergences that already existed" — false: at `9799e87` the second line was **byte-identical in both files**, an inherited inaccuracy rather than a divergence, and rewording CRAF'd's copy is what *created* a divergence there. Only the `:222` pair was real. (4) and (5) An exact list of sixteen line numbers and a line count, invalidated twice within the hour by comment corrections elsewhere in the same file.*
 
@@ -863,7 +889,7 @@ That is a smaller change than it sounds and a bigger one than it looks. Smaller:
 
 Tier held at 2: the blast-radius argument is unchanged for what remains, and containment is not removal.
 
-*Did not:* the double inheritance (the `class UNFAOPostProcessorManager(...)` statement — this row cited `unfao.py:80` when written, and that number has moved twice since) stands, and so do consequences (a) — the FAO logic still cannot be instantiated without the framework — and (c)/(d). **This entry remains open on exactly that scope.** Its remaining fix is gated on views-pipeline-core's 3.0.0 (C-44/C-62), which is a release signal rather than engineering work.
+*Did not:* the double inheritance (the `class UNFAOPostProcessorManager(...)` statement — this row cited `unfao.py:80` when written, and that number has moved twice since) stands, and so do consequences (a) — the FAO logic still cannot be instantiated without the framework — and (c)/(d). **This entry remains open on exactly that scope.** ~~Its remaining fix is gated on views-pipeline-core's 3.0.0 (C-44/C-62), which is a release signal rather than engineering work.~~ **Refuted by the 2026-08-05 update twenty lines above**, which records that 3.0.0 shipped on 2026-08-03 and nothing became possible — the gate is views-models, not a release. Struck 2026-08-13 because it was the last sentence in the entry and therefore the one a reader leaves with.
 
 See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper cleanup that precedes any unfao restructuring), **#45** (the delivery-side draw carrier — ship `(N, S)` uncollapsed as a native frame, the producer half of this same problem), and **epic #85** (the migration backlog).
 
@@ -899,14 +925,14 @@ Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-
 
 ---
 
-### C-81: What actually gates `main` is weaker than it looks — CI verifies 17 fewer tests than local, and nothing requires it to pass
+### C-81: What actually gates `main` is weaker than it looks — CI verifies 8 fewer tests than local; the enforcement half is discharged
 
 | Field | Value |
 |-------|-------|
 | ID | C-81 |
 | Tier | 2 — the guards this arc built to catch cross-repo drift do not run where drift happens, and the branch they protect has no required check. Both halves are structural and both have fired-in-practice evidence. |
 | Source | `code-review max` (2026-08-03) — development→main sync audit |
-| Trigger | **Coverage half:** when the Appwrite Seam Contract registry next moves — it moved twice on 2026-08-03 alone — nothing in CI will notice; only a maintainer running the suite locally will. ~~**Enforcement half:** the first time someone merges a red PR to `main`~~ — **DISCHARGED 2026-08-13**: `protect_main` now requires the `test` check (see C-86). |
+| Trigger | **Coverage half, re-specified 2026-08-13:** the next time a views-datafactory change would break a delivery — its 8 gated tests are the whole remaining gap and none of them runs in CI. ~~*Original: when the Appwrite Seam Contract registry next moves, nothing in CI will notice.*~~ **That trigger is false** and has been since 2026-08-10: CI checks out views-appwrite at `ref: main` and sets `VIEWS_APPWRITE`, so every registry-drift detector runs there. ~~**Enforcement half:** the first time someone merges a red PR to `main`~~ — **DISCHARGED 2026-08-13**: `protect_main` now requires the `test` check (see C-86). |
 | Owner | Simon — both halves need operator action. The coverage half needs a token for two private repositories; the enforcement half is a GitHub console/ruleset change. Neither is engineering work. |
 | Location | `.github/workflows/run_pytest.yml`; the `protect_main` ruleset; `tests/conftest.py::sibling_repo` |
 
@@ -1896,7 +1922,7 @@ The right axis was **exact equality on string constants**, not statement shape. 
 
 **Gated, and honestly so.** The checks need a views-appwrite checkout and skip without one, naming `VIEWS_APPWRITE` and the conventional sibling path so a contributor can run them rather than merely watch them skip. The would-catch-a-rename proof runs in CI with no checkout at all. Resolution helper shared with **C-46** (S7) in `tests/conftest.py` — the second incident, which is this repo's named trigger for extracting.
 
-**Residual — RESOLVED 2026-08-10 (ADR-016).** The gated half did not run in CI, which needed a views-appwrite checkout in the workflow. It has one: that repository went public on 2026-08-08 and the workflow now fetches it, so these checks run on every pull request. That was recorded here and in **C-46** as *"a CI-cost and cross-repo-coupling decision, not a code fix … worth deciding once for both"*, and it sat as a residual on two RESOLVED entries, which is where residuals go to be forgotten. It now has a live entry with a measured cost (17 tests, 9 of them new in this arc), a per-sibling answer, and an owner: **C-81**. views-appwrite is private, so it needs a token — an operator decision.
+**Residual — RESOLVED 2026-08-10 (ADR-016).** The gated half did not run in CI, which needed a views-appwrite checkout in the workflow. It has one: that repository went public on 2026-08-08 and the workflow now fetches it, so these checks run on every pull request. That was recorded here and in **C-46** as *"a CI-cost and cross-repo-coupling decision, not a code fix … worth deciding once for both"*, and it sat as a residual on two RESOLVED entries, which is where residuals go to be forgotten. It now has a live entry with a measured cost, a per-sibling answer, and an owner: **C-81**. *(As written this said "17 tests, 9 of them new in this arc" and that views-appwrite is private and needs a token. Both are superseded: views-appwrite went public on 2026-08-08 and is fetched by CI, and the gap is now **8 tests, all views-datafactory** — no credential closes it. See C-81.)*
 
 A second, smaller instance of the same shape: these checks parse TOML with `tomllib`, stdlib from Python 3.11, and `pyproject` declares `>=3.11`. CI runs 3.11 and executes them. The maintainer's box runs **3.10**, below the declared floor, so they skip there — the local suite is quietly weaker than a green `pytest -q` suggests. Not a repo defect and not worth its own entry; recorded because "a gate that does not run" is exactly what C-46 is open for, and the CI decision should cover both. |
 | Tier | 3 |
