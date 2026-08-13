@@ -1,6 +1,7 @@
 """Hop-B shard writer (wire/shard.py) — byte parity with the fixture arrow shard.
 
-The byte tests assert the pinned toolchain (fixture README: pyarrow 23.0.1) and
+The byte tests assert the pinned toolchain (fixture README: pyarrow 16.1.0, matching
+`_PINNED_PYARROW` below and the `>=16.1.0,<17.0.0` constraint) and
 FAIL LOUD on drift — never skip-silent: a quiet skip would read as conformance.
 """
 
