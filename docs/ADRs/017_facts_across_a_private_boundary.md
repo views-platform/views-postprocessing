@@ -1,6 +1,12 @@
-# ADR-017: Facts shared with a repository we cannot read
+# vpp_017 (ADR-017): Facts shared with a repository we cannot read
 
 **Status:** Accepted
+
+> **Cite this as `vpp_017` outside this repository.** views-models and views-crafdapi each
+> have their own ADR-017 (*Forecast Sources, Composition, and Delivery*, and *Reference Data
+> in Repository*), so a bare "ADR-017" resolves to the wrong document for a reader sitting
+> in either of them (#264). The number is unchanged and every existing citation stays valid
+> — the prefix is additive.
 **Date:** 2026-08-10
 **Decider:** Simon Polichinel von der Maase
 **Scope:** what this repository does when it depends on a fact held in a repository it

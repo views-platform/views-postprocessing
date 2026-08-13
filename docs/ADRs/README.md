@@ -104,15 +104,44 @@ These ADRs form the architectural constitution of the repository.
   for a dated declaration rather than prose. The credential for the one genuinely private
   sibling is deferred with a named trigger.
 
-- **ADR-017** — Facts Shared With a Repository We Cannot Read
+- **[vpp_017](017_facts_across_a_private_boundary.md)** — Facts Shared With a Repository We Cannot Read
   The delivery label this repository writes is owned by the consuming API and mirrored here;
   if the two drift the upload succeeds, the file is stored, and the consumer's endpoint is
-  empty with no error anywhere. Verifying the mirror currently means reading the consumer's
+  empty with no error anywhere. Verifying the mirror used to mean reading the consumer's
   source, which is impossible in CI when that consumer is private — and private consumer APIs
-  are a standing category, not a one-off. Decides that such a fact is declared in the public
+  are a standing category, not a one-off. *(That reading is gone: #248 deleted both source
+  reads on 2026-08-12 after two consumers broke them in a day by improving their own code.)* Decides that such a fact is declared in the public
   coordinate registry and each side verifies itself against it, so neither reads the other's
   source. No credential, for any number of private APIs. States plainly the half it does not
   cover: the consumer's own code against its own declaration.
+
+### Why one of these carries a `vpp_` prefix
+
+Three repositories each numbered an ADR **017**, and a bare "ADR-017" in a cross-repo
+sentence resolves to the wrong document for a reader sitting in either of the other two:
+
+| Repo | Prefix | ADR-017 |
+|---|---|---|
+| views-models | `vmo_` | *Forecast Sources, Composition, and Delivery* |
+| **views-postprocessing** | **`vpp_`** | ***Facts shared with a repository we cannot read*** |
+| views-crafdapi | `vcr_` | *Reference Data in Repository* |
+
+**The prefix is additive.** The number does not change and no existing citation breaks.
+
+**The usage rule** (adopted from views-models, which landed this first in its #393):
+intra-repo prose may stay bare; write `vpp_017` wherever the sentence is read from, or
+could be read from, another repository.
+
+This is not yet a platform-wide convention — these three issues are its first application,
+driven by an active collision rather than a sweep. views-postprocessing#264,
+views-models#393 (landed), views-crafdapi#58.
+
+*Audited when adopting: this repository has **zero wrong referents**. All four citations of
+views-models' 017 already name it (`views-models ADR-017`), and every bare `ADR-017` here
+means this document. The defect the collision can cause — a sentence that parses but is
+about the wrong decision — exists elsewhere, not here. The prefix is for readers arriving
+from another repo.*
+
 
 ADRs numbered 010 and above define:
 

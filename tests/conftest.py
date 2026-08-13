@@ -136,7 +136,7 @@ SIBLINGS = {
         ci_checkout=True,
         note=(
             "PUBLIC. Fetched, and the fetch is load-bearing rather than convenient: it "
-            "carries the coordinate-registry drift checks, and under ADR-017 it becomes "
+            "carries the coordinate-registry drift checks, and under vpp_017 (ADR-017) it becomes "
             "the authority source for the delivery-label check too. Pruning it as an "
             "unused sibling would disable both and leave a green build — the invisible "
             "skip ADR-016 §6 exists to prevent."
@@ -149,11 +149,11 @@ SIBLINGS = {
             "PRIVATE — the only one, and that is why it is not fetched. Checking it "
             "out needs a credential, which is an "
             "operator decision deferred pending a request to FAO to make the repository "
-            "public. **Nothing is dark because of this any more** (2026-08-11): ADR-017 "
+            "public. **Nothing is dark because of this any more** (2026-08-11): vpp_017 "
             "moved the delivery-label check onto the public coordinate registry, which "
             "needs no credential, so neither side reads the other. This entry stays "
             "PRIVATE because the fact is still true, not because anything is blocked on "
-            "it. See ADR-017 and register C-81."
+            "it. See vpp_017 and register C-81."
         ),
     ),
     "views-crafdapi": Sibling(
@@ -164,7 +164,7 @@ SIBLINGS = {
             "read this consumer's source for its query filter — and #248 deleted that "
             "check rather than repairing it: the same read broke twice in 24 hours "
             "because both consumers refactored a literal into a named constant, which "
-            "ADR-017 §7 predicted. The declaration stays because CONSUMER_REPO still "
+            "vpp_017 §7 predicted. The declaration stays because CONSUMER_REPO still "
             "names this repository; only the fetch is gone. What the source read used to "
             "cover is register C-92, and views-crafdapi#55 is the ask that would close it "
             "where the fact lives."
@@ -181,7 +181,7 @@ SIBLINGS = {
 #:
 #: It exists so this repository records **who receives each delivery**. It used to also
 #: locate a sibling checkout so the consumer-document-name pin could be read from that
-#: consumer's source; #248 deleted that read (ADR-017 §7 — we were never entitled to
+#: consumer's source; #248 deleted that read (vpp_017 §7 — we were never entitled to
 #: depend on another repository's file layout, and two consumers proved it in a day by
 #: improving theirs). What the map is for now is addressing: it is who register C-92's
 #: cross-repo asks are sent to.
