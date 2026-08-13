@@ -399,6 +399,14 @@ ADR-016 has CI check out `views-appwrite` and `views-crafdapi` so that cross-rep
 
 **The false justification.** ADR-016 §7 originally said the maintainer could merge over a failing check when something was urgent. Two reviewers challenged it independently. Measured 2026-08-10: `protect_main` lists **zero bypass actors**, and a GitHub ruleset applies to everyone except the actors it names — so administrator status confers no exemption. There is no classic branch protection either, so no `enforce_admins` route. The claim is withdrawn in the ADR; the risk it papered over is this entry.
 
+**⚠ THE TRIGGER HAS FIRED — this entry is no longer latent, as of 2026-08-13.** `protect_main` now requires the `test` status check on `main`, with **zero bypass actors**. Verified against the live ruleset, and observed working: PR #262 sat at `BLOCKED` until CI went green. A merge to `main` — the release to FAO — now requires views-appwrite to be reachable, and administrator status is not an exemption.
+
+**The exposure is as small as it can be made without a bypass actor**, and this epic is why. A week ago CI checked out two sibling repositories and the drift check fired on any row in any depended-on table; it now checks out one, and fires on the 13 rows each partner actually reads. What remains is irreducible: the registry lives in another repository and this one must read it.
+
+**The open choice, stated so it is not rediscovered during an outage.** This entry's own remedy is a bypass actor. There is none. Adding one lets a delivery fix through while upstream is down and weakens the guarantee; not adding one means an outage elsewhere can block FAO. **Decision: leave it as-is.** A bypass actor added in advance is a permanent hole against a hypothetical; added during an incident it is a console action taking under a minute. The first real incident is a better judge than we are today, and this paragraph is what makes it a two-minute decision rather than a discovery.
+
+**Original assessment, left visible because it was wrong in a useful way:**
+
 **Why this is latent rather than live.** `protect_main` currently requires **no status check at all** (C-81's enforcement half). So today a red build blocks nothing and this coupling costs nothing. The instant a required check is added — which C-81 asks for, correctly — the coupling becomes real and unbypassable in the same change. **Two open items that each look independently sensible combine into something neither of them says.**
 
 **The rate is not hypothetical.** views-appwrite reports five registry editions in four days (v1.4.0 2026-08-02 through v1.4.4 2026-08-05), **four of them observation-driven** — recording console facts, correcting a key's scopes — carrying no obligation for any consumer. Each would have reddened this repository and blocked a release.
