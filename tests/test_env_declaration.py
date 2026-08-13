@@ -35,10 +35,15 @@ import pytest
 
 from tests.seam_registry import (
     ABSENT as _ABSENT,
+    REGISTRY_RELPATH,
     REGISTRY_RELPATH as _REGISTRY_RELPATH,
+    RegistryReadError,
     RegistryReadError as _RegistryReadError,
+    registry_at,
     registry_at as _registry_at,
+    registry_current,
     registry_current as _registry_current,
+    rows,
     rows as _rows,
 )
 from tests.conftest import (
@@ -514,7 +519,12 @@ _TABLE_ROLE = {
     "contract": "MIRRORED",     # values live in our source by design (ADR-017 §5);
     #                             checked by tests/test_product.py, not by _declared_classes
     "excluded": "IGNORED",      # names the registry records as deliberately NOT coordinates
-    "test_environment": "IGNORED",  # a fact about the platform, not about this package
+    # IGNORED because nothing here READS it, not because it is none of our business —
+    # it is the clause that says which live checks this package may build, and a reader
+    # who believed the older comment spent weeks thinking a permission was a prohibition
+    # (register C-95, C-96). Its rows are bare strings, not tables, so it must stay out of
+    # `rows()` until that is handled (C-91).
+    "test_environment": "IGNORED",
     #: Arrived at registry v1.6.0, and it is views-appwrite#76 delivered — each edition
     #: marked ``obliges_consumers = true|false``, so a consumer can tell a console
     #: observation from a change it must act on. IGNORED only because nothing here reads
@@ -525,12 +535,11 @@ _TABLE_ROLE = {
     "meta": "METADATA",         # the edition and its amendment log
 }
 
-#: direction is deliberately unchecked. (An earlier version of this comment offered
-#: v1.5.1's removal of `[unmodelled]` as the worked example of a silent case. That was
-#: WRONG: `unmodelled` was never in this partition, so against v1.4.4 it would have
-#: been a RED build demanding classification. The rule is right; the illustration
-#: was not, and it had been repeated in three places.)
-#: silent while v1.5.0 adding `[contract]` is a red build with something to do.
+#: An IGNORED table vanishing upstream is deliberately unchecked; a new, unclassified one
+#: is a red build with something to do. (An earlier version of this comment illustrated
+#: the silent case with v1.5.1's removal of `[unmodelled]`, which was wrong — `unmodelled`
+#: was never in this partition, so it would have been a red build demanding
+#: classification. The rule was right; the illustration was not, in three places.)
 #: The only roles that mean anything. A typo in `_TABLE_ROLE` used to be silent, and it
 #: silently narrowed a security scan: mistyping "CONSUMED" dropped `target` from the
 #: no-copy check's sections, taking it from twelve values to two, with no test objecting.
@@ -689,9 +698,8 @@ def test_every_table_in_the_registry_is_classified_here():
     was silently ignoring four.
 
     **Directional on purpose.** Every table upstream must be classified; only the tables
-    we depend on must exist. An IGNORED table disappearing is not our business, which is
-    an IGNORED table disappearing is silent while a new, unclassified one is a red build
-    with something to do. Two such events in the registry's life so far, and this
+    we depend on must exist. An IGNORED table disappearing is not our business, so it is
+    silent, while a new, unclassified one is a red build with something to do. Two such events in the registry's life so far, and this
     repository needed to see both.
 
     *(An earlier draft illustrated the silent case with v1.5.1's removal of
@@ -809,6 +817,34 @@ def test_the_docstring_states_the_same_edition_the_constants_declare(partner):
 
 
 @pytest.mark.parametrize("partner", _PARTNERS)
+def test_the_docstring_url_points_at_the_commit_the_constant_declares(partner):
+    """The docstring publishes a blob URL. Its sha is a third copy of the pin, unguarded.
+
+    The neighbouring test compares the docstring's *version*; nothing compared its *sha*.
+    That is how an annotated tag reached the pin: git peeled it, every check passed, and
+    two public modules published a URL returning 404 three lines above the sentence "a
+    pinned URL does not rot". Third time this class has bitten — register C-57.
+    """
+    module = _PARTNER_ENV[partner][0]
+    urls = re.findall(
+        r"views-appwrite/blob/([0-9a-f]{7,40})/docs/ADRs/platform/coordinate_registry\.toml",
+        module.__doc__ or "",
+    )
+    assert urls, (
+        f"{partner}/appwrite_env.py's docstring no longer publishes a registry blob URL in "
+        "the expected form. If the URL moved, teach this test its new shape — do not delete "
+        "the check, or the sha goes unguarded again."
+    )
+    wrong = sorted({u for u in urls if not module.SEAM_CONTRACT_COMMIT.startswith(u[:7])})
+    assert not wrong, (
+        f"[{partner}] the docstring's blob URL names commit(s) {wrong} while "
+        f"SEAM_CONTRACT_COMMIT declares {module.SEAM_CONTRACT_COMMIT}. A reader following "
+        "that link reads a different edition from the one this module was verified against, "
+        "and if the sha is not a commit at all the link 404s."
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNERS)
 def test_the_pinned_commit_is_reachable_from_the_contract_repos_main(partner):
     """Existence is not reachability, and that distinction cost a merged PR (#196).
 
@@ -847,7 +883,15 @@ def test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong(tmp_path):
     import subprocess as sp
 
     def git(*args):
-        return sp.run(["git", "-C", str(tmp_path), *args], capture_output=True, text=True, check=True)
+        # `-c`, and a timeout. A contributor's global `commit.gpgsign` makes `git commit`
+        # fail with a bare CalledProcessError here — capture_output swallows git's
+        # explanation — and with a passphrase-protected key it blocks on pinentry with
+        # stdin inherited and no timeout, hanging the whole run (register C-91).
+        return sp.run(
+            ["git", "-C", str(tmp_path), "-c", "commit.gpgsign=false",
+             "-c", "core.hooksPath=/dev/null", *args],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
 
     git("init", "-q")
     git("config", "user.email", "t@t")
@@ -870,7 +914,11 @@ def test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong(tmp_path):
         "the reader must accept a well-formed registry, or the refusals below prove nothing"
     )
 
-    with pytest.raises(_RegistryReadError, match="does not resolve to a commit"):
+    # The five refusals, and note that two of them now say DIFFERENT things. A ref this
+    # clone cannot see and a ref that is not a commit used to share one message; they have
+    # different remedies — `git fetch` versus fix the pin — and conflating them sent
+    # contributors to the wrong one (register C-91).
+    with pytest.raises(_RegistryReadError, match="the pin is empty"):
         _registry_at(tmp_path, "")          # a blanked pin reads the INDEX
     with pytest.raises(_RegistryReadError, match="annotated TAG|does not start with it"):
         _registry_at(tmp_path, "v1")        # a tag object: git peels it, the URL 404s
@@ -878,8 +926,9 @@ def test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong(tmp_path):
         _registry_at(tmp_path, empty)       # exits 0, stdout empty
     with pytest.raises(_RegistryReadError, match="no meta.version or no"):
         _registry_at(tmp_path, anchorless)  # parses, but is not the registry
-    with pytest.raises(_RegistryReadError, match="does not resolve to a commit"):
-        _registry_at(tmp_path, "0" * 40)    # a pin that names nothing
+    with pytest.raises(_RegistryReadError, match="has no object"):
+        _registry_at(tmp_path, "0" * 40)    # this clone cannot see it; it cannot tell
+                                            # a bad pin from a missing fetch, and says so
 
 
 def test_the_role_vocabulary_is_closed():
@@ -914,7 +963,15 @@ def test_the_table_partition_would_catch_a_new_table_and_a_vanished_one():
     assert _unclassified_tables(base | {"brand_new_table": {}}) == ["brand_new_table"], (
         "a table nobody classified went unnoticed — that is how `[contract.*]` arrived"
     )
-    assert not _unclassified_tables(base), "the real registry's tables must all classify"
+    # NOT `assert not _unclassified_tables(base)` — `base` is built from `_TABLE_ROLE`,
+    # so that reduces to `set(x) - set(x)` and is empty for every possible input. It
+    # shipped, claiming "the real registry's tables must all classify" about a file this
+    # test never opens. The silent direction is worth asserting; it just has to be
+    # asserted about something the function did not derive from itself.
+    assert not _unclassified_tables({"connection": {}, "target": {}}), (
+        "a subset of the classified tables was reported as unclassified — the check is "
+        "inverted, and every real registry would fail it"
+    )
 
     assert _missing_dependencies({k: v for k, v in base.items() if k != "target"}) == ["target"], (
         "a table this package reads rows out of vanished and the check did not object"
@@ -1334,3 +1391,113 @@ def test_the_scan_understands_every_assignment_form_this_repo_writes():
         "document that introduced it — that is the stopping rule, and it is why the "
         "form list is derived from this repository's own corpus rather than invented."
     )
+
+
+def _scratch_repo(tmp_path: Path):
+    """A throwaway git repo whose registry differs on `main`, on `origin/main`, and on disk.
+
+    `-c` rather than `git config`: a contributor's global `commit.gpgsign` or
+    `core.hooksPath` would otherwise reach in and either fail opaquely or block on
+    pinentry with no timeout.
+    """
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), "-c", "commit.gpgsign=false",
+             "-c", "core.hooksPath=/dev/null", *args],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+
+    target = tmp_path / REGISTRY_RELPATH
+    target.parent.mkdir(parents=True)
+
+    def edition(marker: str) -> str:
+        return f'[meta]\nversion = "{marker}"\n\n[connection.X]\nclass = "connection"\n'
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    target.write_text(edition("on-main"))
+    git("add", "-A")
+    git("commit", "-q", "-m", "main")
+
+    # a remote-tracking ref that is AHEAD of main, so preferring one over the other shows
+    git("checkout", "-q", "-b", "upstream")
+    target.write_text(edition("on-origin-main"))
+    git("add", "-A")
+    git("commit", "-q", "-m", "origin")
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
+    git("checkout", "-q", "main")
+
+    # and a dirty working tree, which is what #196 was about
+    target.write_text(edition("in-the-working-tree"))
+    return tmp_path
+
+
+def test_registry_current_reads_origin_main_not_the_working_tree(tmp_path):
+    """The reason `tests/seam_registry.py` exists, and until now the only untested part.
+
+    A sibling clone sits on whatever branch its own agent last worked on. Comparing
+    against that grades this repository on unreviewed content — issue #196, which cost a
+    withdrawn pull request. Replacing this function with a working-tree or `HEAD` read
+    used to leave the whole suite green.
+    """
+    repo = _scratch_repo(tmp_path)
+    assert registry_current(repo)["meta"]["version"] == "on-origin-main", (
+        "registry_current read something other than origin/main. A working-tree read is "
+        "#196 verbatim; a bare `main` read misses that the sibling's remote has moved."
+    )
+
+
+def test_registry_current_refuses_a_repo_with_neither_ref(tmp_path):
+    """No `origin/main` and no `main` must say so, not return an empty registry."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)],
+                   capture_output=True, text=True, check=True, timeout=30)
+    with pytest.raises(RegistryReadError, match="neither origin/main nor main"):
+        registry_current(tmp_path)
+
+
+def test_registry_at_refuses_a_commit_whose_registry_is_missing_or_unparseable(tmp_path):
+    """`git show` failing, and a blob that is not TOML — two refusal branches nothing reached."""
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), "-c", "commit.gpgsign=false",
+             "-c", "core.hooksPath=/dev/null", *args],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+
+    (tmp_path / "unrelated.txt").write_text("no registry here\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "no registry")
+    absent = git("rev-parse", "--short", "HEAD").stdout.strip()
+
+    target = tmp_path / REGISTRY_RELPATH
+    target.parent.mkdir(parents=True)
+    target.write_text("this is not toml = = =\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "not toml")
+    garbage = git("rev-parse", "--short", "HEAD").stdout.strip()
+
+    with pytest.raises(RegistryReadError, match="cannot read the registry"):
+        registry_at(tmp_path, absent)
+    with pytest.raises(RegistryReadError, match="did not parse as TOML"):
+        registry_at(tmp_path, garbage)
+
+
+def test_rows_refuses_a_section_whose_entries_are_not_tables():
+    """`[test_environment]` on the live registry is scalars, not sub-tables.
+
+    Nothing breaks today because that table is IGNORED — but the partition check's own
+    remediation message tells a maintainer to classify a new table CONSUMED, and doing
+    that for one written this way used to return an `AttributeError` from a dict
+    comprehension. Register C-91.
+    """
+    scalars = {"test_environment": {"status": "none", "fact": "a sentence"}}
+    with pytest.raises(RegistryReadError, match=r"\[test_environment\]\.(status|fact) is a bare str"):
+        rows(scalars, ("test_environment",))
+
+    # and the ordinary shape still works, or the refusal above proves nothing
+    tables = {"target": {"APPWRITE_X": {"class": "target", "value": "v"}}}
+    assert rows(tables, ("target",)) == {"APPWRITE_X": ("target", "target", "v")}

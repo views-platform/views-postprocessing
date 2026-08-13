@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-12                           |
 | Total Concerns    | 97                                   |
-| Open Concerns     | 24                                   |
-| Resolved Concerns | 73                                   |
+| Open Concerns     | 21                                   |
+| Resolved Concerns | 76                                   |
 
 ---
 
@@ -203,7 +203,9 @@ Cross-refs: **C-57** (the exclusion and why), **C-89** (the traceback amplificat
 
 The second half is a **permission**, and this repository spent weeks believing the whole clause was a prohibition. Reclassify and read it, or record why a permission that changes what we may build is not a fact we depend on.
 
-Cross-refs: **C-94** (the mechanism this permission authorises), **C-95** (the mis-citation that compounded it), issue #249.
+**Partly addressed 2026-08-12 (#249).** The classification stays `IGNORED` — nothing here reads the table, and its rows are bare strings rather than sub-tables, so feeding it to `rows()` would raise (C-91). What changed is the *reason*: the comment said "a fact about the platform, not about this package", which is what let a permission read as a prohibition. It now says the table governs which live checks this package may build, and points at C-95 and C-96. Reading it mechanically waits on C-91.
+
+Cross-refs: **C-94** (the mechanism this permission authorises), **C-95** (the mis-citation that compounded it), **C-91** (why it is not read yet), issue #249.
 
 ---
 
@@ -216,7 +218,7 @@ Cross-refs: **C-94** (the mechanism this permission authorises), **C-95** (the m
 | Source | `/expert-code-review` of the standing decisions, 2026-08-12 |
 | Trigger | Anyone reasons from the integration-test prohibition — for a preflight, a drill, or a new ADR. |
 | Owner | This repository. |
-| Location | `reports/technical_risk_register.md` (~:475, ~:1628, ~:1717); anywhere else citing þing-02 D2 for this. |
+| Location | `reports/technical_risk_register.md` — corrected at all three sites 2026-08-12 (#249); this entry is the record, and the remaining mentions of `þing-02 D2` are its own narration. |
 
 This register cites **þing-02 D2** for the ruling that integration tests against the production Appwrite project are forbidden. þing-02 D2 is about identity and key separation. The ruling is **þing-01 D2** (`þingit/01_identity_secrets_config/orð_dómr.md:53-61`), and it differs from the paraphrase in two ways that matter: it is **conditional** (*"until the operator creates one"*), and it **grants** read-only preflight validation as the permitted live check. It also records that creating a test project is **assigned to the operator** and gates the provisioning-path drill — an open assignment, not a closed door.
 
@@ -244,29 +246,6 @@ Every mechanism this platform has aimed at invisible delivery is a **CI-time pro
 **What it would not cover, so nobody over-reads it later:** it proves the document is findable by that name in the store. It does not prove the consumer's code queries by that name. That last link is theirs, and issues asking each consumer to bind their *query* to their constant are filed under #248.
 
 Cross-refs: **C-92** (the check we deleted rather than replaced), **C-87** (the broader residual), **C-96** (the permission), ADR-013 §4.1a, ADR-017 §5/§8, issue #248.
-
----
-
-### C-93: A mutation proof written by whoever wrote the guard tests that author's imagination, not the guard
-
-| Field | Value |
-|-------|-------|
-| ID | C-93 |
-| Tier | 3 — no defect of its own. It is the reason several of the defects below survived three reviews, and it changes what "mutation-proven" is allowed to mean in this codebase. |
-| Source | `/code-review max` on PR #239 post-merge, 2026-08-11, corroborated by measurement |
-| Trigger | The next time a guard is defended in a pull-request description as "mutation-proven" against a list of cases the same change authored. |
-| Owner | Whoever writes the next guard; the standard belongs in ADR-014 §2. |
-| Location | ADR-014 §2; `tests/test_env_declaration.py::test_no_coordinate_value_is_copied_into_this_repo`; every `_MUTANTS`-style proof in `tests/`. |
-
-ADR-014 §2 says a guard is mutation-proven or it is decoration. That is right, and it is not sufficient. **A mutation proof is only as good as the mutant list, and a mutant list written by the author of the guard covers the cases the author already had in mind — which are, by construction, the cases the guard already handles.**
-
-Measured, on the guard that protects a public repository from publishing a coordinate value. Its author (this assistant) proposed thirteen input forms, proved all thirteen caught, and wrote that result into C-57 and into a commit message. An independent review then proposed twenty-nine forms. **Fifteen missed.** The thirteen were not a sample of how people write markdown; they were a sample of what the author had thought of, and every one of them happened to share the property the guard depended on.
-
-This is not the same as ADR-014 §2 failing. The proof was real, it was executed, and every case in it genuinely passed. The gap is that "proven against N mutations" reads as a statement about the guard when it is a statement about N.
-
-**What would change.** Two candidates, and they are not exclusive: (a) for a guard whose failure is silent — a leak, an invisible delivery — the mutant list is written or extended by something other than the change that wrote the guard; (b) the mutant list is a *declared, named* artifact in the test file rather than a paragraph in a commit message, so the next contributor can see what was and was not tried. `tests/test_ci_sibling_coverage.py::_MUTANTS` is already (b) and is the pattern to copy.
-
-Cross-refs: **C-57** and **C-89** (the guard this was measured on), **C-90** (a proof that proved nothing at all), ADR-014 §2.
 
 ---
 
@@ -331,60 +310,6 @@ Net **−140 lines**, leaving the file **+55 over its pre-story size** rather th
 2. **`test_the_drift_check_would_catch_a_rename` re-types its subject's comparison inline** rather than calling it, so blanking that subject's assertions leaves the proof green — the same defect its two siblings had repaired. Pre-existing, found while reading for this change. **Routed to #243**, which is already in this file.
 
 Cross-refs: **C-57** (the scan's own entry and its history), **C-93** (why the author's own proof did not find this), **C-90** (the sibling defect in the drift checks), ADR-014 §1, issues #242, #243.
-
----
-
-### C-90: A mutation proof that cannot fail, and the untested function a module was extracted to create
-
-| Field | Value |
-|-------|-------|
-| ID | C-90 |
-| Tier | 2 — this is the entry PR #239 was written to close, reopened by the code that closed it. It reinstates release-blocking false alarms on the path that is this project's production release, and it does so under a docstring saying the opposite. |
-| Source | `/code-review max` on PR #239 post-merge, 2026-08-11; verified by direct measurement against views-appwrite `origin/main` |
-| Trigger | **Both remaining halves are proof defects, not runtime ones.** (a) Someone mutates `_unclassified_tables` or `_TABLE_ROLE` and believes the tautological proof covers it. (b) Someone changes `registry_current` — the reason `tests/seam_registry.py` exists — and the suite stays green. *(The original trigger, an unrelated coordinate arriving upstream, died with `arrived` in #245.)* |
-| Owner | This repository. |
-| Location | `tests/test_env_declaration.py` — `test_the_table_partition_would_catch_a_new_table_and_a_vanished_one` (the tautology); `tests/seam_registry.py::registry_current` (untested). Function names, not line numbers: this entry has cited stale ones before. |
-
-**~~`arrived` is not filtered by the names this package reads.~~ RESOLVED 2026-08-12 (#245) — deleted; see the mitigation below. Left visible because the reasoning it prompted is the entry's most useful part.** `changed` is; `arrived` is computed over every row of every table this package depends on. Measured on the live registry: **25 rows, 8 of which this package never reads** — six of them keys and callers belonging to other repositories. So views-appwrite issuing one more key for an unrelated repo turns both partner parametrizations red here, with a message demanding a `SEAM_CONTRACT` re-pin for a coordinate this package cannot use.
-
-That is the exact failure class C-86 records and that PR #239 was written to remove, and the same test's docstring seven lines above says **"Silent through: prose edits, `[meta]` bumps, and rows belonging to anyone else."** The prose describes the check that was designed; the code implements a wider one.
-
-There is a real question underneath, and it should be decided rather than inherited: a *new* coordinate in a table we read may be one we must adopt. That argues for table-granularity on arrival and row-granularity on change. **They cannot both stand.**
-
-**DECIDED 2026-08-12 (#245): the docstring won, and the cost is real.** The arrival half was deleted. A coordinate views-appwrite issues *for this package* — or a second `[contract.*]` row for a future partner such as views-productionapi — is now **silent** until a human reads the registry: no test, no run-time assert, nothing. `assert_env_declared` cannot see it, because it iterates the names this package already declares. That is the accepted price of not being reddened by every unrelated row, and it is recorded here rather than left to be discovered. *(The half's own defence — that `[contract.*]` "arrived exactly this way and nothing else here would have seen it" — was false at table granularity, where the partition check catches it, and true at row granularity, which is exactly the cost now accepted.)*
-
-**The partition's mutation proof cannot fail.** `assert not _unclassified_tables(base)` where `base = {name: {} for name in _TABLE_ROLE}` reduces to `set(_TABLE_ROLE) - set(_TABLE_ROLE)`, empty for every possible input. Its message — *"the real registry's tables must all classify"* — asserts a fact about a file this test never opens. It is decoration inside the test whose own docstring is about removing decoration.
-
-**`registry_current` has no test.** The module `tests/seam_registry.py` was extracted for one reason: two copies of the reader disagreed about whether to read the sibling's `main` or its working tree, and reading the working tree is issue #196 verbatim. The function that settles it is called by five tests and is the subject of none. Replacing its body with `rev-parse HEAD` — the defect it exists to prevent — leaves the suite at its exact baseline. Three of its error branches are executed by nothing.
-
-**Partial mitigation 2026-08-12 (#245) — the false-alarm half is gone; the two proof defects are not.**
-
-`arrived` is **deleted**. Measured before deleting: each partner reads 13 of the 25 rows in the tables this package depends on, and 8 of those rows belong to no repository here — so the check subscribed this repository to another repo's changelog. Mutation-proven after: an unrelated API key and a third partner's contract row are silent; a rotation and a removal still fire. The docstring and the code now agree, and the stopping rule sits above the check.
-
-**Still open, and routed to #246**: the partition's mutation proof is a tautology (`base` is built from `_TABLE_ROLE`, so `_unclassified_tables(base)` is empty for every possible input), and `registry_current` — the function `tests/seam_registry.py` was extracted to create — has no test, so replacing it with a working-tree read leaves the suite at baseline. This entry stays open until both land.
-
-Cross-refs: **C-86** (whose partial-mitigation paragraph this falsifies), **C-89** (the sibling defect in the no-copy scan), **C-93**, **C-91**, ADR-014 §1/§2, issue #196.
-
----
-
-### C-91: The git plumbing this arc added turns ordinary developer states into hard errors, bare tracebacks, and one possible hang
-
-| Field | Value |
-|-------|-------|
-| ID | C-91 |
-| Tier | 3 — no wrong data and nothing silent. It taxes every contributor who does not already have the exact sibling checkout this repository assumes, and it does so with diagnoses that point at the wrong cause. |
-| Source | `/code-review max` on PR #239 post-merge, 2026-08-11 |
-| Trigger | Any of: a contributor clones views-appwrite shallow, single-branch, or before the pinned commit; a table classified `CONSUMED` upstream is written as flat keys rather than sub-tables; a contributor has `commit.gpgsign` or a global `core.hooksPath` set. |
-| Owner | This repository. |
-| Location | `tests/seam_registry.py:71` (refusal diagnoses), `:150` (`rows`), `tests/test_env_declaration.py:820` (the scratch repo). |
-
-**A stale clone produces four errors carrying the wrong explanation.** The reader the extraction replaced read the file off disk, so an older checkout simply read an older file. Now a clone that predates the pinned commit — or is shallow, or was made `--single-branch`, which matters because views-appwrite's default branch is not `main` — raises *"does not resolve to a commit … an empty ref reads the index and a branch reads a moving tip"*. That names neither cause and does not say `git fetch`. Meanwhile `test_the_pinned_commit_is_reachable_from_the_contract_repos_main` detects the identical root cause and *skips* with the right remedy. One condition, one skip, four errors, three explanations.
-
-**`rows()` raises a bare `AttributeError` on a shape the live registry already has.** It guards a null section and not a scalar row. Verified: views-appwrite's `[test_environment]` holds `status` and `fact` as top-level strings. That table is `IGNORED`, so nothing breaks today — but when the partition check fires on a new upstream table, its own message instructs the maintainer to classify it `CONSUMED` or `MIRRORED`, and doing so for a table written that way returns a traceback pointing into a dict comprehension. From the module whose docstring says a helper justified by failing legibly must not hand back a bare traceback.
-
-**The scratch repo inherits the developer's global git config and has no timeout.** `test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong` sets `user.name` and `user.email` and stops. With `commit.gpgsign = true` it fails with a bare `CalledProcessError` — `capture_output=True` swallows git's explanation. With a passphrase-protected key it blocks on pinentry with no `timeout`, hanging the whole run; `conftest.git_output`, which this helper bypasses, caps at 30 seconds. The leak was anticipated for identity and not for the setting that blocks.
-
-Cross-refs: **C-90** (the same module's untested core), **C-88** (why the module exists outside `conftest.py`), ADR-008 (explicit failure), issue #196.
 
 ---
 
@@ -670,7 +595,7 @@ The FAO delivery authenticates with the `UN FAO` key. That key expires **2026-11
 
 **What this repo can and cannot do.** It cannot rotate anything; it holds no credentials and must not (þing-01 D3). What it can do is fail early and legibly rather than mid-delivery — and it does not currently. `appwrite_env.py` validates that the declared variables are *present*, which an expired key still is. An expired key is indistinguishable from a valid one until the first request comes back unauthorised, by which point a delivery is part-way through.
 
-**Deliberately not fixed here, and the reason is C-84's own shape.** A preflight that checks key validity means an authenticated call at startup, and the only project to make it against is production — which þing-02 **D2** forbids for tests and this would not quite be. The honest position is that this is a *date to act on*, not a mechanism to build, and inventing a mechanism would be building the wrong thing to feel busy. Registered so the date is not discovered by an outage.
+**Deliberately not fixed here, and the reason is C-84's own shape.** A preflight that checks key validity means an authenticated call at startup, and the only project to make it against is production — which **þing-01 D2** forbids for tests and this would not quite be — and which that verdict explicitly permits as *read-only preflight validation*, so the obstacle here is the authenticated call, not the prohibition (see C-95). The honest position is that this is a *date to act on*, not a mechanism to build, and inventing a mechanism would be building the wrong thing to feel busy. Registered so the date is not discovered by an outage.
 
 Cross-refs: **C-81** (the same operator session's other half — branch protection and the CI token), **C-27** (no rotation mechanism for a secret value upstream), **C-57** (the pinned-registry detector, which is how this arrived here at all — it demanded the v1.4.4 bump and the bump is what surfaced the expiry), þing-02 A3(i), views-appwrite C-65 and C-66.
 
@@ -1079,6 +1004,114 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-91: The git plumbing this arc added turns ordinary developer states into hard errors, bare tracebacks, and one possible hang — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-91 |
+| Tier | 3 — no wrong data and nothing silent. It taxes every contributor who does not already have the exact sibling checkout this repository assumes, and it does so with diagnoses that point at the wrong cause. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11 |
+| Trigger | Any of: a contributor clones views-appwrite shallow, single-branch, or before the pinned commit; a table classified `CONSUMED` upstream is written as flat keys rather than sub-tables; a contributor has `commit.gpgsign` or a global `core.hooksPath` set. |
+| Owner | This repository. |
+| Location | `tests/seam_registry.py:71` (refusal diagnoses), `:150` (`rows`), `tests/test_env_declaration.py:820` (the scratch repo). |
+
+**A stale clone produces four errors carrying the wrong explanation.** The reader the extraction replaced read the file off disk, so an older checkout simply read an older file. Now a clone that predates the pinned commit — or is shallow, or was made `--single-branch`, which matters because views-appwrite's default branch is not `main` — raises *"does not resolve to a commit … an empty ref reads the index and a branch reads a moving tip"*. That names neither cause and does not say `git fetch`. Meanwhile `test_the_pinned_commit_is_reachable_from_the_contract_repos_main` detects the identical root cause and *skips* with the right remedy. One condition, one skip, four errors, three explanations.
+
+**`rows()` raises a bare `AttributeError` on a shape the live registry already has.** It guards a null section and not a scalar row. Verified: views-appwrite's `[test_environment]` holds `status` and `fact` as top-level strings. That table is `IGNORED`, so nothing breaks today — but when the partition check fires on a new upstream table, its own message instructs the maintainer to classify it `CONSUMED` or `MIRRORED`, and doing so for a table written that way returns a traceback pointing into a dict comprehension. From the module whose docstring says a helper justified by failing legibly must not hand back a bare traceback.
+
+**The scratch repo inherits the developer's global git config and has no timeout.** `test_the_pinned_reader_refuses_every_way_a_baseline_can_be_wrong` sets `user.name` and `user.email` and stops. With `commit.gpgsign = true` it fails with a bare `CalledProcessError` — `capture_output=True` swallows git's explanation. With a passphrase-protected key it blocks on pinentry with no `timeout`, hanging the whole run; `conftest.git_output`, which this helper bypasses, caps at 30 seconds. The leak was anticipated for identity and not for the setting that blocks.
+
+**RESOLVED 2026-08-12 (#247) — all three.**
+
+**One condition, one diagnosis.** A ref this clone cannot see and a ref that is not a frozen commit used to share a message that named neither cause and never said `git fetch`. They are now separate branches with separate remedies, and a third — an empty pin — is called what it is: a defect in the pin, not the checkout. The bogus-sha case is deliberately classified as *"this clone cannot see it"*, because that is the truth: the reader cannot tell a bad pin from a missing fetch, and the message says so rather than guessing.
+
+**`rows()` refuses a scalar row by name.** `[test_environment]` on the live registry is top-level strings; classifying such a table CONSUMED — which the partition check's own remediation message invites — used to return an `AttributeError` from a dict comprehension, in the module whose justification is failing legibly.
+
+**The scratch repositories are hermetic.** All three now run git with `-c commit.gpgsign=false -c core.hooksPath=/dev/null` and an explicit timeout. Verified by running the suite under a `HOME` whose `.gitconfig` sets `commit.gpgsign = true` and points `core.hooksPath` at a nonexistent directory: four tests pass where they would previously have failed opaquely or blocked on pinentry with no timeout.
+
+Mutation-proven three ways, each reverted: removing the scalar-row refusal, the missing-object branch, and the empty-pin branch.
+
+Cross-refs: **C-90** (the same module's untested core), **C-88** (why the module exists outside `conftest.py`), ADR-008 (explicit failure), issue #196.
+
+---
+
+---
+
+
+### C-90: A mutation proof that cannot fail, and the untested function a module was extracted to create — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-90 |
+| Tier | 2 — this is the entry PR #239 was written to close, reopened by the code that closed it. It reinstates release-blocking false alarms on the path that is this project's production release, and it does so under a docstring saying the opposite. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11; verified by direct measurement against views-appwrite `origin/main` |
+| Trigger | **Both remaining halves are proof defects, not runtime ones.** (a) Someone mutates `_unclassified_tables` or `_TABLE_ROLE` and believes the tautological proof covers it. (b) Someone changes `registry_current` — the reason `tests/seam_registry.py` exists — and the suite stays green. *(The original trigger, an unrelated coordinate arriving upstream, died with `arrived` in #245.)* |
+| Owner | This repository. |
+| Location | `tests/test_env_declaration.py` — `test_the_table_partition_would_catch_a_new_table_and_a_vanished_one` (the tautology); `tests/seam_registry.py::registry_current` (untested). Function names, not line numbers: this entry has cited stale ones before. |
+
+**~~`arrived` is not filtered by the names this package reads.~~ RESOLVED 2026-08-12 (#245) — deleted; see the mitigation below. Left visible because the reasoning it prompted is the entry's most useful part.** `changed` is; `arrived` is computed over every row of every table this package depends on. Measured on the live registry: **25 rows, 8 of which this package never reads** — six of them keys and callers belonging to other repositories. So views-appwrite issuing one more key for an unrelated repo turns both partner parametrizations red here, with a message demanding a `SEAM_CONTRACT` re-pin for a coordinate this package cannot use.
+
+That is the exact failure class C-86 records and that PR #239 was written to remove, and the same test's docstring seven lines above says **"Silent through: prose edits, `[meta]` bumps, and rows belonging to anyone else."** The prose describes the check that was designed; the code implements a wider one.
+
+There is a real question underneath, and it should be decided rather than inherited: a *new* coordinate in a table we read may be one we must adopt. That argues for table-granularity on arrival and row-granularity on change. **They cannot both stand.**
+
+**DECIDED 2026-08-12 (#245): the docstring won, and the cost is real.** The arrival half was deleted. A coordinate views-appwrite issues *for this package* — or a second `[contract.*]` row for a future partner such as views-productionapi — is now **silent** until a human reads the registry: no test, no run-time assert, nothing. `assert_env_declared` cannot see it, because it iterates the names this package already declares. That is the accepted price of not being reddened by every unrelated row, and it is recorded here rather than left to be discovered. *(The half's own defence — that `[contract.*]` "arrived exactly this way and nothing else here would have seen it" — was false at table granularity, where the partition check catches it, and true at row granularity, which is exactly the cost now accepted.)*
+
+**The partition's mutation proof cannot fail.** `assert not _unclassified_tables(base)` where `base = {name: {} for name in _TABLE_ROLE}` reduces to `set(_TABLE_ROLE) - set(_TABLE_ROLE)`, empty for every possible input. Its message — *"the real registry's tables must all classify"* — asserts a fact about a file this test never opens. It is decoration inside the test whose own docstring is about removing decoration.
+
+**`registry_current` has no test.** The module `tests/seam_registry.py` was extracted for one reason: two copies of the reader disagreed about whether to read the sibling's `main` or its working tree, and reading the working tree is issue #196 verbatim. The function that settles it is called by five tests and is the subject of none. Replacing its body with `rev-parse HEAD` — the defect it exists to prevent — leaves the suite at its exact baseline. Three of its error branches are executed by nothing.
+
+**Partial mitigation 2026-08-12 (#245) — the false-alarm half is gone; the two proof defects are not.**
+
+`arrived` is **deleted**. Measured before deleting: each partner reads 13 of the 25 rows in the tables this package depends on, and 8 of those rows belong to no repository here — so the check subscribed this repository to another repo's changelog. Mutation-proven after: an unrelated API key and a third partner's contract row are silent; a rotation and a removal still fire. The docstring and the code now agree, and the stopping rule sits above the check.
+
+**RESOLVED 2026-08-12 (#246) — both proof defects closed.**
+
+The tautology is gone. `assert not _unclassified_tables(base)` where `base` was built from `_TABLE_ROLE` reduced to `set(x) - set(x)`, empty for every possible input, while claiming *"the real registry's tables must all classify"* about a file the test never opens. The silent direction is now asserted against an input the function did not derive from itself, and mutation-proven by making `_unclassified_tables` report everything.
+
+`registry_current` has tests — three of them, plus two for `registry_at`'s refusal branches that nothing reached. The scratch repository differs on `main`, on `origin/main` and on disk, so preferring the wrong one is visible. Mutation-proven four ways: reading `HEAD` (issue #196's defect, which used to leave the suite green), preferring `main` over `origin/main`, dropping the unreadable-blob refusal, and dropping the TOML-parse wrapper. All four now fail.
+
+The scratch repository also runs git with `-c commit.gpgsign=false -c core.hooksPath=/dev/null`, which is C-91's third item arriving early: a contributor's global signing config would otherwise fail opaquely or block on pinentry with no timeout.
+
+Cross-refs: **C-86** (whose partial-mitigation paragraph this falsifies), **C-89** (the sibling defect in the no-copy scan), **C-93**, **C-91**, ADR-014 §1/§2, issue #196.
+
+---
+
+---
+
+
+### C-93: A mutation proof written by whoever wrote the guard tests that author's imagination, not the guard — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-93 |
+| Tier | 3 — no defect of its own. It is the reason several of the defects below survived three reviews, and it changes what "mutation-proven" is allowed to mean in this codebase. |
+| Source | `/code-review max` on PR #239 post-merge, 2026-08-11, corroborated by measurement |
+| Trigger | The next time a guard is defended in a pull-request description as "mutation-proven" against a list of cases the same change authored. |
+| Owner | Whoever writes the next guard; the standard belongs in ADR-014 §2. |
+| Location | ADR-014 §2; `tests/test_env_declaration.py::test_no_coordinate_value_is_copied_into_this_repo`; every `_MUTANTS`-style proof in `tests/`. |
+
+ADR-014 §2 says a guard is mutation-proven or it is decoration. That is right, and it is not sufficient. **A mutation proof is only as good as the mutant list, and a mutant list written by the author of the guard covers the cases the author already had in mind — which are, by construction, the cases the guard already handles.**
+
+Measured, on the guard that protects a public repository from publishing a coordinate value. Its author (this assistant) proposed thirteen input forms, proved all thirteen caught, and wrote that result into C-57 and into a commit message. An independent review then proposed twenty-nine forms. **Fifteen missed.** The thirteen were not a sample of how people write markdown; they were a sample of what the author had thought of, and every one of them happened to share the property the guard depended on.
+
+This is not the same as ADR-014 §2 failing. The proof was real, it was executed, and every case in it genuinely passed. The gap is that "proven against N mutations" reads as a statement about the guard when it is a statement about N.
+
+**RESOLVED 2026-08-12 (#250) — ADR-014 §2 amended.**
+
+The rule landed is a **diagnostic**, not a process: *if a guard can only be proven against inputs you invented, that is the signal the guard is on the wrong side of a boundary — it is verifying a fact you do not own.* Prefer moving the check to where the fact lives, or anchoring the mutant list in something real — this repository's corpus, the registry's rows, an observable outcome. The no-copy scan's stopping rule is the worked example and shipped in #243.
+
+Two cheap obligations where that is impossible: the mutant list is a declared artifact in the test file, not a paragraph in a pull request; and a proof must be able to fail.
+
+**Deliberately not adopted:** requiring an independent mutant author for every guard. The friction would exceed the disease for a single maintainer. Independent mutants are worth buying only for the silent-failure class — a leak, an invisible delivery — and the arc that produced this entry is the evidence for both halves: five parallel reviewers found what four rounds of self-review had not, and that cost was proportionate exactly once.
+
+Cross-refs: **C-57** and **C-89** (the guard this was measured on), **C-90** (a proof that proved nothing at all), ADR-014 §2.
+
+---
+
+---
+
 
 ### C-82: Governance-artifact prose carries numbers and statuses that nothing checks — RESOLVED 2026-08-05
 
@@ -1926,7 +1959,7 @@ Cross-refs: C-15 (the provenance this field serves), C-22 (the recall process th
 
 Replaced by tests of `contract/historical.assert_metadata_complete` — the code that actually gates a delivery — parametrised over the **imported** `METADATA_COLS`, plus source-scan pins that the gate stays at build time and is still invoked. Verified 2026-08-02: `pytest -q tests/test_validation.py` → **14 passed**. Mutation-tested: narrowing the gate to a single column fails **9 of 14**; the old suite passed that mutation untouched, because it was not testing the gate.
 
-**Residual 2 — the enrich→validate end-to-end test — RELOCATED to #18**, per the Register Conventions' relocation rule (a relocation is not complete until the destination exists and is cited by number). Every *leg* is now covered — enrichment (**no longer a leg**: `GaulLookupEnricher` and `test_enrichment.py` were deleted in #90/B3b, the lookup join having moved into the frame build; recorded here because the closure above was argued from a list this deletion shortened), artifact build (`test_historical_builder.py`, 7), reader parity (`test_historical_parity.py`, 3), the invariants on primitives (`test_input_integrity_e2e.py`, 8), the wire end to end (`test_hop_b_sink_e2e.py`, 6), the null-gate (`test_validation.py`, 14). What remains uncovered is **the manager orchestrating them**, which needs views-pipeline-core and a production-like Appwrite environment — and þing-02 **D2** forbids integration tests against the production project, no non-production one existing.
+**Residual 2 — the enrich→validate end-to-end test — RELOCATED to #18**, per the Register Conventions' relocation rule (a relocation is not complete until the destination exists and is cited by number). Every *leg* is now covered — enrichment (**no longer a leg**: `GaulLookupEnricher` and `test_enrichment.py` were deleted in #90/B3b, the lookup join having moved into the frame build; recorded here because the closure above was argued from a list this deletion shortened), artifact build (`test_historical_builder.py`, 7), reader parity (`test_historical_parity.py`, 3), the invariants on primitives (`test_input_integrity_e2e.py`, 8), the wire end to end (`test_hop_b_sink_e2e.py`, 6), the null-gate (`test_validation.py`, 14). What remains uncovered is **the manager orchestrating them**, which needs views-pipeline-core and a production-like Appwrite environment — and **þing-01 D2** forbids integration tests against the production project while no non-production one exists (see C-95 — the ruling is conditional, and creating that project is an open operator assignment).
 
 That gap has **two standing trackers already**, which is why keeping a third here is noise rather than signal: issue **#18** (open since 2026-06-04) and `tests/test_falsification_campaign_3_5.py`, an `xfail(strict)` probe that **flips to XPASS the moment someone writes the test** — a self-surfacing tracker, which is more than this entry was doing. |
 | Tier | 3 |

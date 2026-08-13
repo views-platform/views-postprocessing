@@ -142,9 +142,6 @@ Concretely, for the delivery label:
 
 ### The order these land in is part of the decision, not an afterthought
 
-**None of those three is in place yet**, and the present tense above describes the decided
-end state rather than today's behaviour.
-
 **The obvious sequence has a hole, and it is green.** If step 1 lands, then step 2 replaces
 the source-reading check with a registry read, and step 3 has not happened yet, the state
 is: the registry declares a string a human typed; we check our copy against that string and
@@ -249,6 +246,52 @@ one. Once the check reads the registry instead, that download buys nothing, and
 because a download that has quietly stopped earning its place is how the previous version
 of all this went wrong, and because ADR-016 cannot know it: the decision that obsoletes it
 is this one.
+
+### §7a What a check in this repository may rest on
+
+The rule §7 arrives at for one case generalises, and it is worth stating on its own,
+because every defect this document's arc produced sat on the wrong side of it.
+
+> **A check here may rest on a fact we own, on a fact another repository has *declared* in
+> the public registry, or on an *outcome* we can observe. It may never rest on another
+> repository's implementation.**
+>
+> Where a needed fact is none of those three, the check is not built here. It is requested
+> as a declaration, requested as a consumer obligation, or registered as an accepted gap
+> with a named owner and trigger.
+
+[ADR-003](003_authority_of_declarations_over_inference.md) already says declarations over
+inference. It was applied rigorously to the product and not at all across the repository
+boundary, and that asymmetry is where the cost landed.
+
+**The evidence, because this is a rule bought with two days.** The source-reading check
+broke twice in twenty-four hours — views-faoapi on 11 August, views-crafdapi on the 12th
+— each time because that repository refactored a literal argument into a named constant.
+Verified: commits `8615574` and `0c493ae` each introduce that constant *and* add that
+repository's registry-binding test. **The improvement and the breakage were one edit.**
+A mechanism a consumer breaks by improving itself will keep breaking.
+
+The corollary is the one that costs something to accept: when a fact is none of the three,
+the honest move is to say so and register it, not to build a proxy. The delivery-label
+composition is exactly that — see §8 and register C-92.
+
+### §7b An ADR records a decision, and never the current state of the code
+
+This document and [ADR-016](016_ci_read_access_to_private_siblings.md) both described what
+the code did at the moment of writing — *"this is the shape the registry check now has"*,
+*"today the check still reads the consumer's source"*. Every such sentence needed an
+erratum the first time the code moved, and between them they produced nine stale claims in
+two days, one of which repealed a rule in this document on a premise that was false by six
+hours.
+
+> **An ADR states a decision, its reasoning, and what would reverse it. It does not
+> describe the current implementation.** Where a reader needs to know what the code does
+> now, the ADR names the test or module that answers, and the answer lives there.
+
+A decision record that doubles as a description of the code is a second copy of the code,
+and it rots on a schedule nobody is watching. This clause is written into ADR-017 rather
+than ADR-000 because it was learned here; if it survives contact with a second document it
+belongs in the ADR conventions.
 
 ### §8 What this does **not** verify, stated plainly
 

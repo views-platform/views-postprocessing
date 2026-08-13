@@ -126,6 +126,12 @@ The **`public?` column is not, and cannot be** — which is why `public` was del
 because a reader needs it to follow the argument. Nothing reads this table; if it drifts
 from `SIBLINGS`, only a human will notice.
 
+**Trigger, since an unenforced claim needs one (ADR-014 §4):** re-read this column the next
+time a repository in it changes visibility, or the next time CI fails to check one out. The
+owner is whoever makes that change. It is deliberately not machine-checked — verifying it
+means a network call from a test suite that makes none, and the failure it would catch
+(a tokenless checkout of something now private) already fails loudly at the checkout step.
+
 ### §5 CI downloads exactly what that list says, and a test enforces it
 
 The workflow downloads every sibling marked `ci_checkout=True`.
