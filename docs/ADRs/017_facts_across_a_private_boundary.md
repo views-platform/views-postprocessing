@@ -7,6 +7,7 @@
 > in Repository*), so a bare "ADR-017" resolves to the wrong document for a reader sitting
 > in either of them (#264). The number is unchanged and every existing citation stays valid
 > — the prefix is additive.
+
 **Date:** 2026-08-10
 **Decider:** Simon Polichinel von der Maase
 **Scope:** what this repository does when it depends on a fact held in a repository it

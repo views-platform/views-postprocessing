@@ -233,7 +233,7 @@ Cross-refs: **C-94**, **C-96**, þing-01 `orð_dómr.md` D2, issue #249.
 | ID | C-94 |
 | Tier | 2 — the failure mode is invisible by construction and lands on the live FAO path: upload succeeds, storage is billed, the consumer's endpoint returns empty, nothing raises anywhere. ADR-013 §4.1a's *"invisible to the consumer, not merely degraded."* |
 | Source | `/expert-code-review` of the standing decisions, 2026-08-12 |
-| Trigger | **Re-specified 2026-08-13 after the original fired on a cause it could not have caught.** (a) A delivery is reported empty **and an upload occurred** — the preflight below would have caught that. (b) `APPWRITE_READ_API_KEY` is provisioned, at which point the deferral has no remaining cost. **(c) A delivery is reported empty with no upload since the last change — nothing here covers that, and it is a different gap; see the amendment.** |
+| Trigger | **Re-specified twice on 2026-08-13; the first attempt was not exclusive and its own worked example matched two arms.** (a) A delivery is reported empty **and an upload occurred after the bucket reached the state under investigation** — that is what the preflight below would catch, and the time bound is what the first attempt omitted. (b) `APPWRITE_READ_API_KEY` is provisioned, at which point the deferral has no remaining cost. *(A third arm — "reported empty with no upload since" — was drafted and withdrawn: it is not observable from this repository, which the amendment says four lines on, and ADR-014 §4 requires a trigger someone can notice. It is a gap, and is stated as one below rather than dressed as a trigger.)* |
 | Owner | This repository, for the mechanism. The credential is the operator's. |
 | Location | `views_postprocessing/contract/wire/sink.py` (the upload path, where nothing verifies); `views_postprocessing/delivery/`. |
 
@@ -249,7 +249,14 @@ FAO emailed at **09:15 UTC** that `faoapi.viewsforecasting.org` returned no data
 
 **But the cause was not an invisible delivery.** faoapi's post-mortem (`views-faoapi/reports/post_mortems/2026-08-13_fao_empty_bucket_unannounced_migration.md`) records that *"the seam coordinates match (the producer writes to the FAO bucket under the declared document name; the consumer reads exactly that — the ADR-017 invisible-delivery work held)"*, and that the empty bucket was *"the migration + no-delivery-since state, not a producer/seam/credential failure"* — a deliberate destructive migration upstream, with no run executed since. **No upload occurred**, so a post-upload findability check would have observed nothing and reported nothing.
 
-**So the trigger was mis-specified, not the mechanism.** "A delivery is reported empty" names a symptom with at least two causes, and this entry's preflight addresses only one of them. The trigger above is now split accordingly, and the second cause — *the bucket is empty because nothing was delivered* — is named as an uncovered gap rather than absorbed into this one. Nothing here detects it: this repository is not told when a delivery is due, and has no view of whether the last one is still present.
+**So the trigger was mis-specified, not the mechanism.** "A delivery is reported empty" names a symptom with at least two causes, and this entry's preflight addresses only one of them.
+
+**Two uncovered causes, stated as gaps rather than dressed as triggers.** Neither is observable from here, so neither can be a trigger under ADR-014 §4 — a trigger nobody can notice is a wish:
+
+1. *The bucket is empty because nothing was delivered.* This repository is not told when a delivery is due and has no view of whether the last one is still present. That is the 2026-08-12 case.
+2. *The bucket is not empty but what is served is stale.* faoapi's own post-mortem records a warm per-key cache that can serve stale historical over an emptied bucket — so "reported empty" would not even be the symptom.
+
+Both belong to whoever can see delivery cadence, which is not this seat. Recorded here so the next reader does not mistake the trigger's narrowness for coverage.
 
 **The preflight is still not built**, and the reason is now sharper than "delivery works today": the case that fired is not the case it catches, and `[secret.APPWRITE_READ_API_KEY]` on the live registry still reads `status = "planned — operator issues (D4)"`.
 
@@ -310,7 +317,7 @@ Net **−140 lines**, leaving the file **+55 over its pre-story size** rather th
 
 **What is deliberately NOT chased.** Four surviving mutations narrow the scan's *scope* — a length floor, a dropped section, a swallowed `SyntaxError`, a `break` after the first finding — and none is visible to a test that plants its own fixture. They are **#243**'s subject and are routed there. A fifth deletes the no-print assertion itself: infinite regress, carried here instead. Two residuals stand: the markdown branch's output is not behaviourally proven (it holds no value by construction), and a leak shorter than the planted fixture would pass. Chasing either is the whack-a-mole this epic exists to refuse.
 
-4. **The scan's own docstring carried four registry values**, and pytest prints the failing function's source — so the guard would have published them on exactly the event it exists to catch. The message was clean; the traceback was not. Now it names coordinates. **The wider finding is registered separately as C-97**: 33 standalone values sit in docstrings and comments across nine files, production modules included, and the AST scan excludes docstrings by a deliberate C-57 decision taken before anyone counted them.
+4. **The scan's own docstring carried four registry values**, and pytest prints the failing function's source — so the guard would have published them on exactly the event it exists to catch. The message was clean; the traceback was not. Now it names coordinates. **The wider finding is registered separately as C-97**: standalone values sit in docstrings and comments across several files (**25 in 8** as of 2026-08-13 — C-97 owns the number and the counting basis; do not cite it from here), production modules included, and the AST scan excludes docstrings by a deliberate C-57 decision taken before anyone counted them.
 
 **Deliberately still open, and moved rather than closed:** the `secret` exemption at `:1042` and the ban-set's package-name collision are the *scope* of the scan, not its reporting, and belong with the matcher rewrite in **#243**. This entry stays open until they land, because closing it now would close a Tier 2 on two-thirds of its content.
 
@@ -321,7 +328,7 @@ What actually keeps it open is neither of those — it is the two deferrals belo
 - Deferral 1's trigger is *"when #243 finishes touching `tests/test_env_declaration.py`"*. #243 finished. The leak guards are still in that file; `tests/test_redaction_guard.py` is only cross-referenced.
 - Deferral 2 was *"routed to #243"* — and #243 closed without it. `test_the_drift_check_would_catch_a_rename` still rebuilds its subject's comparison with its own comprehension rather than driving the checked function.
 
-Both are now unowned, which is worse than deferred. **They need a new home before this entry can close**, and naming that is this amendment's only job.
+Both were unowned, which is worse than deferred — **now filed as #265**, with acceptance criteria and the reason each is not urgent. That issue closing is what closes this entry: its stated condition was already met by #243. *(An earlier draft of this amendment named the problem and left it there, which under ADR-014 §4 converts two compliant deferrals into two non-compliant items. Naming is not rehoming.)*
 
 **Two deferrals, both with triggers (ADR-014 §4).**
 
@@ -616,11 +623,12 @@ Cross-refs: **C-77** (the same field's producer-side half, resolved), ADR-013 §
 
 Cross-refs: **C-72** (the re-vendor this would have triggered, and the trigger A2 now rides on), **C-77** (the historical leg whose correctness is what makes the co-delivery premise false), ADR-013 §2.2a, ADR-014 §4 (the deferral's named trigger), #133, views-faoapi ADR-033 and its register C-169.
 
----
 
 **⚠ This entry has no closing condition, and that is the finding — 2026-08-13.** Its Trigger is a habit (*"check what this repository already delivers before writing code"*), it states *"No guard is proposed, deliberately"*, and its Location says *"Not a code defect."* **No evidence in any tree can ever satisfy it**, so it cannot be closed, only carried — which is what a register is not for.
 
 It is a worked example wearing a risk's clothes. **Give it a real trigger or move it to a lessons artifact**; the post-mortem at `reports/post_mortems/2026-08-12_the_guards_that_did_not_guard.md` is the natural home. Left open here only because relocating a record is itself a change that should be deliberate rather than done in a truth pass (Register Conventions: a relocation is not complete until the destination exists and is cited by number).
+
+---
 
 ### C-84: Every identity this repo delivers under dies on 2026-11-17, within 3h35m of the other
 
@@ -694,7 +702,7 @@ See also C-17 (RESOLVED — implicit column naming between mapper and manager), 
 | Field | Value |
 |-------|-------|
 | ID | C-26 |
-| Tier | 1 — silent data fabrication with no error signal: absence of evidence becomes evidence of absence in FAO-delivered values |
+| Tier | ~~1~~ → **2**, re-tiered 2026-08-13 by this entry's own rule once its Tier-1 gate was answered (see the amendment below). Original rationale, which applied while the gate was open:  silent data fabrication with no error signal: absence of evidence becomes evidence of absence in FAO-delivered values |
 | Source | `expert-code-review` (2026-06-12) |
 | Trigger | When changing the historical fetch path, or when bumping views-pipeline-core's dataloader — verify whether the **currently active** path (`get_feature_frame`, since #126) zero-fills missing months/cells, and that any fill count is logged rather than silent |
 | Location | views-pipeline-core `modules/dataloaders/dataloaders.py:1208` (`fillna(0.0)`, legacy pandas fetch); consumed at `views_postprocessing/unfao/managers/unfao.py:125-147` (`_read_historical_data`, legacy branch). Frame-native branch: `:101-124` (`_read_historical_frame` → `get_feature_frame`) |
@@ -709,7 +717,6 @@ See also C-25 (same data path, wrong-file variant), C-15 (upload provenance woul
 
 **OPEN VERIFICATION QUESTION (review-rr 2026-07-31) — tier held at 1 pending an answer.** `fillna` has **zero occurrences in this repo**; the fabrication site is entirely upstream. Since #126, the historical path run-0 actually used is `get_feature_frame` (`_read_historical_frame`), **not** the pandas `get_data` branch that reaches `dataloaders.py:1208`. It could not be verified from this seat (views-pipeline-core is deliberately absent from test environments, per repo convention). **Question for the pipeline-core seat: does `get_feature_frame` inherit the same unconditional `fillna(0.0)`, or does the frame-native fetch propagate NaN?** If it propagates NaN, this Tier 1 now describes only the legacy branch (retirement is the named post-run-0 follow-up) and should be re-tiered. **Do not downgrade on inspection of this repo alone** — the deliverable ran through the unverified path at global scale on 2026-07-27.
 
----
 
 **⚠ The Tier-1 gate is ANSWERED, and the answer is no — 2026-08-13.** This entry says it is Tier 1 *until* someone establishes whether `get_feature_frame` inherits the `fillna(0.0)`. **views-pipeline-core#366 closed 2026-08-04**, and at the version this repository now installs the loader states the opposite in its own docstring: *"no silent `fillna(0.0)` — NaN policy belongs to the engine boundary."*
 
@@ -721,6 +728,8 @@ By this entry's own re-tier rule, Tier 1 is no longer justified.
 3. *"The zarr exposes `last_valid_month_id` … but it is not consulted"* — false here; it is read via `source_metadata.last_valid_month_id`, fabricated months are dropped, and it degrades open with a log line.
 
 **What genuinely survives is upstream and different:** views-datafactory pre-fills its grids with `fill_value=0.0` per its ADR-047, tracked as **views-datafactory#420 (OPEN)**. That is the live risk; the mechanism this entry describes is not.
+
+---
 
 ### C-28: No timeout on the datafactory zarr fetch — historical path can hang indefinitely
 
@@ -796,9 +805,9 @@ This entry's own Tier-2 rationale was that the design *"forces copy-pasting a 27
 
 **26** — thirteen differing lines on each side (re-run 2026-08-13 with the command above; it read **32**/sixteen when filed, and the drift is itself the entry's point). Substitute every form of the partner name (case-insensitively, including `un_fao`/`un_crafd` and `faoapi`) and it falls to **2**: one line per side.
 
-The sixteen are, by category: one import, one class name, two partner-named method definitions, their two call sites, one refusal-message string, one line that is *both* the `*_ENV` tuple reference and the store label, the four env-name literals, and four lines of prose.
+The **thirteen** are, by category *(the breakdown below was written for the sixteen and has not been re-derived — treat the count above as authoritative and re-run the command rather than this list)*: one import, one class name, two partner-named method definitions, their two call sites, one refusal-message string, one line that is *both* the `*_ENV` tuple reference and the store label, the four env-name literals, and four lines of prose.
 
-**None of the difference is behaviour, but "byte-identical" is too strong for one method.** `_read`, `_transform`, `_validate`, `_check_coverage` and `_build_historical_artifact` are byte-identical. `_save_contract` is not: five of the thirteen fall inside it — the datastore call, two comments, and the refusal string. All five are partner-name substitutions; none changes what the method does.
+**None of the difference is behaviour, but "byte-identical" is too strong for one method.** `_read`, `_transform`, `_validate`, `_check_coverage` and `_build_historical_artifact` are byte-identical. `_save_contract` is not: **four** of the thirteen fall inside it (lines 356, 367, 368, 371) — two comments, the refusal string, and one call argument. The datastore construction at :355 is **byte-identical**. All four are partner-name substitutions; none changes what the method does. *(An earlier correction updated "sixteen"→"thirteen" without re-checking this sentence, and left "five … the datastore call" — both wrong.)*
 
 *(**This paragraph was wrong five times, and how it was wrong is the entry's most useful content.** (1) "roughly ten lines", carried from the review that found it and never measured. (2) A normalised count of 4 and a claim that `_save_contract` was byte-identical, neither checked. (3) A story that #211 "fixed two divergences that already existed" — false: at `9799e87` the second line was **byte-identical in both files**, an inherited inaccuracy rather than a divergence, and rewording CRAF'd's copy is what *created* a divergence there. Only the `:222` pair was real. (4) and (5) An exact list of sixteen line numbers and a line count, invalidated twice within the hour by comment corrections elsewhere in the same file.*
 
@@ -1070,7 +1079,9 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 
 views-pipeline-core#367 landed in **3.0.1** (released 2026-08-11): `managers/model/model.py` now logs with `exc_info=True` and **re-raises**, with a comment naming this repository's `AttributeError` as the symptom it produced.
 
-`pyproject.toml` already allowed it (`>=3.0.0,<4.0.0`), but `poetry.lock` still resolved **3.0.0** — so CI installed the unfixed version for two days after the fix shipped. Bumped with `poetry update views-pipeline-core --lock`: exactly one package moved, three lines, suite unchanged at 422 passed.
+`pyproject.toml` already allowed it (`>=3.0.0,<4.0.0`), but `poetry.lock` still resolved **3.0.0** — so CI installed the unfixed version for two days after the fix shipped. Bumped with `poetry update views-pipeline-core --lock`: exactly one package moved in the lockfile, and nothing else — `Requires-Dist` is identical between the two releases, so no sub-dependency changed.
+
+**The local suite does not verify this, and saying it did would be the defect this pass exists to remove.** This machine resolves `views_pipeline_core` to an editable checkout, not to either release, so the 422 passed proves nothing about 3.0.1. **CI is the only real test** — it runs `poetry install` and takes what the lock says. Note also that a patch bump is not a small payload here: 3.0.1 changes ~20 files and splits a module (their #431). Nothing this repository imports moved, which is the check that matters.
 
 *Verification note, because the obvious check is misleading:* `grep -c "exc_info=True"` returns **6 in both tags**. The fix is identifiable only by the comment naming #367 — present in 3.0.1, absent in 3.0.0. A count that looks decisive and is not.
 

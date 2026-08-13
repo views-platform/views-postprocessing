@@ -136,11 +136,12 @@ This is not yet a platform-wide convention — these three issues are its first 
 driven by an active collision rather than a sweep. views-postprocessing#264,
 views-models#393 (landed), views-crafdapi#58.
 
-*Audited when adopting: this repository has **zero wrong referents**. All four citations of
-views-models' 017 already name it (`views-models ADR-017`), and every bare `ADR-017` here
-means this document. The defect the collision can cause — a sentence that parses but is
-about the wrong decision — exists elsewhere, not here. The prefix is for readers arriving
-from another repo.*
+*Audited when adopting: this repository has **no wrong referents** — no sentence here is
+about the wrong decision, which is the defect the collision causes elsewhere. It has **one
+bare foreign citation**: ADR-013 §7(d) writes "their ADR-017" of views-models', qualified
+only by an antecedent two sentences earlier. Now `vmo_017`. Every other reference to
+views-models' 017 already named it, and every bare `ADR-017` here means this document. The
+prefix is for readers arriving from another repo.*
 
 
 ADRs numbered 010 and above define:

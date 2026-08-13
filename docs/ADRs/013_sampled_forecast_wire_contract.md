@@ -186,7 +186,7 @@ means, and cleanup of the internal store has no owner yet.*)
 it defines the ensembles and launches the runs that enter the wire (using
 pipeline-core's machinery); it owns the **delivery pointer** — the declaration of
 *which source ships to which partner* (as of adoption, the `postprocessors/un_fao`
-launch config naming the ensemble; their ADR-017 proposes making it first-class — see
+launch config naming the ensemble; their `vmo_017` (views-models ADR-017) proposes making it first-class — see
 §4.2a for how the pointer meets this contract); it owns the run-0 end-to-end
 verification (views-models#230, §11.1–§11.2); and it hosts the platform's decision
 record (this contract was ratified on views-models#149).
