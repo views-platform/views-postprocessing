@@ -1095,7 +1095,6 @@ views-pipeline-core#367 landed in **3.0.1** (released 2026-08-11): `managers/mod
 
 ---
 
-
 ### C-91: The git plumbing this arc added turns ordinary developer states into hard errors, bare tracebacks, and one possible hang — RESOLVED
 
 | Field | Value |
@@ -1128,7 +1127,6 @@ Cross-refs: **C-90** (the same module's untested core), **C-88** (why the module
 ---
 
 ---
-
 
 ### C-90: A mutation proof that cannot fail, and the untested function a module was extracted to create — RESOLVED
 
@@ -1171,7 +1169,6 @@ Cross-refs: **C-86** (whose partial-mitigation paragraph this falsifies), **C-89
 
 ---
 
-
 ### C-93: A mutation proof written by whoever wrote the guard tests that author's imagination, not the guard — RESOLVED
 
 | Field | Value |
@@ -1202,7 +1199,6 @@ Cross-refs: **C-57** and **C-89** (the guard this was measured on), **C-90** (a 
 ---
 
 ---
-
 
 ### C-82: Governance-artifact prose carries numbers and statuses that nothing checks — RESOLVED 2026-08-05
 
