@@ -81,46 +81,42 @@ def test_s2_2a_is_not_secretly_in_force():
     )
 
 
-def test_e3s_claim_about_unreleased_behaviour_is_still_true():
-    """Erratum E3 says a pipeline-core fix is in no released version. That expires.
+def test_e3_does_not_still_say_the_fix_is_unreleased():
+    """E3's expiry has fired and been discharged. This stops it coming back.
 
-    E3 lifts §2.2's `pipeline_core_version` caveat in two halves. The second — that an
-    editable install reports ``"unknown"`` rather than a stale number — landed in
-    pipeline-core on 2026-08-04, a day and a half *after* 3.0.0 was uploaded to PyPI. So
-    the erratum states plainly that **no released version contains it**, and that it
-    becomes true of producers at the next release.
+    The predecessor of this check was a tripwire: E3 claimed pipeline-core's
+    editable-install fix was "not yet in any released version", which is a dated claim
+    about someone else's release history, and it would go stale the moment pipeline-core
+    published again. It did — **3.0.1, 2026-08-11 13:40 UTC** — and on 2026-08-13 the
+    tripwire fired in CI and E3 was corrected. Verified at the tag: 3.0.0 returns
+    ``version("views_pipeline_core")`` with no editable detection, 3.0.1 reads
+    ``direct_url.json`` and returns ``"unknown"`` when ``dir_info.editable`` is set.
 
-    That is a dated claim about someone else's release history, in the document that
-    punishes those hardest. It stops being true the moment pipeline-core publishes again,
-    and nothing about this repository would change to signal it.
+    What replaces it is deliberately smaller, because the thing it guarded is now stable.
+    "In force for producers running 3.0.1 or later" is not a claim any future release can
+    falsify, so there is no expiry left to watch and re-pointing the tripwire at 3.0.1
+    would be inventing one. The only remaining failure is textual: a revert or a bad merge
+    restoring the sentence that is now false.
 
-    So: if the pipeline-core we are running is a **released distribution** (not an
-    editable checkout) and its version is past 3.0.0, the next release has happened and
-    E3's wording is stale. CI installs from PyPI, so this is live there even though a
-    maintainer's editable environment leaves it inert — which is stated rather than
-    discovered, because a guard that only ever runs in one place is half a guard.
+    One thing the tripwire got wrong is worth keeping in view. It observed *our* installed
+    distribution, so it could not see 3.0.1 until this repository's lockfile moved to it —
+    it reported the release two days late. A guard on another repo's release history that
+    watches our own pin is measuring the wrong thing; it caught this because the two
+    happened to coincide.
     """
-    pytest.importorskip("views_pipeline_core", reason="a declared dependency")
-    from importlib.metadata import PackageNotFoundError, version as dist_version
-
-    import views_pipeline_core
-
-    source = Path(views_pipeline_core.__file__).resolve()
-    if "site-packages" not in str(source):
-        pytest.skip(
-            "pipeline-core is an editable checkout here, so its recorded version says "
-            "nothing about what has been released. This check is live in CI, which "
-            "installs from PyPI."
-        )
-    try:
-        installed = dist_version("views-pipeline-core")
-    except PackageNotFoundError:  # pragma: no cover - not a distribution at all
-        pytest.skip("pipeline-core is not installed as a distribution")
-
-    parts = tuple(int(p) for p in installed.split(".")[:3] if p.isdigit())
-    assert parts <= (3, 0, 0), (
-        f"pipeline-core {installed} is released and past 3.0.0, so Erratum E3's claim "
-        "that the editable-install fix is 'not yet in any released version' is out of "
-        "date. Re-read E3 against that release: the second half of the lift is probably "
-        "now in force, and the sentence saying it is not must go."
+    # E3's own bullet, not the whole Post-adoption record: "Erratum E3" is also mentioned
+    # in §5 and "Erratum E2" appears in the header above both, so splitting on the bare
+    # names spans ~600 lines and would let either assertion be satisfied by unrelated text.
+    entries = re.split(r"^- \*\*(?=\d{4}-)", _ADR.read_text(), flags=re.M)
+    e3 = next((e for e in entries if e.startswith("2026-08-10 — Erratum E3")), None)
+    assert e3 is not None, "Erratum E3's entry is no longer in the Post-adoption record"
+    assert "not yet in any released version" not in e3, (
+        "Erratum E3 has regained the wording that was false from 2026-08-11, when "
+        "views-pipeline-core 3.0.1 shipped the editable-install fix. E3 was corrected on "
+        "2026-08-13 to record that release; something has restored the superseded text."
+    )
+    assert "3.0.1" in e3, (
+        "Erratum E3 no longer names the release that discharged it. The lift's second "
+        "half is in force for producers running views-pipeline-core 3.0.1 or later, and "
+        "E3 is where a consumer looks that up."
     )

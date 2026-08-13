@@ -323,3 +323,37 @@ def test_the_register_is_dated_and_governed(register):
         "the header must carry an ISO Last Updated date"
     )
     assert "ADR-010" in register, "the register must name its governing ADR"
+
+
+def test_every_entry_is_fenced_off_from_the_one_above_it(register):
+    """An entry heading follows a horizontal rule, or opens its section.
+
+    Register C-85 and C-26 each grew an amendment that was appended *below* the
+    entry's terminating ``---`` rather than above it. Markdown does not care,
+    but a reader does: both amendments rendered as an unheaded preamble to the
+    *next* entry, so C-85's correction appeared to be part of C-84 and C-26's
+    re-tiering appeared to be part of C-28. Nothing caught it, because every
+    other structural check here splits on ``### `` and so cannot see which side
+    of the rule a paragraph fell on.
+
+    The rule is the only thing that marks where an entry stops. This check is
+    what makes appending to the wrong entry a test failure rather than a
+    rendering accident.
+    """
+    lines = register.split("\n")
+    section_starts = {i for i, line in enumerate(lines) if line.startswith("## ")}
+    misfenced = []
+    for i, line in enumerate(lines):
+        if not re.match(r"^### [CD]-\d+", line):
+            continue
+        # Opening an entry directly under its section heading is the one exception.
+        if i >= 2 and any(s in section_starts for s in (i - 1, i - 2)):
+            continue
+        if not (i >= 2 and lines[i - 1].strip() == "" and lines[i - 2].strip() == "---"):
+            misfenced.append(f"  line {i + 1}: {line[:70]}\n    preceded by: {lines[i - 2:i]!r}")
+    assert not misfenced, (
+        "these entries are not fenced off from the entry above them, so anything "
+        "appended to their predecessor renders as their preamble:\n"
+        + "\n".join(misfenced)
+        + "\n\nan entry heading must follow a '---' rule and one blank line."
+    )

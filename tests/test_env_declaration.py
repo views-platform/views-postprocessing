@@ -509,14 +509,14 @@ def test_every_declared_name_is_classified_here(partner):
 #: **Declared, and asserted against the live registry** — a table appearing upstream that
 #: nobody here has classified is a change this repository has not looked at. That is not
 #: hypothetical: `[contract.*]` arrived in v1.5.0 carrying a live obligation (the
-#: ADR-017 delivery-label mirror), and the ONLY mechanism here that noticed was a
+#: vpp_017 (ADR-017) delivery-label mirror), and the ONLY mechanism here that noticed was a
 #: version-string comparison that fired for the wrong reason and was deleted with this
 #: change. Four tables were being ignored silently at the time.
 _TABLE_ROLE = {
     "connection": "CONSUMED",   # parsed by _declared_classes; coordinates we read
     "target": "CONSUMED",       # parsed by _declared_classes; coordinates we read
     "secret": "CONSUMED",       # parsed by _declared_classes; the operator's slots
-    "contract": "MIRRORED",     # values live in our source by design (ADR-017 §5);
+    "contract": "MIRRORED",     # values live in our source by design (vpp_017 §5);
     #                             checked by tests/test_product.py, not by _declared_classes
     "excluded": "IGNORED",      # names the registry records as deliberately NOT coordinates
     # IGNORED because nothing here READS it, not because it is none of our business —
@@ -693,7 +693,7 @@ def test_every_table_in_the_registry_is_classified_here():
 
     But it did have a real job underneath the noise, and this is that job. On 2026-08-10
     the registry grew a ``[contract.*]`` table carrying a live obligation for this
-    repository — the ADR-017 delivery-label mirror — and the edition check was the *only*
+    repository — the vpp_017 delivery-label mirror — and the edition check was the *only*
     mechanism here that noticed, because ``_declared_classes`` parses three tables and
     was silently ignoring four.
 
@@ -1193,7 +1193,7 @@ def test_no_coordinate_value_is_copied_into_this_repo():
     # Scoped by the declared partition, NOT by an inline tuple — so a new table cannot
     # be swept in by a one-word edit, and `contract` cannot be swept in at all.
     #
-    # `[contract.*]` values are MIRRORED: ADR-017 §5 requires them to appear in this
+    # `[contract.*]` values are MIRRORED: vpp_017 §5 requires them to appear in this
     # package's source, because we write them onto every upload. Banning them here would
     # forbid the thing the contract obliges. That is not an exception to "never copy a
     # coordinate" — it is a different class, declared upstream: the registry's own header
