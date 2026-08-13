@@ -384,28 +384,38 @@ Cross-refs: **C-46** (which records the builder's separate resolver and the guar
 
 ---
 
-### C-86: The release path now depends on two other repositories, and there is no way past a red build
+### C-86: The release path depends on another repository, and there is no way past a red build
 
 | Field | Value |
 |-------|-------|
 | ID | C-86 |
-| Tier | 2 — no wrong data ships and nothing is silent. What is at risk is the ability to *ship at all* on a day when someone else's repository has moved, on the path that is this project's production release. Latent today, live the moment a status check becomes required. |
+| Tier | 2 — no wrong data ships and nothing is silent. What is at risk is the ability to *ship at all* on a day when someone else's repository has moved, on the path that is this project's production release. **Live since 2026-08-13 04:51 CEST**; latent before that. |
 | Source | External review of ADR-016 by the views-appwrite and views-faoapi seats (#231, #233), 2026-08-10 |
 | Trigger | **Two, and the first is the one to watch.** (a) A status check becomes required on `main` — at that moment this stops being latent. (b) An upstream merge to a sibling's `main` reddens this repository while a delivery fix is waiting. |
 | Owner | Simon. Both available responses are console actions: add a bypass actor to `protect_main`, or accept the coupling as written. |
-| Location | `.github/workflows/run_pytest.yml` — the two sibling checkout steps; ADR-016 §7, §7a, §7b. |
+| Location | `.github/workflows/run_pytest.yml` — the views-appwrite checkout step inside job `test`; the `protect_main` ruleset; ADR-016 §7, §7a, §7b. |
 
 ADR-016 has CI check out `views-appwrite` and `views-crafdapi` so that cross-repository checks run on every change rather than on a maintainer's habits. That is the right trade and the entry does not dispute it. What it records is the cost, which was accepted in the ADR on a justification that turned out to be false.
 
 **The false justification.** ADR-016 §7 originally said the maintainer could merge over a failing check when something was urgent. Two reviewers challenged it independently. Measured 2026-08-10: `protect_main` lists **zero bypass actors**, and a GitHub ruleset applies to everyone except the actors it names — so administrator status confers no exemption. There is no classic branch protection either, so no `enforce_admins` route. The claim is withdrawn in the ADR; the risk it papered over is this entry.
 
-**⚠ THE TRIGGER HAS FIRED — this entry is no longer latent, as of 2026-08-13.** `protect_main` now requires the `test` status check on `main`, with **zero bypass actors**. Verified against the live ruleset, and observed working: PR #262 sat at `BLOCKED` until CI went green. A merge to `main` — the release to FAO — now requires views-appwrite to be reachable, and administrator status is not an exemption.
+**⚠ THE TRIGGER HAS FIRED. This entry is live, not latent, from 2026-08-13 04:51 CEST.**
 
-**The exposure is as small as it can be made without a bypass actor**, and this epic is why. A week ago CI checked out two sibling repositories and the drift check fired on any row in any depended-on table; it now checks out one, and fires on the 13 rows each partner actually reads. What remains is irreducible: the registry lives in another repository and this one must read it.
+`protect_main` ruleset version `46391648` added `required_status_checks: [{context: "test"}]`. The version before it, `45955166` (in force from 2026-08-08), carried no such rule — so the "latent" assessment below was true right up to that instant, and is superseded rather than mistaken.
 
-**The open choice, stated so it is not rediscovered during an outage.** This entry's own remedy is a bypass actor. There is none. Adding one lets a delivery fix through while upstream is down and weakens the guarantee; not adding one means an outage elsewhere can block FAO. **Decision: leave it as-is.** A bypass actor added in advance is a permanent hole against a hypothetical; added during an incident it is a console action taking under a minute. The first real incident is a better judge than we are today, and this paragraph is what makes it a two-minute decision rather than a discovery.
+The coupling is now unbypassable: `bypass_actors: []`, and the API reports `current_user_can_bypass: "never"` for an account with `admin = true`. That is stronger evidence for "administrator status is not an exemption" than this entry's original argument from ruleset semantics. There is no classic branch protection either — `branches/main/protection` returns 404 — so no `enforce_admins` route exists.
 
-**Original assessment, left visible because it was wrong in a useful way:**
+The required context is the job id `test`, which contains the views-appwrite checkout step, and the workflow sets no `continue-on-error`. **So a merge to `main` — the release to FAO — now requires views-appwrite to be reachable.**
+
+*(An earlier draft of this paragraph offered PR #262 as "observed working: it sat at BLOCKED until CI went green." That does not survive its own evidence and is withdrawn. The required `test` check was never red on #262; the only failing check was `check-branch`, which is **not** required and blocks by a different mechanism. What the record does support: the requirement was in force before #262 opened, and the merge landed 21 seconds after `test` reported success.)*
+
+**What this epic did to the exposure, stated accurately.** An earlier draft said CI checked out two sibling repositories a week ago and one now. Measured: on 2026-08-06 it checked out **one** — views-crafdapi. views-appwrite was added 2026-08-10 once it went public, and views-crafdapi was removed 2026-08-12. **The count is unchanged at one; what changed is which repository, and what the check does with it.** The two-sibling window lasted about two and a half days. The real reduction is in the matching: the check that was in force a week ago compared `meta.version` and fired on any upstream edit; it now compares the 13 rows each partner declares, out of 25 in the tables it reads.
+
+**The open choice, stated so it is not rediscovered during an outage.** This entry lists three responses in order of preference. The first — views-appwrite#76's machine-readable obligation flag — **landed** as registry v1.6.0 and is recorded below. The second is a bypass actor; there is none. The third is that the coupling stands as ADR-016 §7 describes, *"defensible but should be chosen rather than discovered"*.
+
+**Recommendation (mine), pending the operator's assent:** take the third. A bypass actor added in advance is a permanent hole against a hypothetical; added during an incident it is a console action taking under a minute. This paragraph is what makes that a two-minute decision rather than a discovery. **Not recorded as settled** — `Owner` above makes both responses console actions, and those are the operator's.
+
+**Original assessment, superseded 2026-08-13 and left visible because it was true when written and correctly named both the mechanism and the moment:**
 
 **Why this is latent rather than live.** `protect_main` currently requires **no status check at all** (C-81's enforcement half). So today a red build blocks nothing and this coupling costs nothing. The instant a required check is added — which C-81 asks for, correctly — the coupling becomes real and unbypassable in the same change. **Two open items that each look independently sensible combine into something neither of them says.**
 
@@ -426,14 +436,15 @@ week — the new checks are **green**, because none of those editions touched a 
 package reads. Under the old check every one of them was a red build blocking a release.
 
 **This does not close the entry, and the distinction matters.** C-86 is about CI depending
-on two other repositories with no way past a red build. That dependency is untouched: the
+on another repository with no way past a red build. That dependency is untouched: the
 sibling checkout still happens, `protect_main` still has zero bypass actors, and a change
 upstream that *does* touch a row we read will still redden this repository and block a
 merge — correctly, and that is the point. What changed is that it now fires for reasons
 that carry an obligation.
 
-The entry's trigger is unchanged and remains a console action: **a status check becomes
-required on `main`**, at which moment the coupling stops being latent.
+~~The entry's trigger is unchanged and remains a console action: **a status check becomes
+required on `main`**, at which moment the coupling stops being latent.~~ **That happened on
+2026-08-13 — see the amendment at the top of this entry.**
 
 **Amended 2026-08-11 — the first-preference resolution has LANDED, and this entry found out
 from a guard rather than from a notification.** views-appwrite#76 shipped as registry
@@ -493,9 +504,9 @@ depended-on tables since the pin** — the arrival half was green on every real 
 ever saw, from its introduction on 2026-08-11 to its deletion on 2026-08-12. An earlier
 draft said an upstream key "reddened this repository and blocked a release". That is a
 mutation result written in the past tense. What is true: a mutation shows it *would* fire,
-and it *would* block once C-81's required check lands — `protect_main` today carries
-`deletion, non_fast_forward, pull_request` and no required status check, which is this
-entry's own "latent rather than live" paragraph.
+and it *would* block once C-81's required check lands — `protect_main` carried
+`deletion, non_fast_forward, pull_request` and no required status check **until 2026-08-13
+04:51 CEST**, which was this entry's "latent rather than live" paragraph while it held.
 
 **The arrival half is now deleted** (#245). The drift check fires on exactly one condition —
 a row this partner declares differs between the pinned edition and the sibling's `main` —
@@ -895,7 +906,7 @@ Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-
 | ID | C-81 |
 | Tier | 2 — the guards this arc built to catch cross-repo drift do not run where drift happens, and the branch they protect has no required check. Both halves are structural and both have fired-in-practice evidence. |
 | Source | `code-review max` (2026-08-03) — development→main sync audit |
-| Trigger | **Coverage half:** when the Appwrite Seam Contract registry next moves — it moved twice on 2026-08-03 alone — nothing in CI will notice; only a maintainer running the suite locally will. **Enforcement half:** the first time someone merges a red PR to `main`. |
+| Trigger | **Coverage half:** when the Appwrite Seam Contract registry next moves — it moved twice on 2026-08-03 alone — nothing in CI will notice; only a maintainer running the suite locally will. ~~**Enforcement half:** the first time someone merges a red PR to `main`~~ — **DISCHARGED 2026-08-13**: `protect_main` now requires the `test` check (see C-86). |
 | Owner | Simon — both halves need operator action. The coverage half needs a token for two private repositories; the enforcement half is a GitHub console/ruleset change. Neither is engineering work. |
 | Location | `.github/workflows/run_pytest.yml`; the `protect_main` ruleset; `tests/conftest.py::sibling_repo` |
 
@@ -917,7 +928,9 @@ Where each sibling stands, after trying them:
 - **views-appwrite** — was private when this was written; **made public 2026-08-08** (`views-appwrite@9d80b75`) and **now checked out in CI**, recovering **seven** tests including both registry-drift detectors. No credential was needed for any of them, and none was ever the obstacle after 2026-08-08 — the obstacle was that this line went on saying "private" for two days after it stopped being true.
 - **views-faoapi** — **private**, and the only one. Its single check is dark. Closing it needs either a credential or FAO's consent to make that repository public; the second is being pursued, and ADR-016 §8 carries the trigger for falling back to the first.
 
-**Enforcement.** `main` is **not branch-protected**: `gh api .../branches/main/protection` returns `404 Branch not protected`, and `gh api .../rules/branches/main` returns `[]`. The `protect_main` ruleset exists and is `active`, but its `ref_name` include-list is **empty**, so it matches nothing — and it declares no `required_status_checks` rule in any case. **A red `Run Pytest` would not block a merge to `main`.** This repository's own `tests/test_falsification_campaign_4_1.py` carries the question as an unverifiable xfail probe; it is verifiable through the API, and the answer is no.
+**Enforcement.** `main` is **not branch-protected**: `gh api .../branches/main/protection` returns `404 Branch not protected`, and `gh api .../rules/branches/main` returns `[]`. The `protect_main` ruleset exists and is `active`, but its `ref_name` include-list is **empty**, so it matches nothing — and it declared no `required_status_checks` rule. **A red `Run Pytest` would not block a merge to `main`.**
+
+*(All of the above was true when measured and is now superseded. As of 2026-08-13 04:51 CEST the ruleset targets `~DEFAULT_BRANCH` and requires the `test` context — ruleset version `46391648`. A red `Run Pytest` **does** block a merge to `main`. The xfail probe that carried this question was deleted in the same change: it asserted `False` unconditionally, so it could never flip when the finding was fixed — the residual C-36 already records for marker-style probes. The fact now lives here and in C-86, established by API measurement, because this suite makes no network calls and cannot see GitHub settings.)*
 
 The two compound: a suite that checks less than you think, and no requirement that even that much passes. Neither is caused by this sync — both are pre-existing — but this sync is the first time `main` receives an epic whose value is largely the guards themselves.
 
@@ -934,7 +947,9 @@ CI now checks that repository out and those seven run on every pull request — 
 1. **~~One dark check.~~ CLOSED 2026-08-11, and not by a credential.** This read: *"views-faoapi is genuinely private — the consumer-name pin is still laptop-only. That is one test, and it is the one whose failure mode is invisible rather than loud."* ADR-017 moved that check onto the public coordinate registry, so it runs in CI for every partner and needs no access to any private repository. The credential ADR-016 §8 deferred was never issued and is no longer the route. What remains of this half is CRAF'd's consumer-side check (views-crafdapi#53), which is the other repository's work, not a dark check here.
 2. **The enforcement half is entirely untouched.** `protect_main`'s ref-name include-list was empty; it now targets the default branch, but **no status check is required**, so a pull request with a red CI can still be merged to `main`. Since merging to `main` *is* the production release, this is the half that matters most and the half that has not moved.
 
-**And it no longer stands alone — read C-86 before closing this.** Measured 2026-08-10: `protect_main` also lists **zero bypass actors**, so once a status check *is* required, nobody can merge past it, administrator or otherwise. Meanwhile ADR-016 made this repository's CI depend on two other repositories. Adding the required check therefore does two things at once: it closes this entry, and it makes an unbypassable external dependency live on the release path. Both are defensible; doing them in one unremarked step is not. If the escape is wanted, a bypass actor is the same console session.
+**And it no longer stands alone — read C-86 before closing this.** Measured 2026-08-10: `protect_main` also lists **zero bypass actors**, so once a status check *is* required, nobody can merge past it, administrator or otherwise. Meanwhile ADR-016 made this repository's CI depend on another repository. Adding the required check therefore does two things at once: it closes this entry, and it makes an unbypassable external dependency live on the release path. Both are defensible; doing them in one unremarked step is not. If the escape is wanted, a bypass actor is the same console session.
+
+**Both happened on 2026-08-13, in one step.** The check was made required; no bypass actor was added. So this entry's enforcement half is discharged and C-86 went live in the same instant — exactly the "one unremarked step" this paragraph warned against, and it is remarked here rather than left to be discovered.
 
 **The lesson this entry should carry.** The blocker was not a missing credential. It was a fact about another repository recorded in prose, with no date, that nothing could check — and it survived a console session, an ADR draft and a register entry, all of which repeated it. ADR-016 replaces the prose with a declaration carrying the date it was verified, and a test that fails when CI and the declaration disagree.
 
