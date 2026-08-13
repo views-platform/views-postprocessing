@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-12                           |
-| Total Concerns    | 97                                   |
-| Open Concerns     | 20                                   |
+| Total Concerns          | 98                                   |
+| Open Concerns           | 21                                   |
 | Resolved Concerns | 77                                   |
 
 ---
@@ -160,6 +160,28 @@ that indexes only deleted code is noise.
 ---
 
 ## Open Concerns
+
+### C-98: A tripwire on another repo's release history watched our own pin, and reported two days late
+
+| Field | Value |
+|-------|-------|
+| ID | C-98 |
+| Tier | 3 — the guard worked and the claim it protected was corrected within the hour, so nothing was published wrong. What is registered is the *observation channel*, which was the wrong one and would be wrong again in the same shape. |
+| Source | CI failure on PR #266, 2026-08-13 |
+| Trigger | A guard is written whose subject is an event in another repository — a release, a tag, a published artifact — and the value it actually reads lives in this one. |
+| Location | `tests/test_falsify_adr013_s2.py` (the retired `test_e3s_claim_about_unreleased_behaviour_is_still_true`); `docs/ADRs/013_sampled_forecast_wire_contract.md`, Erratum E3 |
+
+ADR-013's Erratum E3 stated that a views-pipeline-core fix — an editable install reporting `"unknown"` instead of a stale version — was *"not yet in any released version."* That is a dated claim about someone else's release history, so a tripwire was attached to it: if the installed pipeline-core is a released distribution past 3.0.0, E3's wording is stale.
+
+**The tripwire fired, in CI, exactly as designed, and E3 was wrong.** views-pipeline-core 3.0.1 was uploaded to PyPI on **2026-08-11 13:40 UTC** and does contain the fix — verified at the tag, not assumed: at 3.0.0 `_pipeline_core_version()` is `return version("views_pipeline_core")` with no editable detection; at 3.0.1 it reads `direct_url.json` and returns `"unknown"` when `dir_info.editable` is set. E3 now records the discharge.
+
+**The defect is that it fired on 2026-08-13 and not on 2026-08-11.** The guard observed *our* installed distribution, so it could not see 3.0.1 until this repository's lockfile moved to it. For two days E3 carried a false claim about a released artifact and every check was green. The guard caught it only because the lock bump and the release inspection happened in the same change — had the bump come later, the staleness would have waited for it.
+
+This is the same shape as vpp_017 §7a, arrived at from the other side: a check may rest on a fact we own, on a fact another repository has declared in the public registry, or on an outcome we can observe. Our pin is a fact we own, but it was standing in for *pipeline-core's release feed*, which is none of the three. The guard measured a proxy and reported the proxy's date.
+
+**What replaces it is smaller on purpose.** E3 now says the lift is in force for producers running 3.0.1 or later, and no future release falsifies that — there is no expiry left to watch, so re-pointing the tripwire at 3.0.1 would be inventing one. The successor checks only that E3 does not regain the superseded sentence and still names the release that discharged it, mutation-proven on three branches. Related: C-86 (upstream editions), C-97.
+
+---
 
 ### C-97: Coordinate values sit in docstrings and comments, where the scan deliberately does not look
 

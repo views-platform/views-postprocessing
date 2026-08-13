@@ -942,13 +942,19 @@ record execution progress against it.
   version is written by the release that built it, so it cannot disagree with the code
   beside it. In force now, for 3.0.0 onward.
 
-  **`"unknown"` when the producer ran an editable install** — and this half is **not yet in
-  any released version**, which is the part the originating request (#228) stated too
-  strongly. An editable install's recorded version is fixed at the moment `pip install -e`
-  last ran and never tracks the source afterwards; pipeline-core#403 makes that case report
-  `"unknown"` instead of a stale number. That fix merged **2026-08-04**, a day and a half
-  *after* 3.0.0 was uploaded (2026-08-03 02:06 UTC), so **no released version contains it.**
-  It becomes true of producers at pipeline-core's next release.
+  **`"unknown"` when the producer ran an editable install** — this half was **not in any
+  released version when E3 was written**, which is the part the originating request (#228)
+  stated too strongly. An editable install's recorded version is fixed at the moment
+  `pip install -e` last ran and never tracks the source afterwards; pipeline-core#403 makes
+  that case report `"unknown"` instead of a stale number. That fix merged **2026-08-04**, a
+  day and a half *after* 3.0.0 was uploaded (2026-08-03 02:06 UTC).
+
+  **Discharged 2026-08-13: it is now released.** views-pipeline-core **3.0.1** was uploaded
+  to PyPI on **2026-08-11 13:40 UTC** and contains the fix — verified at the tag rather than
+  taken on trust: at 3.0.0 `_pipeline_core_version()` is `return version("views_pipeline_core")`
+  with no editable detection at all, and at 3.0.1 it reads `direct_url.json`, checks
+  `dir_info.editable`, and returns `"unknown"` when it is set. Both halves of the lift are
+  therefore in force, the second for producers running 3.0.1 or later.
 
   Verified here rather than taken on trust, 2026-08-10: in this repository's development
   environment `importlib.metadata` reports pipeline-core **2.3.0** while the source beside
@@ -958,9 +964,9 @@ record execution progress against it.
 
   **What consumers must do, and it is the operational point.** Treat `"unknown"` as *"do
   not infer the producing version"*, never as an error. The set of runs producing
-  `"unknown"` will **widen** at pipeline-core's next release, because every developer run
-  joins it. A consumer that starts rejecting `"unknown"` on the strength of this lift would
-  break exactly those runs.
+  `"unknown"` **has now widened**, as this erratum predicted it would: every developer run
+  on 3.0.1 or later joins it. A consumer that starts rejecting `"unknown"` on the strength
+  of this lift would break exactly those runs.
 
   This repository does not produce the value — Hop-B re-embeds the Hop-A header untouched
   (`contract/wire/sink.py`) — so nothing here changes. The field is declared by this
