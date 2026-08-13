@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-12                           |
 | Total Concerns    | 97                                   |
-| Open Concerns     | 21                                   |
-| Resolved Concerns | 76                                   |
+| Open Concerns     | 20                                   |
+| Resolved Concerns | 77                                   |
 
 ---
 
@@ -218,7 +218,7 @@ Cross-refs: **C-94** (the mechanism this permission authorises), **C-95** (the m
 | Source | `/expert-code-review` of the standing decisions, 2026-08-12 |
 | Trigger | Anyone reasons from the integration-test prohibition — for a preflight, a drill, or a new ADR. |
 | Owner | This repository. |
-| Location | `reports/technical_risk_register.md` — corrected at all three sites 2026-08-12 (#249); this entry is the record, and the remaining mentions of `þing-02 D2` are its own narration. |
+| Location | `reports/technical_risk_register.md` (three sites, corrected 2026-08-12 in #249); `tests/test_store_construction.py` and `docs/CICs/UNFAOPostProcessorManager.md` (two more, **found 2026-08-13 and corrected then** — the #249 claim of "all three sites" counted only the register). Remaining mentions of `þing-02 D2` are this entry's own narration. |
 
 This register cites **þing-02 D2** for the ruling that integration tests against the production Appwrite project are forbidden. þing-02 D2 is about identity and key separation. The ruling is **þing-01 D2** (`þingit/01_identity_secrets_config/orð_dómr.md:53-61`), and it differs from the paraphrase in two ways that matter: it is **conditional** (*"until the operator creates one"*), and it **grants** read-only preflight validation as the permitted live check. It also records that creating a test project is **assigned to the operator** and gates the provisioning-path drill — an open assignment, not a closed door.
 
@@ -233,7 +233,7 @@ Cross-refs: **C-94**, **C-96**, þing-01 `orð_dómr.md` D2, issue #249.
 | ID | C-94 |
 | Tier | 2 — the failure mode is invisible by construction and lands on the live FAO path: upload succeeds, storage is billed, the consumer's endpoint returns empty, nothing raises anywhere. ADR-013 §4.1a's *"invisible to the consumer, not merely degraded."* |
 | Source | `/expert-code-review` of the standing decisions, 2026-08-12 |
-| Trigger | **Either.** (a) A delivery is reported empty by a consumer or by FAO. (b) `APPWRITE_READ_API_KEY` is provisioned for the launcher — at which point the deferral below has no remaining cost. |
+| Trigger | **Re-specified 2026-08-13 after the original fired on a cause it could not have caught.** (a) A delivery is reported empty **and an upload occurred** — the preflight below would have caught that. (b) `APPWRITE_READ_API_KEY` is provisioned, at which point the deferral has no remaining cost. **(c) A delivery is reported empty with no upload since the last change — nothing here covers that, and it is a different gap; see the amendment.** |
 | Owner | This repository, for the mechanism. The credential is the operator's. |
 | Location | `views_postprocessing/contract/wire/sink.py` (the upload path, where nothing verifies); `views_postprocessing/delivery/`. |
 
@@ -241,7 +241,17 @@ Every mechanism this platform has aimed at invisible delivery is a **CI-time pro
 
 **The mechanism that would close it is known and is legal.** A producer-side **read-only findability preflight**: after upload, query the store read-only for a document whose `name` equals the declared `CONSUMER_DOCUMENT_NAME`; assert non-empty; log at ERROR and raise (ADR-008); remedy is the existing operator quarantine. It is authorised by the seam contract (see **C-96**), the `APPWRITE_READ_API_KEY` slot is already declared, and it is the only mechanism that survives a **third-party-operated private consumer**, because it asks nothing of them.
 
-**Why it is deferred, stated honestly.** It needs a read credential wired into the launcher — an operator action, not a code change — and it adds a live network call to the delivery path. Delivery works today. Building it now would be building the right thing at the wrong time. That is a deferral with a trigger and an owner (ADR-014 §4), not an omission.
+**Why it is deferred, stated honestly.** It needs a read credential wired into the launcher — an operator action, not a code change — and it adds a live network call to the delivery path. ~~Delivery works today.~~ Building it now would be building the right thing at the wrong time. That is a deferral with a trigger and an owner (ADR-014 §4), not an omission.
+
+**⚠ THE ORIGINAL TRIGGER FIRED ON 2026-08-12, WHILE THIS ENTRY WAS BEING WRITTEN — and the mechanism it defers would not have caught it.** Both halves of that matter.
+
+FAO emailed at **09:15 UTC** that `faoapi.viewsforecasting.org` returned no data and that a listing of the partner bucket showed **0 files**. In faoapi's words: *"They found it by hand and emailed us; nothing on our side paged."* That is trigger (a) as originally worded, verbatim. The struck sentence above — *"Delivery works today"* — was false at the moment it was written, and it was the entire justification for deferring.
+
+**But the cause was not an invisible delivery.** faoapi's post-mortem (`views-faoapi/reports/post_mortems/2026-08-13_fao_empty_bucket_unannounced_migration.md`) records that *"the seam coordinates match (the producer writes to the FAO bucket under the declared document name; the consumer reads exactly that — the ADR-017 invisible-delivery work held)"*, and that the empty bucket was *"the migration + no-delivery-since state, not a producer/seam/credential failure"* — a deliberate destructive migration upstream, with no run executed since. **No upload occurred**, so a post-upload findability check would have observed nothing and reported nothing.
+
+**So the trigger was mis-specified, not the mechanism.** "A delivery is reported empty" names a symptom with at least two causes, and this entry's preflight addresses only one of them. The trigger above is now split accordingly, and the second cause — *the bucket is empty because nothing was delivered* — is named as an uncovered gap rather than absorbed into this one. Nothing here detects it: this repository is not told when a delivery is due, and has no view of whether the last one is still present.
+
+**The preflight is still not built**, and the reason is now sharper than "delivery works today": the case that fired is not the case it catches, and `[secret.APPWRITE_READ_API_KEY]` on the live registry still reads `status = "planned — operator issues (D4)"`.
 
 **What it would not cover, so nobody over-reads it later:** it proves the document is findable by that name in the store. It does not prove the consumer's code queries by that name. That last link is theirs, and issues asking each consumer to bind their *query* to their constant are filed under #248.
 
@@ -686,22 +696,6 @@ See also C-25 (same data path, wrong-file variant), C-15 (upload provenance woul
 
 ---
 
-### C-27: Loader construction failures swallowed — surface as remote AttributeError
-
-| Field | Value |
-|-------|-------|
-| ID | C-27 |
-| Tier | 2 — structural fragility: any dependency or config breakage is converted into a misleading crash far from its cause |
-| Source | `expert-code-review` (2026-06-12) |
-| Trigger | When bumping views-pipeline-core, or changing this postprocessor's queryset/config — verify a `ViewsDataLoader` construction failure surfaces its real exception rather than a downstream `AttributeError`; today it is caught bare, logged as "No Queryset detected" with `exc_info=False`, and replaced with `self._data_loader = None` |
-| Location | views-pipeline-core `managers/model/model.py:883-902`; crash sites `views_postprocessing/unfao/managers/unfao.py:105` (`_read_historical_frame`), `:134` (`_read_historical_data`) |
-
-**Filed upstream 2026-08-01 as views-pipeline-core#367**, cross-referenced to their **#168** (views-pipeline-core C-166, narrow Appwrite exception handling) as the same defect class on a different call path — catch broadly, guess at the cause, discard the evidence — worth deciding once rather than twice.
-
-`_initialize_data_loader()` catches bare `Exception`, discards the traceback, and nulls the loader. The failure then surfaces as `AttributeError: 'NoneType' object has no attribute 'get_data'` in `_read_historical_data` — the operator debugs the postprocessor while the cause (import error, malformed config, path issue) was erased at construction time. Cost is time-to-diagnosis during exactly the runs where time matters.
-
----
-
 ### C-28: No timeout on the datafactory zarr fetch — historical path can hang indefinitely
 
 | Field | Value |
@@ -715,6 +709,12 @@ See also C-25 (same data path, wrong-file variant), C-15 (upload provenance woul
 `load_dataset()` opens a remote zarr over plain HTTP. xarray chunk reads have no timeout; a stall blocks the scheduled run forever, and the only detection is manually noticing a run never finished. Risk grows with the planned global region (~5× data volume → longer fetch window). Partial overlap with C-13 (no timeout on Appwrite operations) — same problem type, different dependency and repo; registered separately because the fix sites are disjoint.
 
 See also C-13.
+
+**Filed upstream 2026-08-13 as views-pipeline-core#471.** Two years of this entry sitting here with two named fix sites and **no issue filed anywhere** is the finding. The neighbouring entries C-26 and C-27 were filed upstream on 2026-08-01 and **both closed within three days** — so the expected cost of filing was three days and the expected cost of not filing was this entry's whole lifetime.
+
+Cross-referenced there to their **#248 / #347** (the same defect class on the Appwrite call path, already fixed) and **#168**. The fix sites are in their tree: this repository calls `get_feature_frame` and has no view of the transport.
+
+**A second argument the entry did not have when filed.** On 2026-08-12 FAO reported empty endpoints, and it took a day to establish the cause was an unannounced migration with no delivery since. A hung run and a run nobody started are indistinguishable from outside — a deadline turns the second into a loud failure. See **C-94**.
 
 ---
 
@@ -1029,6 +1029,35 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-27: Loader construction failures swallowed — surface as remote AttributeError — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-27 |
+| Tier | 2 — structural fragility: any dependency or config breakage is converted into a misleading crash far from its cause |
+| Source | `expert-code-review` (2026-06-12) |
+| Trigger | When bumping views-pipeline-core, or changing this postprocessor's queryset/config — verify a `ViewsDataLoader` construction failure surfaces its real exception rather than a downstream `AttributeError`; today it is caught bare, logged as "No Queryset detected" with `exc_info=False`, and replaced with `self._data_loader = None` |
+| Location | views-pipeline-core `managers/model/model.py` (`_initialize_data_loader`); crash sites `views_postprocessing/unfao/managers/unfao.py::_read_historical_frame` and `::_read_historical_data`. Function names, not line numbers — the cited `:105`/`:134` had already moved to `:183`/`:207`. |
+
+**RESOLVED 2026-08-13 — fixed upstream, and this repository was installing the version without the fix.**
+
+views-pipeline-core#367 landed in **3.0.1** (released 2026-08-11): `managers/model/model.py` now logs with `exc_info=True` and **re-raises**, with a comment naming this repository's `AttributeError` as the symptom it produced.
+
+`pyproject.toml` already allowed it (`>=3.0.0,<4.0.0`), but `poetry.lock` still resolved **3.0.0** — so CI installed the unfixed version for two days after the fix shipped. Bumped with `poetry update views-pipeline-core --lock`: exactly one package moved, three lines, suite unchanged at 422 passed.
+
+*Verification note, because the obvious check is misleading:* `grep -c "exc_info=True"` returns **6 in both tags**. The fix is identifiable only by the comment naming #367 — present in 3.0.1, absent in 3.0.0. A count that looks decisive and is not.
+
+**What this leaves.** The trigger stands as written for the next bump: a version constraint that permits a fix is not the same as a lockfile that installs it, and nothing here compares the two. That is a general gap, not this entry's — noted rather than built.
+
+**Filed upstream 2026-08-01 as views-pipeline-core#367**, cross-referenced to their **#168** (views-pipeline-core C-166, narrow Appwrite exception handling) as the same defect class on a different call path — catch broadly, guess at the cause, discard the evidence — worth deciding once rather than twice.
+
+`_initialize_data_loader()` catches bare `Exception`, discards the traceback, and nulls the loader. The failure then surfaces as `AttributeError: 'NoneType' object has no attribute 'get_data'` in `_read_historical_data` — the operator debugs the postprocessor while the cause (import error, malformed config, path issue) was erased at construction time. Cost is time-to-diagnosis during exactly the runs where time matters.
+
+---
+
+---
+
 
 ### C-91: The git plumbing this arc added turns ordinary developer states into hard errors, bare tracebacks, and one possible hang — RESOLVED
 

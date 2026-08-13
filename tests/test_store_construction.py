@@ -14,8 +14,11 @@ manager instance and with the Appwrite variables explicitly *removed* from the
 environment.
 
 **What this does not test.** That a real store connects, or that the credentials work.
-That needs the production Appwrite project, which þing-02 D2 forbids testing against and
-which is the only project that exists (A3(h), answered 2026-08-05). What is testable
+That needs the production Appwrite project, which is the only one that exists (A3(h),
+answered 2026-08-05) and which **þing-01 D2** forbids *integration* tests against — a
+prohibition that is conditional ("until the operator creates one") and that explicitly
+**permits read-only preflight validation**. Register C-95: this was cited to þing-02 D2 and
+stated unconditionally, which is how a permission was read as a prohibition for weeks. What is testable
 offline is the part that was previously untestable at any price: the refusals, their
 ordering, and the fact that the environment contract is checked *before* anything is
 constructed.

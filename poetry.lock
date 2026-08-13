@@ -3545,14 +3545,14 @@ docs = ["jupyterlab (>=4,<5)", "matplotlib (>=3.8,<4)", "nbmake (>=1.5,<2)", "py
 
 [[package]]
 name = "views-pipeline-core"
-version = "3.0.0"
+version = "3.0.1"
 description = "Core orchestration, data and model-management library for the VIEWS conflict forecasting platform."
 optional = false
 python-versions = "<3.15,>=3.11"
 groups = ["main"]
 files = [
-    {file = "views_pipeline_core-3.0.0-py3-none-any.whl", hash = "sha256:400aeff47b8b56b443165e587db706596f9129763e1dc792e6dbff817289ff3c"},
-    {file = "views_pipeline_core-3.0.0.tar.gz", hash = "sha256:3da2b1c98b45f612ba136dda9374543beb6a89f3e0b58791ab73c69cefdb5e4f"},
+    {file = "views_pipeline_core-3.0.1-py3-none-any.whl", hash = "sha256:816e0093fda788d801bda38aa82c5de606867caa3cd561aa9652c98c740995fe"},
+    {file = "views_pipeline_core-3.0.1.tar.gz", hash = "sha256:c05d88dfe8aa28feff5ae466bb1e5fd96c4a799aa54d665b274469d4a81403d9"},
 ]
 
 [package.dependencies]
