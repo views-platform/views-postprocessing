@@ -68,7 +68,7 @@ def test_read_shard_round_trips_the_fixture():
 
 
 def test_frames_for_target_assembles_the_run():
-    frame, headers = tas.frames_for_target(MANIFEST, {SHARD_NAME: SHARD})
+    frame, headers = tas.frames_for_target(MANIFEST, {SHARD_NAME: SHARD}.__getitem__)
     assert frame.n_rows == 6 and frame.sample_count == 4
     # headers ride along in manifest shard order (provenance pass-through, §10.2)
     assert [h["time_id"] for h in headers] == [543]
@@ -154,14 +154,14 @@ def test_minor_version_drift_accepted():
 
 def test_missing_shard_bytes_rejected():
     with pytest.raises(tas.TrackASourceError, match="not provided"):
-        tas.frames_for_target(MANIFEST, {})
+        tas.frames_for_target(MANIFEST, {}.__getitem__)
 
 
 def test_shard_target_disagreeing_with_manifest_rejected():
     bad = _retouched_shard(**{"metadata.json": _header(target="lr_ged_ns")})
     manifest = {**MANIFEST, "shards": [{"name": SHARD_NAME, "sha256": _sha(bad)}]}
     with pytest.raises(tas.TrackASourceError, match="target"):
-        tas.frames_for_target(manifest, {SHARD_NAME: bad})
+        tas.frames_for_target(manifest, {SHARD_NAME: bad}.__getitem__)
 
 
 def test_wrong_month_coverage_rejected():
@@ -170,21 +170,63 @@ def test_wrong_month_coverage_rejected():
         # month 544's shard is absent entirely — caught at the bytes gate
         tas.frames_for_target(
             {**manifest, "shards": MANIFEST["shards"] + [{"name": "m544", "sha256": "0" * 64}]},
-            {SHARD_NAME: SHARD},
+            {SHARD_NAME: SHARD}.__getitem__,
         )
     bad = _retouched_shard(**{"metadata.json": _header(time_id=999)})
     manifest = {**MANIFEST, "shards": [{"name": SHARD_NAME, "sha256": _sha(bad)}]}
     with pytest.raises(tas.TrackASourceError, match="months covered"):
-        tas.frames_for_target(manifest, {SHARD_NAME: bad})
+        tas.frames_for_target(manifest, {SHARD_NAME: bad}.__getitem__)
 
 
 def test_wrong_cell_count_rejected():
     manifest = {**MANIFEST, "expected_cell_count": 7}
     with pytest.raises(tas.TrackASourceError, match="cells"):
-        tas.frames_for_target(manifest, {SHARD_NAME: SHARD})
+        tas.frames_for_target(manifest, {SHARD_NAME: SHARD}.__getitem__)
 
 
 def test_manifest_missing_required_field_rejected():
     truncated = {k: v for k, v in MANIFEST.items() if k != "expected_months"}
     with pytest.raises(tas.TrackASourceError, match="expected_months"):
         tas.read_manifest(json.dumps(truncated).encode())
+
+
+def test_shards_are_fetched_one_at_a_time_not_all_up_front(monkeypatch):
+    """The bound this function's memory shape depends on — register C-101.
+
+    ``frames_for_target`` took a filled dict until 2026-08-14, so every shard of a
+    target was resident before the first was decoded. Measured at 36 shards, that plus
+    stacking with ``np.concatenate`` put peak at **3.06x the delivered frame**, in three
+    roughly equal thirds: the raw bytes, the per-shard frames, and the concatenated
+    copy. Fetching per shard and filling a manifest-sized buffer took it to **1.13x**.
+
+    This asserts the *interleaving*, not a byte count, and deliberately so: a memory
+    threshold in a test is a flake on a busy machine, whereas "fetch, decode, fetch,
+    decode" is the property that actually bounds the peak and it is exactly observable.
+    Reverting to a pre-built dict makes the sequence fetch-fetch-decode-decode and this
+    fails; nothing else in the suite would notice.
+    """
+    manifest = {
+        **MANIFEST,
+        "shards": [{"name": f"shard-{i}", "sha256": SHARD_SHA} for i in range(3)],
+        "expected_months": [543, 543, 543],
+    }
+    events = []
+    real_read_shard = tas.read_shard
+
+    def spy(shard_bytes, *, expected_sha256):
+        events.append("decode")
+        return real_read_shard(shard_bytes, expected_sha256=expected_sha256)
+
+    monkeypatch.setattr(tas, "read_shard", spy)
+
+    def fetch(name):
+        events.append("fetch")
+        return SHARD
+
+    tas.frames_for_target(manifest, fetch)
+
+    assert events == ["fetch", "decode"] * 3, (
+        f"shards are not being fetched one at a time: {events}. Every 'fetch' that "
+        "precedes another 'fetch' is a shard's bytes held while the next is downloaded "
+        "— at 36 shards that was a third of the peak."
+    )

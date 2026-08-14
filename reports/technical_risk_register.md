@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-14                           |
-| Total Concerns          | 100                                   |
+| Total Concerns          | 101                                   |
 | Open Concerns           | 22                                   |
-| Resolved Concerns       | 78                                   |
+| Resolved Concerns       | 79                                   |
 
 ---
 
@@ -1116,6 +1116,47 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-101: Assembling a target held three copies of it — measured, then bounded — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-101 |
+| Tier | 2 — no incorrect output, but the forecast leg needed roughly three times the memory its product occupies, and the failure mode is an OOM kill mid-delivery rather than a refusal. |
+| Source | views-postprocessing#269, filed from the views-crafdapi seat 2026-08-14 after the first `un_crafd` delivery attempt |
+| Trigger | *(closed)* Any run large enough that three copies of one target's frame did not fit — which on 2026-08-13 meant a machine with 15 GB already in use. |
+| Location | `views_postprocessing/contract/track_a_source.py` (`frames_for_target`); `views_postprocessing/contract/wire/source_selection.py` (`TargetLease.load`) |
+
+**Measured before anything was changed**, because the issue's own diagnosis named one cause and there turned out to be three. A synthetic run through the real `TargetLease.load` — producer-format `.tap.zip` shards, real `read_shard`, `tracemalloc` and peak RSS agreeing to within 2% — at 36 shards x 20,000 cells x 200 samples:
+
+| | before | after |
+|---|---|---|
+| peak, tracemalloc | **3.06x** the delivered frame | **1.13x** |
+| peak, RSS delta | 3.02x | 1.06x |
+
+The 3x was **three roughly equal thirds**, and the issue named only the first:
+
+1. every shard's bytes, resident together — the dict comprehension completed before the first shard was decoded;
+2. every decoded per-shard frame, held for the stack;
+3. the `np.concatenate` result, allocated while (2) was still alive.
+
+The ratio held at 12 and 36 shards, so it is the shape and not the scale. Fixing only (1), as the issue proposed, would have taken 3.06x to about 2x.
+
+**The fix is one loop.** `frames_for_target` now takes `fetch_shard_bytes(name)` instead of a filled dict, drops each shard's bytes the moment they are decoded, and writes each shard into a manifest-sized buffer instead of stacking and concatenating. Peak is now the finished frame plus about one shard — the residual 0.13x is `2/n_shards`, which is why the 12-shard case measures 1.36x and the 36-shard case 1.13x.
+
+*What makes the buffer safe.* Its slots are sized from `expected_cell_count`, a declaration this function already enforced per shard, and the enforcement runs **before** anything is written — so a shard whose row count disagrees is refused rather than straddling two months' slots.
+
+*What proves the product did not change.* The wire is byte-frozen (ADR-013) and the golden fixture guards in `tests/test_wire_fixture.py` compare delivered artifacts against checked-in bytes. They pass unchanged, which is the claim: this is an assembly change with no output change.
+
+**At production scale.** 64,742 cells x 36 months, at ADR-013 §5's *"~1000 samples per cell"* — the sample count is the one input here taken from the contract rather than measured — one target's frame is **8.68 GB**, so peak fell from about **26.6 GB to 9.8 GB per target**, roughly **16.8 GB** saved. For scale, run-0's OOM kill recorded `anon-rss:23778224kB` (#126); that incident's root cause was pandas on the *historical* leg and is not this, but the magnitude says this leg alone would have exhausted the same box.
+
+**The manager's historical frame is not the elephant, so it is not being chased.** #269 notes `_historical_frame` is held from `_read` through `_save`. By its own declared dimensions — 64,742 cells x 438 months = 28,356,996 rows — that is about **108 MB** at one float32 column, **1.2%** of a single forecast target frame. Recorded here rather than filed as its own issue, because a separate issue implying comparable cost would misdirect whoever picked it up.
+
+*Guarded.* `tests/test_track_a_source.py::test_shards_are_fetched_one_at_a_time_not_all_up_front` asserts the fetch/decode interleaving rather than a byte count — a memory threshold in a test is a flake on a busy machine, while "fetch, decode, fetch, decode" is exactly the property that bounds the peak. Mutation-proven: restoring the up-front dict produces `['fetch','fetch','fetch','decode','decode','decode']` and it fails.
+
+Cross-refs: **C-99** (the other defect the same delivery attempt found), **C-75** (the pandas retirement that #126 landed on the historical leg), views-postprocessing#269, views-postprocessing#126.
+
+---
 
 ### C-99: `_ContractStorePort.download` failed open where `upload` refuses — C-79's untreated sibling — RESOLVED
 

@@ -64,12 +64,18 @@ class TargetLease:
         return self.manifest["run_id"]
 
     def load(self):
-        """Fetch (by pinned id), verify, curate — return the PRODUCT ``(frame, headers)``."""
-        shard_bytes = {
-            name: self.store.download(file_id)
-            for name, file_id in self.shard_file_ids.items()
-        }
-        frame, headers = track_a_source.frames_for_target(self.manifest, shard_bytes)
+        """Fetch (by pinned id), verify, curate — return the PRODUCT ``(frame, headers)``.
+
+        Shards are fetched **one at a time**, by handing ``frames_for_target`` a lookup
+        rather than a filled dict. The dict comprehension that stood here downloaded
+        every shard of the target before the first was decoded; with the stacking fix
+        beside it that made peak 3.06x the delivered frame (register C-101, measured).
+        Fetch-by-pinned-id is unchanged — the ids were pinned by ``resolve_run`` and a
+        newer run still cannot be mixed in.
+        """
+        frame, headers = track_a_source.frames_for_target(
+            self.manifest, lambda name: self.store.download(self.shard_file_ids[name])
+        )
         for header in headers:
             found = header.get("provenance", {}).get("ensemble")
             if found != self.expected_ensemble:
