@@ -43,7 +43,7 @@ from tests.seam_registry import registry_current
 #: the delivery would upload, and the document would be invisible (ADR-013 §4.1a).
 #:
 #: ``test_the_declared_consumer_name_matches_the_registry`` closes that half against the
-#: **public coordinate registry** rather than the consumer's source (ADR-017 §5). It runs
+#: **public coordinate registry** rather than the consumer's source (vpp_017 (ADR-017) §5). It runs
 #: for every partner and needs no credential, because the registry is public even when the
 #: consumer is not — which is why it reaches the FAO partner and its predecessor could not.
 #:
@@ -210,19 +210,19 @@ def test_every_partner_has_a_declared_contract_row():
 
 @pytest.mark.parametrize("partner", PARTNER_PACKAGES)
 def test_the_declared_consumer_name_matches_the_registry(partner):
-    """ADR-017 §5, the producer half: our mirror against the public declaration.
+    """vpp_017 §5, the producer half: our mirror against the public declaration.
 
     **What this replaces, and why.** Until 2026-08-11 this check read the *consumer's
     source* — a regex over `managers/api.py` looking for the argument to an
     `APIPathManager(...)` construction. That worked on a laptop and never in CI for the
     private partner, and it broke on 2026-08-11 when views-faoapi tidied that file into a
     named constant. Their code got better and our check went looking for something that
-    had moved. ADR-017 §7: we were never entitled to depend on another repository's file
+    had moved. vpp_017 §7: we were never entitled to depend on another repository's file
     layout.
 
     Now both sides read one public declaration. The registry lives in views-appwrite,
     which is public, so this needs no credential even for the private partner — that is
-    the whole of ADR-017 §5 in one assertion.
+    the whole of vpp_017 §5 in one assertion.
 
     *"Neither reads the other" is now the present state, not just the end state* — #248
     deleted the last source read. What that costs is register C-92: nothing here verifies
@@ -239,7 +239,7 @@ def test_the_declared_consumer_name_matches_the_registry(partner):
     row = _CONTRACT_ROW[partner]
     assert row in contract, (
         f"[{partner}] the registry has no `[contract.{row}]` row. That row is the "
-        "authority this package's CONSUMER_DOCUMENT_NAME mirrors (ADR-017 §5); without "
+        "authority this package's CONSUMER_DOCUMENT_NAME mirrors (vpp_017 §5); without "
         "it there is nothing to check the mirror against. Either it was retired upstream "
         "or this file names the wrong row."
     )
