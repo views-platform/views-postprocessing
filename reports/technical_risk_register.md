@@ -5,9 +5,9 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-12                           |
-| Total Concerns          | 98                                   |
-| Open Concerns           | 21                                   |
-| Resolved Concerns | 77                                   |
+| Total Concerns          | 100                                   |
+| Open Concerns           | 22                                   |
+| Resolved Concerns       | 78                                   |
 
 ---
 
@@ -180,6 +180,26 @@ ADR-013's Erratum E3 stated that a views-pipeline-core fix — an editable insta
 This is the same shape as vpp_017 §7a, arrived at from the other side: a check may rest on a fact we own, on a fact another repository has declared in the public registry, or on an outcome we can observe. Our pin is a fact we own, but it was standing in for *pipeline-core's release feed*, which is none of the three. The guard measured a proxy and reported the proxy's date.
 
 **What replaces it is smaller on purpose.** E3 now says the lift is in force for producers running 3.0.1 or later, and no future release falsifies that — there is no expiry left to watch, so re-pointing the tripwire at 3.0.1 would be inventing one. The successor checks only that E3 does not regain the superseded sentence and still names the release that discharged it, mutation-proven on three branches. Related: C-86 (upstream editions), C-97.
+
+---
+
+### C-100: The "four-method port" has three used methods and a dead third module behind it
+
+| Field | Value |
+|-------|-------|
+| ID | C-100 |
+| Tier | 4 — no correctness impact; the code is unreachable, not wrong. Registered because deleting it is a decision (the second store, #97) rather than a cleanup, and because an unreachable method inside a seam four documents describe is the kind of thing that gets maintained forever by accident. |
+| Source | Reading the whole port while fixing C-99, 2026-08-14 |
+| Trigger | The second partner store (#97) is scoped, or anyone proposes deleting `contract/store_metadata.py` — at which point this entry says what it costs and what moves with it. |
+| Location | `views_postprocessing/{unfao,crafd}/store_port.py` (`file_metadata`); `views_postprocessing/contract/store_metadata.py` |
+
+`_ContractStorePort.file_metadata` has **no caller in the package**. Measured: `latest_file_id` is called three times and `download` three times, both in `contract/wire/source_selection.py`; `upload` is called by the sink; `file_metadata` is called by nothing. Its only body is a call to `contract/store_metadata.py:file_metadata`, whose own module docstring says *"the one caller is `_ContractStorePort.file_metadata`"* — true, and the chain terminates there. The module has tests (`tests/test_store_metadata.py`) and no production reader.
+
+The "four methods" the docs describe (`docs/ADRs/015_the_pipeline_core_appwrite_import.md:70`, both `store_port.py:5`, `tests/test_store_port.py:20`) are not wrong — the port really does define four. What none of them says, because nobody had counted, is that three of them run and the fourth is reachable only from a test.
+
+**Not fixed here on purpose.** C-99's change was a correctness fix on a live delivery path; deleting a public-ish port method and a contract module in the same commit would have mixed a refusal with a removal. It is also not obviously a deletion: the second prediction store (#97) is scoped to be sample-bearing and multi-target, and reading a selected file's identity metadata is the kind of thing that partner may need. The decision is "delete it or give it a caller", and it belongs with #97 rather than with a download bug.
+
+Cross-refs: **C-99** (the fix that surfaced it), **C-97**, **C-33** (the same symbol exists twice by design).
 
 ---
 
@@ -1086,6 +1106,36 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-99: `_ContractStorePort.download` failed open where `upload` refuses — C-79's untreated sibling — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-99 |
+| Tier | 2 — no silent corruption, but an unreadable failure on the live FAO delivery leg, in the one place that knows which file it was. |
+| Source | views-postprocessing#268, filed from the views-crafdapi seat 2026-08-14 after the first `un_crafd` delivery attempt |
+| Trigger | *(closed)* Any failed download — a yanked file, an expired key, a rate limit, a network blip — on either partner's contract path. |
+| Location | `views_postprocessing/{unfao,crafd}/store_port.py` (`download`); previously `managers/{unfao,crafd}.py:38-41` |
+
+`download` chained `.get()` onto an unvalidated store result:
+
+```python
+self._dsm.download_prediction(file_id).to_dict().get("data", {}).get("file_bytes", None)
+```
+
+When `data` is **present and null**, the `{}` default never applies and the next `.get` raises `AttributeError: 'NoneType' object has no attribute 'get'` — from inside a dict comprehension over pinned ids in `TargetLease.load`, three frames from the port, naming neither the `file_id` nor the fact that a download had failed. views-crafdapi spent an evening ruling out an OOM kill (there was one in `dmesg`, three minutes later, on a different pid) before finding it.
+
+**It was C-79 with the method name changed.** C-79 fixed exactly this polarity on `upload`, in the same class, on 2026-08-05, and recorded the specification in its own resolution note: *"an unrecognised result should be refused and named, not adapted to silently."* That note was never applied a second time. Nine days later the untreated method cost another repo an evening.
+
+*Why nothing caught it.* `tests/test_store_port.py` was written for C-79 with five parametrised tests across both partners, including `test_an_unrecognised_result_is_refused_rather_than_assumed_good`. It mentioned `download` **zero times**. And `contract/store_metadata.py` already wrote `.get("data", {}) or {}` — the guard `download` lacked, one file away, unapplied.
+
+**Fixed 2026-08-14.** `download` now refuses anything that is not non-empty bytes, naming the `file_id`, that a *download* failed, and the types it actually got. Empty bytes are refused with the rest: no shard, sidecar or manifest is ever zero-length, so `b""` is a failed download wearing a valid type. Byte-identical in both partners, as C-79 chose for `upload` (C-33). Mutation-proven on three mutants — restoring the original one-liner fails 18 of the module's tests, accepting empty bytes fails exactly 2, dropping the `file_id` from the message fails exactly 2.
+
+**It also moved.** The refusal pushed `managers/` to 469 lines against epic #148's 450 bound, and that guard's instruction is to move something out rather than raise the number. `_ContractStorePort` is not the manager, so it went to `{partner}/store_port.py` — 388 lines now, 62 of headroom. The port stopped naming `DatastoreModule` in its constructor on the way: a DIP seam whose stated purpose is that nothing downstream sees the client's types should not name one, and a new module that mentioned `views_pipeline_core` would have widened C-40's blast radius past the two files `test_views_pipeline_core_is_confined_to_the_partner_managers` pins.
+
+Cross-refs: **C-79** (the same defect on `upload`, resolved), **C-100** (the dead fourth method, found while reading this one), **C-33**, **C-40**.
+
+---
 
 ### C-27: Loader construction failures swallowed — surface as remote AttributeError — RESOLVED
 

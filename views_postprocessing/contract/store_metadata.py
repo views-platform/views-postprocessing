@@ -15,9 +15,9 @@ not a reason to change together (CCP). When #149 retired the pandas delivery, th
 frame readers became unreachable and this function was the sole survivor of a
 module named for a seam it was never part of.
 
-The one caller is ``_ContractStorePort.file_metadata`` in the manager, which adapts
-``DatastoreModule`` to the wire's ports (DIP) — so the store's document shape is
-known here, and nowhere above.
+The one caller is ``_ContractStorePort.file_metadata`` in each partner's
+``store_port.py``, which adapts the store client to the wire's ports (DIP) — so the
+store's document shape is known here, and nowhere above.
 """
 
 from __future__ import annotations

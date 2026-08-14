@@ -12,8 +12,9 @@ from views_pipeline_core.managers.ensemble import EnsemblePathManager
 from datetime import datetime
 import os
 from views_pipeline_core.modules.dataloaders.datafactory_contract import declared_data_format
-from views_postprocessing.contract import frame_extraction, gaul_lookup, historical, launch_config, source_metadata, store_metadata
+from views_postprocessing.contract import frame_extraction, gaul_lookup, historical, launch_config, source_metadata
 from views_postprocessing.crafd import appwrite_env, product
+from views_postprocessing.crafd.store_port import _ContractStorePort
 from views_postprocessing.contract.wire import sink as wire_sink
 from views_postprocessing.contract.wire import source_selection
 from views_postprocessing.delivery import coverage, observed_range, provenance
@@ -21,60 +22,6 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-
-class _ContractStorePort:
-    """Adapts ``DatastoreModule`` to the wire ports (ADR-013 epic #105; DIP —
-    ``wire/source_selection`` and ``wire/sink`` never see Appwrite types)."""
-
-    def __init__(self, datastore: DatastoreModule) -> None:
-        self._dsm = datastore
-
-    def latest_file_id(self, filters: dict):
-        return self._dsm.get_latest_file_id(filters=filters)
-
-    def file_metadata(self, file_id: str) -> dict:
-        return store_metadata.file_metadata(self._dsm.get_file_metadata(file_id))
-
-    def download(self, file_id: str) -> bytes:
-        return (
-            self._dsm.download_prediction(file_id).to_dict().get("data", {}).get("file_bytes", None)
-        )
-
-    def upload(self, file_path, *, filename, name, doc_type, category, loa, targets, description=None) -> None:
-        result = self._dsm.upload_data(
-            file=file_path,
-            filename=filename,
-            name=name,
-            type=doc_type,
-            category=category,
-            loa=loa,
-            targets=targets,
-            description=description,
-        )
-        # On a metadata failure the store logs, then RETURNS success=False with the
-        # file already uploaded (pipeline-core modules/appwrite/file.py — the file is
-        # the claim; its line number moves between releases). It never raises, so a
-        # caller that discards the result ships an invisible orphan: run-0's historical
-        # artifact, 2026-07-27. This check is the whole mechanism.
-        #
-        # **Refuse unless success is explicitly True** (register C-79). The earlier
-        # `if success is False` failed OPEN: a result that was None, or lacked the
-        # attribute, or carried a non-bool, sailed through as though the upload had
-        # worked. Today `upload_data` has a single return path and `success` is a
-        # `bool` dataclass field, so the two polarities agree — but the moment that
-        # stops being true is exactly this entry's trigger, and fail-open is the wrong
-        # side to be on when the subject is "did the delivery actually land".
-        #
-        # The old `to_dict()` fallback is gone with it: dead on the real path, and an
-        # unrecognised result should be refused and named, not adapted to silently.
-        success = getattr(result, "success", None)
-        if success is not True:
-            error = getattr(result, "error", None) or "unknown store error"
-            raise RuntimeError(
-                f"upload of {filename!r} did not fully succeed (file may be an orphan "
-                f"without a metadata document): {error}. The store reported "
-                f"success={success!r} (result type {type(result).__name__})."
-            )
 
 
 def _build_prod_forecasts_store(ensemble_name: str | None) -> DatastoreModule:
