@@ -35,15 +35,10 @@ import pytest
 
 from tests.seam_registry import (
     ABSENT as _ABSENT,
-    REGISTRY_RELPATH,
     REGISTRY_RELPATH as _REGISTRY_RELPATH,
-    RegistryReadError,
     RegistryReadError as _RegistryReadError,
-    registry_at,
     registry_at as _registry_at,
-    registry_current,
     registry_current as _registry_current,
-    rows,
     rows as _rows,
 )
 from tests.conftest import (
@@ -629,6 +624,26 @@ def _declared_classes(registry: dict) -> dict[str, str]:
     return {n: row[1] for n, row in _rows(registry, _CONSUMED_TABLES).items()}
 
 
+def _name_and_class_drift(expected_class: dict, declared: dict) -> tuple[list, dict]:
+    """What this package expects vs what the registry declares.
+
+    Returns ``(names the registry does not carry, {name: (expected, declared)})``.
+
+    Extracted 2026-08-14 (issue #265) so the gated check below and the ungated proof of
+    it further down run the **same** comparison. They did not: the proof rebuilt this
+    with its own comprehensions, so blanking the assertions here left it green. Its two
+    siblings had already been repaired the same way via ``_describe_changes`` — a second
+    incident, not a guessed abstraction.
+    """
+    missing = sorted(n for n in expected_class if n not in declared)
+    misclassified = {
+        n: (expected, declared[n])
+        for n, expected in expected_class.items()
+        if n in declared and declared[n] != expected
+    }
+    return missing, misclassified
+
+
 @pytest.mark.parametrize("partner", _PARTNERS)
 def test_every_declared_name_exists_in_the_registry_with_the_class_we_treat_it_as(partner):
     """C-57: a rename or reclassification upstream must not be silent here."""
@@ -636,17 +651,12 @@ def test_every_declared_name_exists_in_the_registry_with_the_class_we_treat_it_a
     declared = _declared_classes(_registry_current(repo))
     _, _, expected_class = _PARTNER_ENV[partner]
 
-    missing = sorted(n for n in expected_class if n not in declared)
+    missing, misclassified = _name_and_class_drift(expected_class, declared)
     assert not missing, (
         f"[{partner}] names this package requires are absent from the Appwrite Seam "
         f"Contract's registry: {missing}. Either the registry retired them or this "
         "module invented them; the registry is the authority."
     )
-    misclassified = {
-        n: (expected, declared[n])
-        for n, expected in expected_class.items()
-        if declared[n] != expected
-    }
     assert not misclassified, (
         f"[{partner}] class mismatch (expected, registry) {misclassified}. Class is "
         "DECLARED by the registry, never inferred from a name's prefix — a coordinate "
@@ -1140,16 +1150,19 @@ def test_the_drift_check_would_catch_a_rename(partner):
         "not the mutation this test believes it is"
     )
     assert "APPWRITE_DATASTORE_PROJECT_ID" not in declared, "fixture should omit it"
-    missing = sorted(n for n in expected_class if n not in declared)
-    assert missing, "the detector reported no missing names against a registry that omits most"
 
-    mismatched = [
-        n for n, expected in expected_class.items()
-        if n in declared and declared[n] != expected
-    ]
-    assert canary in mismatched, (
+    # The gated check's own comparison, not a copy of it (issue #265). This rebuilt the
+    # logic with its own comprehensions until 2026-08-14, which made it a proof of a
+    # reimplementation: blank the real check's assertions and it stayed green.
+    missing, misclassified = _name_and_class_drift(expected_class, declared)
+    assert missing, "the detector reported no missing names against a registry that omits most"
+    assert canary in misclassified, (
         f"[{partner}] a target reclassified as a secret went unnoticed — that is the "
         "case where getting it wrong leaks or hides a value"
+    )
+    assert misclassified[canary] == ("target", "secret"), (
+        "the detector must report BOTH sides of the mismatch — what this package "
+        "expects and what the registry declares — or a reader cannot tell which moved"
     )
 
 
@@ -1391,113 +1404,3 @@ def test_the_scan_understands_every_assignment_form_this_repo_writes():
         "document that introduced it — that is the stopping rule, and it is why the "
         "form list is derived from this repository's own corpus rather than invented."
     )
-
-
-def _scratch_repo(tmp_path: Path):
-    """A throwaway git repo whose registry differs on `main`, on `origin/main`, and on disk.
-
-    `-c` rather than `git config`: a contributor's global `commit.gpgsign` or
-    `core.hooksPath` would otherwise reach in and either fail opaquely or block on
-    pinentry with no timeout.
-    """
-    def git(*args):
-        return subprocess.run(
-            ["git", "-C", str(tmp_path), "-c", "commit.gpgsign=false",
-             "-c", "core.hooksPath=/dev/null", *args],
-            capture_output=True, text=True, check=True, timeout=30,
-        )
-
-    target = tmp_path / REGISTRY_RELPATH
-    target.parent.mkdir(parents=True)
-
-    def edition(marker: str) -> str:
-        return f'[meta]\nversion = "{marker}"\n\n[connection.X]\nclass = "connection"\n'
-
-    git("init", "-q", "-b", "main")
-    git("config", "user.email", "t@t")
-    git("config", "user.name", "t")
-    target.write_text(edition("on-main"))
-    git("add", "-A")
-    git("commit", "-q", "-m", "main")
-
-    # a remote-tracking ref that is AHEAD of main, so preferring one over the other shows
-    git("checkout", "-q", "-b", "upstream")
-    target.write_text(edition("on-origin-main"))
-    git("add", "-A")
-    git("commit", "-q", "-m", "origin")
-    git("update-ref", "refs/remotes/origin/main", "HEAD")
-    git("checkout", "-q", "main")
-
-    # and a dirty working tree, which is what #196 was about
-    target.write_text(edition("in-the-working-tree"))
-    return tmp_path
-
-
-def test_registry_current_reads_origin_main_not_the_working_tree(tmp_path):
-    """The reason `tests/seam_registry.py` exists, and until now the only untested part.
-
-    A sibling clone sits on whatever branch its own agent last worked on. Comparing
-    against that grades this repository on unreviewed content — issue #196, which cost a
-    withdrawn pull request. Replacing this function with a working-tree or `HEAD` read
-    used to leave the whole suite green.
-    """
-    repo = _scratch_repo(tmp_path)
-    assert registry_current(repo)["meta"]["version"] == "on-origin-main", (
-        "registry_current read something other than origin/main. A working-tree read is "
-        "#196 verbatim; a bare `main` read misses that the sibling's remote has moved."
-    )
-
-
-def test_registry_current_refuses_a_repo_with_neither_ref(tmp_path):
-    """No `origin/main` and no `main` must say so, not return an empty registry."""
-    subprocess.run(["git", "init", "-q", str(tmp_path)],
-                   capture_output=True, text=True, check=True, timeout=30)
-    with pytest.raises(RegistryReadError, match="neither origin/main nor main"):
-        registry_current(tmp_path)
-
-
-def test_registry_at_refuses_a_commit_whose_registry_is_missing_or_unparseable(tmp_path):
-    """`git show` failing, and a blob that is not TOML — two refusal branches nothing reached."""
-    def git(*args):
-        return subprocess.run(
-            ["git", "-C", str(tmp_path), "-c", "commit.gpgsign=false",
-             "-c", "core.hooksPath=/dev/null", *args],
-            capture_output=True, text=True, check=True, timeout=30,
-        )
-    git("init", "-q", "-b", "main")
-    git("config", "user.email", "t@t")
-    git("config", "user.name", "t")
-
-    (tmp_path / "unrelated.txt").write_text("no registry here\n")
-    git("add", "-A")
-    git("commit", "-q", "-m", "no registry")
-    absent = git("rev-parse", "--short", "HEAD").stdout.strip()
-
-    target = tmp_path / REGISTRY_RELPATH
-    target.parent.mkdir(parents=True)
-    target.write_text("this is not toml = = =\n")
-    git("add", "-A")
-    git("commit", "-q", "-m", "not toml")
-    garbage = git("rev-parse", "--short", "HEAD").stdout.strip()
-
-    with pytest.raises(RegistryReadError, match="cannot read the registry"):
-        registry_at(tmp_path, absent)
-    with pytest.raises(RegistryReadError, match="did not parse as TOML"):
-        registry_at(tmp_path, garbage)
-
-
-def test_rows_refuses_a_section_whose_entries_are_not_tables():
-    """`[test_environment]` on the live registry is scalars, not sub-tables.
-
-    Nothing breaks today because that table is IGNORED — but the partition check's own
-    remediation message tells a maintainer to classify a new table CONSUMED, and doing
-    that for one written this way used to return an `AttributeError` from a dict
-    comprehension. Register C-91.
-    """
-    scalars = {"test_environment": {"status": "none", "fact": "a sentence"}}
-    with pytest.raises(RegistryReadError, match=r"\[test_environment\]\.(status|fact) is a bare str"):
-        rows(scalars, ("test_environment",))
-
-    # and the ordinary shape still works, or the refusal above proves nothing
-    tables = {"target": {"APPWRITE_X": {"class": "target", "value": "v"}}}
-    assert rows(tables, ("target",)) == {"APPWRITE_X": ("target", "target", "v")}

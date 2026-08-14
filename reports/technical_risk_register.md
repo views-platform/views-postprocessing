@@ -370,7 +370,13 @@ What actually keeps it open is neither of those — it is the two deferrals belo
 - Deferral 1's trigger is *"when #243 finishes touching `tests/test_env_declaration.py`"*. #243 finished. The leak guards are still in that file; `tests/test_redaction_guard.py` is only cross-referenced.
 - Deferral 2 was *"routed to #243"* — and #243 closed without it. `test_the_drift_check_would_catch_a_rename` still rebuilds its subject's comparison with its own comprehension rather than driving the checked function.
 
-Both were unowned, which is worse than deferred — **now filed as #265**, with acceptance criteria and the reason each is not urgent. That issue closing is what closes this entry: its stated condition was already met by #243. *(An earlier draft of this amendment named the problem and left it there, which under ADR-014 §4 converts two compliant deferrals into two non-compliant items. Naming is not rehoming.)*
+Both were unowned, which is worse than deferred — filed as **#265**, and **both discharged 2026-08-14**. *(An earlier draft of this amendment named the problem and left it there, which under ADR-014 §4 converts two compliant deferrals into two non-compliant items. Naming is not rehoming.)*
+
+**Deferral 2 is fixed as filed.** The comparison the gated check ran inline is now `_name_and_class_drift`, called by both it and the proof, so the proof drives its subject instead of a copy of it. Mutation-proven: making that function return `([], {})` now fails the proof for both partners, where before it stayed green. It also gained an assertion that the report names *both* sides of a mismatch — what this package expects and what the registry declares — since a reader who cannot tell which moved cannot act on it.
+
+**Deferral 1 is answered "no", with the reason recorded rather than deferred a third time.** The coordinate-value scan **stays in `tests/test_env_declaration.py`**. Its subject is `_EXPECTED_NAMES`, derived from `_PARTNER_ENV` — the declaration of what each partner reads, which is the substance of that module. Moving a guard away from the declaration it guards, so that a filename reads better, trades a real coupling (CCP) for a filing convenience, and would require exporting a private name from one test module into another.
+
+What *was* misfiled moved instead: `registry_at` / `registry_current` / `rows` are the shared **reader**, not this package's environment declarations, and their five refusal tests plus `_scratch_repo` are now `tests/test_seam_registry.py`. That is the boundary that was actually wrong: **115 lines out**, no shared private state left behind. `test_env_declaration.py` is 1406 lines against 1503 before this change — the split removed more than that and the shared comparison above put some back.
 
 **Two deferrals, both with triggers (ADR-014 §4).**
 
