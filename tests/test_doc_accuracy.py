@@ -367,6 +367,16 @@ _MANAGER_DIRS = tuple((_PKG / p / "managers") for p in _PARTNER_PACKAGES)
 #: previously unbudgeted, which is the same regrowth wearing a different filename.
 _MANAGER_LINE_BUDGET = 450
 
+#: The same rule one level out, added 2026-08-14 because the directory bound was not
+#: enough. C-99's fix pushed `managers/` to 469 and the response was to move
+#: `_ContractStorePort` to `<partner>/store_port.py` — a sibling of `managers/`, not a
+#: sibling inside it. The counted number fell 441 -> 388 while the partner package grew
+#: by 47 lines, and the PR reported "62 of headroom" against a guard that could no
+#: longer see the code. The move was right; reporting it as compliance was not.
+#: Measured 2026-08-14: unfao 626, crafd 635. A ratchet, like the class budget — the
+#: response to it binding is to move something OUT OF THE PACKAGE, not to raise it.
+_PARTNER_PACKAGE_LINE_BUDGET = 700
+
 #: The manager CLASS, separately (C-40). 351 before the 2026-08-05 extraction, 272 after.
 #: A ratchet — see `test_the_manager_class_itself_stays_thin` for why it is not a target.
 _MANAGER_CLASS_BUDGET = 300
@@ -489,6 +499,39 @@ def test_the_manager_stays_within_its_line_budget(managers_dir):
         f"{[f.name for f in sources]}, over epic #148's {_MANAGER_LINE_BUDGET} bound. "
         "It was 636 before #149 and is the repo's one known dumping ground — growth "
         "here is the regression that epic existed to reverse."
+    )
+
+
+@pytest.mark.parametrize("partner", _PARTNER_PACKAGES)
+def test_the_partner_package_stays_within_its_line_budget(partner):
+    """The directory bound, one level out — because moving code past it is not shrinking.
+
+    The budget above deliberately counts the manager *directory* rather than the manager
+    file, so that a helper module beside a thin manager could not go unbudgeted. On
+    2026-08-14 the same evasion happened one directory further out and the guard did not
+    see it: `_ContractStorePort` moved from `managers/<partner>.py` to
+    `<partner>/store_port.py`, the counted number fell from 441 to 388, and the partner
+    package grew from 441 to 488 lines.
+
+    That move was the right call — a store adapter is not the manager, and the budget's
+    own instruction is to move something out rather than raise the number. What was
+    wrong was calling the result "62 of headroom" when the guard had simply stopped
+    measuring the code. This test is what makes that sentence checkable, and it is the
+    same lesson as register C-98: a guard that watches a proxy reports on the proxy.
+
+    A ratchet, not a target. If it binds, move something out of the partner package —
+    to `contract/` or `delivery/`, where the machinery lives — or say in the commit
+    message why the package genuinely needs to be bigger.
+    """
+    package = _PKG / partner
+    sources = sorted(package.rglob("*.py"))
+    lines = sum(len(f.read_text().splitlines()) for f in sources)
+    assert lines <= _PARTNER_PACKAGE_LINE_BUDGET, (
+        f"{partner}/ is {lines} lines across {len(sources)} files "
+        f"({[f.relative_to(package).as_posix() for f in sources]}), over the "
+        f"{_PARTNER_PACKAGE_LINE_BUDGET} bound. Moving code from managers/ into a "
+        "sibling module does not reduce the seam — it only moves it out of the inner "
+        "budget's view, which is what this outer one exists to notice."
     )
 
 
