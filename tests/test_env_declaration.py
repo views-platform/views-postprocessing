@@ -631,9 +631,15 @@ def _name_and_class_drift(expected_class: dict, declared: dict) -> tuple[list, d
 
     Extracted 2026-08-14 (issue #265) so the gated check below and the ungated proof of
     it further down run the **same** comparison. They did not: the proof rebuilt this
-    with its own comprehensions, so blanking the assertions here left it green. Its two
-    siblings had already been repaired the same way via ``_describe_changes`` — a second
-    incident, not a guessed abstraction.
+    with its own comprehensions, so blanking the assertions here left it green.
+
+    The two sibling defects were repaired differently — by adding a test that drives the
+    real check under ``monkeypatch`` (``test_the_drift_check_fires_when_a_row_this_partner_reads_rotates``).
+    That works there because the check reads a registry the test can substitute. Here the
+    comparison is a pure function of two dicts and both callers want exactly it, so
+    sharing the function is the same guarantee with less machinery. Extracting is
+    justified by *this* being the second time the pattern has bitten, not by a rule about
+    line counts.
     """
     missing = sorted(n for n in expected_class if n not in declared)
     misclassified = {
