@@ -1152,6 +1152,8 @@ The ratio held at 12 and 36 shards, so it is the shape and not the scale. Fixing
 
 **The manager's historical frame is not the elephant, so it is not being chased.** #269 notes `_historical_frame` is held from `_read` through `_save`. By its own declared dimensions — 64,742 cells x 438 months = 28,356,996 rows — that is about **108 MB** at one float32 column, **1.2%** of a single forecast target frame. Recorded here rather than filed as its own issue, because a separate issue implying comparable cost would misdirect whoever picked it up.
 
+*One refusal added, because the fix moved a constraint.* The buffer's width is fixed by the first shard, so a run whose shards disagree on draws per cell is now this function's constraint rather than an incidental one. Left to the assignment it surfaced as `could not broadcast input array from shape (6,2) into shape (6,4)` — no shard named, no mention of draws. The stacking it replaced was no better, only wordier. It now refuses in its own words, mutation-proven by deleting the check and watching the bare numpy error return.
+
 *Guarded.* `tests/test_track_a_source.py::test_shards_are_fetched_one_at_a_time_not_all_up_front` asserts the fetch/decode interleaving rather than a byte count — a memory threshold in a test is a flake on a busy machine, while "fetch, decode, fetch, decode" is exactly the property that bounds the peak. Mutation-proven: restoring the up-front dict produces `['fetch','fetch','fetch','decode','decode','decode']` and it fails.
 
 Cross-refs: **C-99** (the other defect the same delivery attempt found), **C-75** (the pandas retirement that #126 landed on the historical leg), views-postprocessing#269, views-postprocessing#126.

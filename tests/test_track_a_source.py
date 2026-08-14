@@ -230,3 +230,31 @@ def test_shards_are_fetched_one_at_a_time_not_all_up_front(monkeypatch):
         "precedes another 'fetch' is a shard's bytes held while the next is downloaded "
         "— at 36 shards that was a third of the peak."
     )
+
+
+def test_shards_with_different_draw_counts_are_refused_in_our_own_words():
+    """A run whose shards disagree on S is not one forecast — say so, do not let numpy.
+
+    The assembly buffer's width is fixed by the first shard, which makes a draw-count
+    disagreement this function's constraint rather than an incidental one. Left to the
+    assignment it surfaces as ``could not broadcast input array from shape (6,2) into
+    shape (12,4)`` — no shard named, no mention of draws, three frames from anything a
+    reader recognises. The stacking it replaced was no better, only wordier; neither is
+    a refusal, which is the whole of C-99's lesson applied before it could bite again.
+    """
+    narrow_values = io.BytesIO()
+    np.save(narrow_values, np.zeros((6, 2), dtype=np.float32))
+    narrow = _retouched_shard(**{
+        "y_pred.npy": narrow_values.getvalue(),
+        "metadata.json": _header(sample_count=2, time_id=544),
+    })
+    manifest = {
+        **MANIFEST,
+        "shards": [
+            {"name": SHARD_NAME, "sha256": SHARD_SHA},
+            {"name": "narrow", "sha256": _sha(narrow)},
+        ],
+        "expected_months": [543, 544],
+    }
+    with pytest.raises(tas.TrackASourceError, match="draws per cell"):
+        tas.frames_for_target(manifest, {SHARD_NAME: SHARD, "narrow": narrow}.__getitem__)

@@ -171,6 +171,17 @@ def frames_for_target(
             values = np.empty((total, frame.values.shape[1]), dtype=frame.values.dtype)
             time = np.empty(total, dtype=frame_time.dtype)
             unit = np.empty(total, dtype=frame_unit.dtype)
+        elif frame.values.shape[1] != values.shape[1]:
+            # The buffer's width is fixed by the first shard, so a draw-count
+            # disagreement is now this function's constraint rather than numpy's.
+            # Left to the assignment it reads "could not broadcast input array from
+            # shape (a,b) into shape (a,c)" — no shard named, no mention of draws.
+            # Stacking said the same in more words; neither is a refusal (C-99).
+            raise TrackASourceError(
+                f"run: shard {name!r} carries {frame.values.shape[1]} draws per cell, "
+                f"the run's first shard carried {values.shape[1]} — a target assembled "
+                f"from shards with different sample counts is not one forecast."
+            )
         start = position * expected_cells
         stop = start + expected_cells
         values[start:stop] = frame.values
