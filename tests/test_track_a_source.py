@@ -68,7 +68,7 @@ def test_read_shard_round_trips_the_fixture():
 
 
 def test_frames_for_target_assembles_the_run():
-    frame, headers = tas.frames_for_target(MANIFEST, {SHARD_NAME: SHARD})
+    frame, headers = tas.frames_for_target(MANIFEST, {SHARD_NAME: SHARD}.__getitem__)
     assert frame.n_rows == 6 and frame.sample_count == 4
     # headers ride along in manifest shard order (provenance pass-through, §10.2)
     assert [h["time_id"] for h in headers] == [543]
@@ -154,14 +154,14 @@ def test_minor_version_drift_accepted():
 
 def test_missing_shard_bytes_rejected():
     with pytest.raises(tas.TrackASourceError, match="not provided"):
-        tas.frames_for_target(MANIFEST, {})
+        tas.frames_for_target(MANIFEST, {}.__getitem__)
 
 
 def test_shard_target_disagreeing_with_manifest_rejected():
     bad = _retouched_shard(**{"metadata.json": _header(target="lr_ged_ns")})
     manifest = {**MANIFEST, "shards": [{"name": SHARD_NAME, "sha256": _sha(bad)}]}
     with pytest.raises(tas.TrackASourceError, match="target"):
-        tas.frames_for_target(manifest, {SHARD_NAME: bad})
+        tas.frames_for_target(manifest, {SHARD_NAME: bad}.__getitem__)
 
 
 def test_wrong_month_coverage_rejected():
@@ -170,21 +170,183 @@ def test_wrong_month_coverage_rejected():
         # month 544's shard is absent entirely — caught at the bytes gate
         tas.frames_for_target(
             {**manifest, "shards": MANIFEST["shards"] + [{"name": "m544", "sha256": "0" * 64}]},
-            {SHARD_NAME: SHARD},
+            {SHARD_NAME: SHARD}.__getitem__,
         )
     bad = _retouched_shard(**{"metadata.json": _header(time_id=999)})
     manifest = {**MANIFEST, "shards": [{"name": SHARD_NAME, "sha256": _sha(bad)}]}
     with pytest.raises(tas.TrackASourceError, match="months covered"):
-        tas.frames_for_target(manifest, {SHARD_NAME: bad})
+        tas.frames_for_target(manifest, {SHARD_NAME: bad}.__getitem__)
 
 
 def test_wrong_cell_count_rejected():
     manifest = {**MANIFEST, "expected_cell_count": 7}
     with pytest.raises(tas.TrackASourceError, match="cells"):
-        tas.frames_for_target(manifest, {SHARD_NAME: SHARD})
+        tas.frames_for_target(manifest, {SHARD_NAME: SHARD}.__getitem__)
 
 
 def test_manifest_missing_required_field_rejected():
     truncated = {k: v for k, v in MANIFEST.items() if k != "expected_months"}
     with pytest.raises(tas.TrackASourceError, match="expected_months"):
         tas.read_manifest(json.dumps(truncated).encode())
+
+
+def test_shards_are_fetched_one_at_a_time_not_all_up_front(monkeypatch):
+    """The bound this function's memory shape depends on — register C-101.
+
+    ``frames_for_target`` took a filled dict until 2026-08-14, so every shard of a
+    target was resident before the first was decoded. Measured at 36 shards, that plus
+    stacking with ``np.concatenate`` put peak at **3.06x the delivered frame**, in three
+    roughly equal thirds: the raw bytes, the per-shard frames, and the concatenated
+    copy. Fetching per shard and filling a manifest-sized buffer took it to **1.13x**.
+
+    This asserts the *interleaving*, not a byte count, and deliberately so: a memory
+    threshold in a test is a flake on a busy machine, whereas "fetch, decode, fetch,
+    decode" is the property that actually bounds the peak and it is exactly observable.
+    Reverting to a pre-built dict makes the sequence fetch-fetch-decode-decode and this
+    fails; nothing else in the suite would notice.
+    """
+    manifest = {
+        **MANIFEST,
+        "shards": [{"name": f"shard-{i}", "sha256": SHARD_SHA} for i in range(3)],
+        "expected_months": [543, 543, 543],
+    }
+    events = []
+    real_read_shard = tas.read_shard
+
+    def spy(shard_bytes, *, expected_sha256):
+        events.append("decode")
+        return real_read_shard(shard_bytes, expected_sha256=expected_sha256)
+
+    monkeypatch.setattr(tas, "read_shard", spy)
+
+    def fetch(name):
+        events.append("fetch")
+        return SHARD
+
+    tas.frames_for_target(manifest, fetch)
+
+    assert events == ["fetch", "decode"] * 3, (
+        f"shards are not being fetched one at a time: {events}. Every 'fetch' that "
+        "precedes another 'fetch' is a shard's bytes held while the next is downloaded "
+        "— at 36 shards that was a third of the peak."
+    )
+
+
+def test_shards_with_different_draw_counts_are_refused_in_our_own_words():
+    """A run whose shards disagree on S is not one forecast — say so, do not let numpy.
+
+    The assembly buffer's width is fixed by the first shard, which makes a draw-count
+    disagreement this function's constraint rather than an incidental one. Left to the
+    assignment it surfaces as ``could not broadcast input array from shape (6,2) into
+    shape (6,4)`` — no shard named, no mention of draws, three frames from anything a
+    reader recognises. The stacking it replaced was no better, only wordier; neither is
+    a refusal, which is the whole of C-99's lesson applied before it could bite again.
+    """
+    narrow_values = io.BytesIO()
+    np.save(narrow_values, np.zeros((6, 2), dtype=np.float32))
+    narrow = _retouched_shard(**{
+        "y_pred.npy": narrow_values.getvalue(),
+        "metadata.json": _header(sample_count=2, time_id=544),
+    })
+    manifest = {
+        **MANIFEST,
+        "shards": [
+            {"name": SHARD_NAME, "sha256": SHARD_SHA},
+            {"name": "narrow", "sha256": _sha(narrow)},
+        ],
+        "expected_months": [543, 544],
+    }
+    with pytest.raises(tas.TrackASourceError, match="draws per cell"):
+        tas.frames_for_target(manifest, {SHARD_NAME: SHARD, "narrow": narrow}.__getitem__)
+
+
+def _shard_with(*, values, time_id, unit_start):
+    """A fixture-shaped shard carrying declared values/ids — distinct per month."""
+    payload, ids = io.BytesIO(), io.BytesIO()
+    np.save(payload, values)
+    t, u = io.BytesIO(), io.BytesIO()
+    np.save(t, np.full(values.shape[0], time_id, dtype=np.int64))
+    np.save(u, np.arange(unit_start, unit_start + values.shape[0], dtype=np.int64))
+    with zipfile.ZipFile(ids, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("time.npy", t.getvalue())
+        zf.writestr("unit.npy", u.getvalue())
+    return _retouched_shard(**{
+        "y_pred.npy": payload.getvalue(),
+        "identifiers.npz": ids.getvalue(),
+        "metadata.json": _header(sample_count=values.shape[1], time_id=time_id),
+    })
+
+
+def test_a_multi_shard_run_assembles_in_manifest_order_with_every_row_written():
+    """The slot arithmetic, against the stacking it replaced — register C-101.
+
+    Until this existed, **nothing in the suite assembled more than one shard**. The
+    single-shard fixture drives the whole e2e byte-parity chain
+    (`tests/test_hop_b_sink_e2e.py`), so `position * expected_cell_count` never ran with
+    a position above zero, and the interleaving guard's three shards are byte-identical
+    copies that would survive any ordering bug. The rewrite's core was unverified.
+
+    Three shards with values, months and units that are distinct per shard, asserted
+    against exactly what `np.concatenate` in manifest order produces. That is the claim
+    the change makes: same product, less memory. It catches a transposed slot, an
+    off-by-one in `start`/`stop`, an unwritten row left as `np.empty` garbage, and
+    identifiers assembled out of step with the values they label.
+    """
+    cells, draws = 4, 3
+    blocks = [
+        np.full((cells, draws), fill, dtype=np.float32) for fill in (1.5, 2.5, 3.5)
+    ]
+    shards, entries, months = {}, [], []
+    for i, block in enumerate(blocks):
+        time_id = 543 + i
+        raw = _shard_with(values=block, time_id=time_id, unit_start=100_000 + 10 * i)
+        name = f"m{time_id}"
+        shards[name] = raw
+        entries.append({"name": name, "sha256": _sha(raw)})
+        months.append(time_id)
+
+    manifest = {
+        **MANIFEST,
+        "shards": entries,
+        "expected_months": months,
+        "expected_cell_count": cells,
+    }
+    frame, headers = tas.frames_for_target(manifest, shards.__getitem__)
+
+    np.testing.assert_array_equal(frame.values, np.concatenate(blocks, axis=0))
+    np.testing.assert_array_equal(
+        np.asarray(frame.index.time),
+        np.concatenate([np.full(cells, m, dtype=np.int64) for m in months]),
+    )
+    np.testing.assert_array_equal(
+        np.asarray(frame.index.unit),
+        np.concatenate([
+            np.arange(100_000 + 10 * i, 100_000 + 10 * i + cells, dtype=np.int64)
+            for i in range(len(blocks))
+        ]),
+    )
+    assert frame.n_rows == cells * len(blocks)
+    assert [h["time_id"] for h in headers] == months, "headers ride in manifest order"
+
+
+@pytest.mark.parametrize(
+    "declared, why",
+    [
+        (6.0, "a JSON float compares equal to 6 and used to pass"),
+        (0, "zero cells sizes an empty frame nothing can be checked against"),
+        (-1, "negative would raise deep inside numpy"),
+        (True, "bool is an int subclass and would size a one-row frame"),
+    ],
+)
+def test_expected_cell_count_must_be_a_positive_integer(declared, why):
+    """It sizes an array now; it used to sit on one side of a ``!=``.
+
+    ``6.0 == 6`` is True, so a manifest carrying a JSON float passed the old row-count
+    check and assembled correctly. The rewrite hands the same value to ``np.empty``,
+    where it raises ``TypeError: 'float' object cannot be interpreted as an integer`` —
+    bare, naming neither the field nor the manifest, from a document that crossed a
+    repository boundary. ``read_manifest`` only checks that the key is present.
+    """
+    manifest = {**MANIFEST, "expected_cell_count": declared}
+    with pytest.raises(tas.TrackASourceError, match="expected_cell_count"):
+        tas.frames_for_target(manifest, {SHARD_NAME: SHARD}.__getitem__)

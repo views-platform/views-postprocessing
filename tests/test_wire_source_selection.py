@@ -141,3 +141,41 @@ def test_selection_filters_are_golden_strings():
     assert sel.HOP_A_SHARD_FILTERS == {"category": "forecast", "type": "sampled_forecast_shard"}
     assert sel.HOP_A_MANIFEST_FILTERS == {"category": "forecast", "type": "sampled_forecast_manifest"}
     assert sel.HOP_A_MANIFEST_NAME_TEMPLATE == "{run_id}__{target}__manifest.json"
+
+
+def test_a_store_that_raises_keyerror_is_not_blamed_on_the_manifest():
+    """A store fault must not be relabelled as a missing manifest entry.
+
+    ``frames_for_target`` reads a ``KeyError`` from the fetch callback as *"this shard
+    was never pinned"*. The lease's callback calls into the store, so before this guard
+    a ``KeyError`` thrown anywhere inside the client — a response shape indexed with
+    ``[]`` rather than ``.get()``, which is how C-99 happened one layer down — would
+    surface as *"manifest lists shard X but its bytes were not provided"*, blaming the
+    manifest for a store failure. ``raise ... from None`` would have discarded the
+    traceback that said otherwise.
+
+    The shard here IS pinned, so "not provided" would be a false diagnosis.
+    """
+    manifest = json.loads((_FIX / _MANIFEST_NAME).read_text())
+
+    class KeyErroringStore:
+        def download(self, file_id):
+            raise KeyError("data")
+
+    lease = sel.TargetLease(
+        target=manifest["target"],
+        manifest=manifest,
+        shard_file_ids={entry["name"]: "pinned-id" for entry in manifest["shards"]},
+        store=KeyErroringStore(),
+        expected_ensemble="fixture_ensemble",
+    )
+    with pytest.raises(sel.SourceSelectionError) as excinfo:
+        lease.load()
+    message = str(excinfo.value)
+    assert "store fault" in message, "the refusal must say where the fault is"
+    assert "not provided" not in message, (
+        "a store KeyError must not be reported as a missing manifest entry"
+    )
+    assert excinfo.value.__cause__ is not None, (
+        "the store's own KeyError must be chained, not discarded"
+    )

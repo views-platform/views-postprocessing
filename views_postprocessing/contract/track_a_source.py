@@ -106,47 +106,105 @@ def read_shard(shard_bytes: bytes, *, expected_sha256: str) -> tuple[PredictionF
 
 
 def frames_for_target(
-    manifest: dict, shard_bytes_by_name: dict
+    manifest: dict, fetch_shard_bytes
 ) -> tuple[PredictionFrame, list[dict]]:
     """A (run, target)'s verified shards → ``(PredictionFrame, headers)``.
 
-    ``shard_bytes_by_name`` maps shard ``name`` → downloaded bytes; the manifest is the
-    only source of which shards exist (§3.3: names are locators, manifest content is
-    identity). Verifies run completeness against the manifest's own declarations —
-    months covered exactly, cell count per month — then stacks months into one frame.
-    The returned ``headers`` (manifest shard order) carry the producer-minted
-    provenance the sink passes through untouched (§10.2 — nothing is minted
-    downstream).
+    ``fetch_shard_bytes(name) -> bytes`` returns one shard's bytes on demand; the
+    manifest is the only source of which shards exist (§3.3: names are locators,
+    manifest content is identity). Verifies run completeness against the manifest's own
+    declarations — months covered exactly, cell count per month — then stacks months
+    into one frame. The returned ``headers`` (manifest shard order) carry the
+    producer-minted provenance the sink passes through untouched (§10.2 — nothing is
+    minted downstream).
+
+    **A callback rather than a pre-built dict, and the output filled in place rather
+    than concatenated — both for memory (register C-101).** Measured on 2026-08-14 at
+    36 shards: taking a dict meant every shard's bytes were resident before the first
+    was decoded, and stacking with ``np.concatenate`` meant the per-shard frames and
+    the finished array were resident together. Peak was **3.06x the delivered frame**,
+    in three roughly equal thirds. Fetching per shard and writing into a
+    manifest-sized buffer keeps one shard's bytes and one shard's frame alive at a
+    time, so peak is the frame plus a shard.
+
+    The buffer is sized from ``expected_cell_count`` x shard count, which is a
+    declaration this function already enforces per shard — a shard whose row count
+    disagrees is refused *before* anything is written, so the slot arithmetic can
+    never straddle two months.
     """
-    frames, months_seen, headers = [], [], []
-    for entry in manifest["shards"]:
+    entries = manifest["shards"]
+    if not entries:
+        raise TrackASourceError(
+            "run: the manifest lists no shards — an empty run must not be assembled."
+        )
+    expected_cells = manifest["expected_cell_count"]
+    # It sizes an array now, where it used to sit on one side of a `!=`. `6.0` compares
+    # equal to `6` and passed the old check happily; here it reaches `np.empty` and
+    # raises a bare `TypeError: 'float' object cannot be interpreted as an integer`,
+    # naming neither the manifest nor the field. `read_manifest` checks that the key is
+    # present, never what it holds, and the manifest crosses a repository boundary.
+    if type(expected_cells) is not int or expected_cells < 1:
+        raise TrackASourceError(
+            f"run: manifest declares expected_cell_count={expected_cells!r} "
+            f"({type(expected_cells).__name__}) — it must be a positive integer, "
+            f"because it sizes the assembled frame."
+        )
+    values = time = unit = None
+    months_seen, headers = [], []
+
+    for position, entry in enumerate(entries):
         name = entry["name"]
-        if name not in shard_bytes_by_name:
+        try:
+            shard_bytes = fetch_shard_bytes(name)
+        except KeyError:
             raise TrackASourceError(
                 f"run: manifest lists shard {name!r} but its bytes were not provided — "
                 f"an unmanifested or missing shard must not be silently skipped."
-            )
-        frame, header = read_shard(shard_bytes_by_name[name], expected_sha256=entry["sha256"])
+            ) from None
+        frame, header = read_shard(shard_bytes, expected_sha256=entry["sha256"])
+        # The bytes are dead the moment they are decoded. Dropping the reference here
+        # is the whole of the first third: without it every shard's bytes outlive the
+        # loop.
+        del shard_bytes
         if header.get("target") != manifest["target"]:
             raise TrackASourceError(
                 f"run: shard header target {header.get('target')!r} != manifest target "
                 f"{manifest['target']!r}."
             )
-        if frame.n_rows != manifest["expected_cell_count"]:
+        if frame.n_rows != expected_cells:
             raise TrackASourceError(
                 f"run: shard {name!r} carries {frame.n_rows} cells, manifest expects "
-                f"{manifest['expected_cell_count']}."
+                f"{expected_cells}."
             )
-        frames.append(frame)
+        if values is None:
+            total = expected_cells * len(entries)
+            frame_time, frame_unit = np.asarray(frame.index.time), np.asarray(frame.index.unit)
+            values = np.empty((total, frame.values.shape[1]), dtype=frame.values.dtype)
+            time = np.empty(total, dtype=frame_time.dtype)
+            unit = np.empty(total, dtype=frame_unit.dtype)
+        elif frame.values.shape[1] != values.shape[1]:
+            # The buffer's width is fixed by the first shard, so a draw-count
+            # disagreement is now this function's constraint rather than numpy's.
+            # Left to the assignment it reads "could not broadcast input array from
+            # shape (a,b) into shape (a,c)" — no shard named, no mention of draws.
+            # Stacking said the same in more words; neither is a refusal (C-99).
+            raise TrackASourceError(
+                f"run: shard {name!r} carries {frame.values.shape[1]} draws per cell, "
+                f"the run's first shard carried {values.shape[1]} — a target assembled "
+                f"from shards with different sample counts is not one forecast."
+            )
+        start = position * expected_cells
+        stop = start + expected_cells
+        values[start:stop] = frame.values
+        time[start:stop] = np.asarray(frame.index.time)
+        unit[start:stop] = np.asarray(frame.index.unit)
         headers.append(header)
         months_seen.append(int(header.get("time_id")))
+        del frame
 
     if sorted(months_seen) != sorted(int(m) for m in manifest["expected_months"]):
         raise TrackASourceError(
             f"run: months covered {sorted(months_seen)} != manifest expected "
             f"{sorted(manifest['expected_months'])} — a torn run must not be assembled."
         )
-    values = np.concatenate([f.values for f in frames], axis=0)
-    time = np.concatenate([np.asarray(f.index.time) for f in frames])
-    unit = np.concatenate([np.asarray(f.index.unit) for f in frames])
     return build_prediction_frame(values, time, unit), headers
