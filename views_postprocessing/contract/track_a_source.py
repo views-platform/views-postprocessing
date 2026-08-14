@@ -138,6 +138,17 @@ def frames_for_target(
             "run: the manifest lists no shards — an empty run must not be assembled."
         )
     expected_cells = manifest["expected_cell_count"]
+    # It sizes an array now, where it used to sit on one side of a `!=`. `6.0` compares
+    # equal to `6` and passed the old check happily; here it reaches `np.empty` and
+    # raises a bare `TypeError: 'float' object cannot be interpreted as an integer`,
+    # naming neither the manifest nor the field. `read_manifest` checks that the key is
+    # present, never what it holds, and the manifest crosses a repository boundary.
+    if type(expected_cells) is not int or expected_cells < 1:
+        raise TrackASourceError(
+            f"run: manifest declares expected_cell_count={expected_cells!r} "
+            f"({type(expected_cells).__name__}) — it must be a positive integer, "
+            f"because it sizes the assembled frame."
+        )
     values = time = unit = None
     months_seen, headers = [], []
 

@@ -238,7 +238,7 @@ def test_shards_with_different_draw_counts_are_refused_in_our_own_words():
     The assembly buffer's width is fixed by the first shard, which makes a draw-count
     disagreement this function's constraint rather than an incidental one. Left to the
     assignment it surfaces as ``could not broadcast input array from shape (6,2) into
-    shape (12,4)`` — no shard named, no mention of draws, three frames from anything a
+    shape (6,4)`` — no shard named, no mention of draws, three frames from anything a
     reader recognises. The stacking it replaced was no better, only wordier; neither is
     a refusal, which is the whole of C-99's lesson applied before it could bite again.
     """
@@ -258,3 +258,95 @@ def test_shards_with_different_draw_counts_are_refused_in_our_own_words():
     }
     with pytest.raises(tas.TrackASourceError, match="draws per cell"):
         tas.frames_for_target(manifest, {SHARD_NAME: SHARD, "narrow": narrow}.__getitem__)
+
+
+def _shard_with(*, values, time_id, unit_start):
+    """A fixture-shaped shard carrying declared values/ids — distinct per month."""
+    payload, ids = io.BytesIO(), io.BytesIO()
+    np.save(payload, values)
+    t, u = io.BytesIO(), io.BytesIO()
+    np.save(t, np.full(values.shape[0], time_id, dtype=np.int64))
+    np.save(u, np.arange(unit_start, unit_start + values.shape[0], dtype=np.int64))
+    with zipfile.ZipFile(ids, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("time.npy", t.getvalue())
+        zf.writestr("unit.npy", u.getvalue())
+    return _retouched_shard(**{
+        "y_pred.npy": payload.getvalue(),
+        "identifiers.npz": ids.getvalue(),
+        "metadata.json": _header(sample_count=values.shape[1], time_id=time_id),
+    })
+
+
+def test_a_multi_shard_run_assembles_in_manifest_order_with_every_row_written():
+    """The slot arithmetic, against the stacking it replaced — register C-101.
+
+    Until this existed, **nothing in the suite assembled more than one shard**. The
+    single-shard fixture drives the whole e2e byte-parity chain
+    (`tests/test_hop_b_sink_e2e.py`), so `position * expected_cell_count` never ran with
+    a position above zero, and the interleaving guard's three shards are byte-identical
+    copies that would survive any ordering bug. The rewrite's core was unverified.
+
+    Three shards with values, months and units that are distinct per shard, asserted
+    against exactly what `np.concatenate` in manifest order produces. That is the claim
+    the change makes: same product, less memory. It catches a transposed slot, an
+    off-by-one in `start`/`stop`, an unwritten row left as `np.empty` garbage, and
+    identifiers assembled out of step with the values they label.
+    """
+    cells, draws = 4, 3
+    blocks = [
+        np.full((cells, draws), fill, dtype=np.float32) for fill in (1.5, 2.5, 3.5)
+    ]
+    shards, entries, months = {}, [], []
+    for i, block in enumerate(blocks):
+        time_id = 543 + i
+        raw = _shard_with(values=block, time_id=time_id, unit_start=100_000 + 10 * i)
+        name = f"m{time_id}"
+        shards[name] = raw
+        entries.append({"name": name, "sha256": _sha(raw)})
+        months.append(time_id)
+
+    manifest = {
+        **MANIFEST,
+        "shards": entries,
+        "expected_months": months,
+        "expected_cell_count": cells,
+    }
+    frame, headers = tas.frames_for_target(manifest, shards.__getitem__)
+
+    np.testing.assert_array_equal(frame.values, np.concatenate(blocks, axis=0))
+    np.testing.assert_array_equal(
+        np.asarray(frame.index.time),
+        np.concatenate([np.full(cells, m, dtype=np.int64) for m in months]),
+    )
+    np.testing.assert_array_equal(
+        np.asarray(frame.index.unit),
+        np.concatenate([
+            np.arange(100_000 + 10 * i, 100_000 + 10 * i + cells, dtype=np.int64)
+            for i in range(len(blocks))
+        ]),
+    )
+    assert frame.n_rows == cells * len(blocks)
+    assert [h["time_id"] for h in headers] == months, "headers ride in manifest order"
+
+
+@pytest.mark.parametrize(
+    "declared, why",
+    [
+        (6.0, "a JSON float compares equal to 6 and used to pass"),
+        (0, "zero cells sizes an empty frame nothing can be checked against"),
+        (-1, "negative would raise deep inside numpy"),
+        (True, "bool is an int subclass and would size a one-row frame"),
+    ],
+)
+def test_expected_cell_count_must_be_a_positive_integer(declared, why):
+    """It sizes an array now; it used to sit on one side of a ``!=``.
+
+    ``6.0 == 6`` is True, so a manifest carrying a JSON float passed the old row-count
+    check and assembled correctly. The rewrite hands the same value to ``np.empty``,
+    where it raises ``TypeError: 'float' object cannot be interpreted as an integer`` —
+    bare, naming neither the field nor the manifest, from a document that crossed a
+    repository boundary. ``read_manifest`` only checks that the key is present.
+    """
+    manifest = {**MANIFEST, "expected_cell_count": declared}
+    with pytest.raises(tas.TrackASourceError, match="expected_cell_count"):
+        tas.frames_for_target(manifest, {SHARD_NAME: SHARD}.__getitem__)

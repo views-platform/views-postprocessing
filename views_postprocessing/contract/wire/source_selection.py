@@ -73,9 +73,25 @@ class TargetLease:
         Fetch-by-pinned-id is unchanged — the ids were pinned by ``resolve_run`` and a
         newer run still cannot be mixed in.
         """
-        frame, headers = track_a_source.frames_for_target(
-            self.manifest, lambda name: self.store.download(self.shard_file_ids[name])
-        )
+        def fetch(name):
+            # `frames_for_target` reads a KeyError as "this shard was never pinned".
+            # Only the lookup is allowed to say that: a KeyError thrown from inside the
+            # store — a response shape indexed with [] somewhere in the client — would
+            # otherwise be relabelled "bytes were not provided", blaming the manifest
+            # for a store failure and discarding the traceback that says otherwise.
+            # C-99 was that exact substitution one layer down.
+            file_id = self.shard_file_ids[name]
+            try:
+                return self.store.download(file_id)
+            except KeyError as exc:
+                raise SourceSelectionError(
+                    f"run {self.run_id!r}, target {self.target!r}: the store raised "
+                    f"KeyError({exc}) downloading shard {name!r} (file_id {file_id!r}). "
+                    f"The shard was pinned and requested — this is a store fault, not a "
+                    f"missing manifest entry."
+                ) from exc
+
+        frame, headers = track_a_source.frames_for_target(self.manifest, fetch)
         for header in headers:
             found = header.get("provenance", {}).get("ensemble")
             if found != self.expected_ensemble:
