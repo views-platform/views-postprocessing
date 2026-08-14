@@ -26,7 +26,11 @@ from dataclasses import dataclass
 
 import pytest
 
+from pathlib import Path
+
 from tests.conftest import PARTNER_PACKAGES
+
+_PKG = Path(__file__).resolve().parent.parent / "views_postprocessing"
 
 
 @dataclass
@@ -259,3 +263,33 @@ def test_the_download_refusal_names_the_file_id_and_what_it_got(partner):
         "the refusal must name what it actually got, or the reader cannot tell a store "
         "that returned nothing from one whose result shape moved"
     )
+
+
+def test_the_two_partners_ports_have_not_drifted():
+    """The duplication C-33 blesses is only safe while the copies stay equal.
+
+    Both partners carry this file byte for byte, which is the standing per-partner-track
+    decision (C-33), not an accident. What makes that decision cheap is that a reader can
+    treat one file as the truth; what makes it dangerous is a fix applied to one copy and
+    not the other, which nothing in this repository would have noticed until now.
+
+    **Be precise about what this does not catch.** It would *not* have caught C-99. That
+    drift was between two METHODS of the same class — ``upload`` was fixed in both
+    partners on 2026-08-05 and ``download`` in neither — so both files stayed perfectly
+    identical while carrying the defect for nine days. This guard closes the other axis,
+    the partner-vs-partner one, which is real but was never the thing that bit.
+    """
+    sources = {
+        partner: (_PKG / partner / "store_port.py").read_text()
+        for partner in PARTNER_PACKAGES
+    }
+    first, *rest = sorted(sources)
+    for other in rest:
+        assert sources[first] == sources[other], (
+            f"{first}/store_port.py and {other}/store_port.py have diverged. The port is "
+            "duplicated per partner on purpose (C-33), and the copies carry no "
+            "partner-specific content at all — so a difference here is a fix that landed "
+            "in one partner and not the other, which is how the same delivery bug ships "
+            "twice. Apply it to both, or if the divergence is deliberate, say so in "
+            "C-33 and replace this check with one that allows it."
+        )
