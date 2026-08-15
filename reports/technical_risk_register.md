@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-14                           |
-| Total Concerns          | 101                                   |
+| Last Updated      | 2026-08-15                           |
+| Total Concerns          | 102                                   |
 | Open Concerns           | 22                                   |
-| Resolved Concerns       | 79                                   |
+| Resolved Concerns       | 80                                   |
 
 ---
 
@@ -1122,6 +1122,30 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-102: A guard that has never run is unproven, however carefully it was written — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-102 |
+| Tier | 4 — caught before it ran anywhere, so nothing was affected. Registered for the shape, which this repository keeps rediscovering. |
+| Source | `/code-review medium` on PR #275, 2026-08-15 |
+| Trigger | *(closed)* Any dormant check being switched on — a skipped test made live, a gate moved from advisory to required, a guard whose environment finally satisfies its precondition. |
+| Location | `tests/test_release_version.py` (`test_the_newest_release_tag_is_not_ahead_of_the_declared_version`); `.github/workflows/run_pytest.yml` |
+
+`tests/test_release_version.py` was written on 2026-08-13 after tag `1.1.0` was cut while `pyproject.toml` still said `1.0.0`. It was correct, mutation-proven, and **had never executed anywhere except a maintainer's laptop**: CI checked out with no `fetch-depth`, so no tags were fetched and both of its tests skipped. Verified in a real CI log — run `31844578627` shows `tests/test_release_version.py ss`.
+
+PR #275 made it live by fetching tags. Review then found that switching it on would have **broken honest branches on its first day**: the check read `git tag -l`, which lists tags on every branch, so it asked *"has a release been cut anywhere"* rather than *"has one been cut from this line of history without the bump"*. With `1.1.1` tagged on the release line, a branch still declaring `1.1.0` — a long-lived feature branch, a hotfix cut from `1.1.0` — fails with *"the newest release tag is 1.1.1 but pyproject.toml declares 1.1.0"*, having done nothing wrong.
+
+Reproduced in a clone before changing anything: tags anywhere `1.0.0 1.1.0 1.1.1`, tags reachable from the honest branch `1.0.0 1.1.0`, old check fails, `git tag --merged HEAD` passes — while on the tagged line both guards still bite when `pyproject.toml` is set back.
+
+**The lesson is not about tags.** Mutation-proving establishes that a guard *can* fail; it says nothing about whether the guard has ever been *asked*. This one's logic was fine in the only environment it had run in, and its defect lived entirely in the environment it had never seen. ADR-014 §2 requires a guard to be mutation-proven; this entry adds that a guard which has only ever run in one environment is proven in one environment. C-98 is the same family from the other side — a guard that ran, but watched a proxy.
+
+**Fixed in the same change**, and the check now asks about reachable history. ADR-014 §3 was the deciding rule: a guard that reddens honest work is one someone deletes, so a false negative is the better failure.
+
+Cross-refs: **C-98** (a guard measuring a proxy), **C-89**, **C-90**, **C-93** (guards that could not fail), ADR-014 §2 and §3.
+
+---
 
 ### C-101: Assembling a target held three copies of it — measured, then bounded — RESOLVED
 
