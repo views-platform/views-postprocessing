@@ -64,12 +64,34 @@ class TargetLease:
         return self.manifest["run_id"]
 
     def load(self):
-        """Fetch (by pinned id), verify, curate — return the PRODUCT ``(frame, headers)``."""
-        shard_bytes = {
-            name: self.store.download(file_id)
-            for name, file_id in self.shard_file_ids.items()
-        }
-        frame, headers = track_a_source.frames_for_target(self.manifest, shard_bytes)
+        """Fetch (by pinned id), verify, curate — return the PRODUCT ``(frame, headers)``.
+
+        Shards are fetched **one at a time**, by handing ``frames_for_target`` a lookup
+        rather than a filled dict. The dict comprehension that stood here downloaded
+        every shard of the target before the first was decoded; with the stacking fix
+        beside it that made peak 3.06x the delivered frame (register C-101, measured).
+        Fetch-by-pinned-id is unchanged — the ids were pinned by ``resolve_run`` and a
+        newer run still cannot be mixed in.
+        """
+        def fetch(name):
+            # `frames_for_target` reads a KeyError as "this shard was never pinned".
+            # Only the lookup is allowed to say that: a KeyError thrown from inside the
+            # store — a response shape indexed with [] somewhere in the client — would
+            # otherwise be relabelled "bytes were not provided", blaming the manifest
+            # for a store failure and discarding the traceback that says otherwise.
+            # C-99 was that exact substitution one layer down.
+            file_id = self.shard_file_ids[name]
+            try:
+                return self.store.download(file_id)
+            except KeyError as exc:
+                raise SourceSelectionError(
+                    f"run {self.run_id!r}, target {self.target!r}: the store raised "
+                    f"KeyError({exc}) downloading shard {name!r} (file_id {file_id!r}). "
+                    f"The shard was pinned and requested — this is a store fault, not a "
+                    f"missing manifest entry."
+                ) from exc
+
+        frame, headers = track_a_source.frames_for_target(self.manifest, fetch)
         for header in headers:
             found = header.get("provenance", {}).get("ensemble")
             if found != self.expected_ensemble:

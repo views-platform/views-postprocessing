@@ -18,6 +18,14 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
+      with:
+        # `fetch-depth: 0` for the TAGS, not the history. The default shallow checkout
+        # fetches none, so `git tag -l` is empty and BOTH guards in
+        # tests/test_release_version.py skip — the pair written because tag 1.1.0 was cut
+        # while pyproject.toml still said 1.0.0. A guard against mis-cutting a release
+        # that only ever runs on the maintainer's laptop is half a guard, and the half
+        # that is missing is the one watching the moment it matters.
+        fetch-depth: 0
 
     # ── sibling checkouts: what CI can verify that a bare checkout cannot ────────
     #

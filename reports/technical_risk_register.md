@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-12                           |
-| Total Concerns          | 98                                   |
-| Open Concerns           | 21                                   |
-| Resolved Concerns | 77                                   |
+| Last Updated      | 2026-08-15                           |
+| Total Concerns          | 102                                   |
+| Open Concerns           | 22                                   |
+| Resolved Concerns       | 80                                   |
 
 ---
 
@@ -35,7 +35,7 @@ covered a single open entry (see Historical clusters below).
 **Update 2026-08-03 — the cluster halved at the 3.0.0 bump.** Six of its ten entries closed with the pin: the inherited surface stopped being a liability for timeouts (C-13), silent provisioning (C-58), the transitive drag (C-62) and the undeclared SDK (C-07). What remains is the root — the double inheritance itself — and the three genuinely upstream-owned data concerns (C-26, C-27, C-28). The cluster's thesis held: fixing the surface upstream fixed them here with a pin and no code.
 **Amended 2026-08-03:** the root's defining measurement — pipeline-core imported by exactly one module — became **two** when `crafd/managers/crafd.py` landed (PR #211). The count is still pinned by an explicit allowlist, so the cluster's boundary holds; what changed is that every fix in it now has two landing sites. See C-33 for why the second copy is deliberate and what triggers its removal.
 **Highest tier:** 1 (C-26)
-**Fix strategy:** the thin-shell de-inheritance C-40 prescribes — and which is **half-built**: the sink side landed (`_ContractStorePort`, `unfao.py:37-78`) and the invariants are already pipeline-core-free modules the manager calls (`delivery/*`, `unfao/historical.py`, `unfao/wire/`). The remaining half is the **input** side (loader + `PGMDataset`), gated on pipeline-core Epic #186/#207.
+**Fix strategy:** the thin-shell de-inheritance C-40 prescribes — and which is **half-built**: the sink side landed (`_ContractStorePort`, moved to `<partner>/store_port.py` 2026-08-14 by C-99) and the invariants are already pipeline-core-free modules the manager calls (`delivery/*`, `unfao/historical.py`, `unfao/wire/`). The remaining half is the **input** side (loader + `PGMDataset`), gated on pipeline-core Epic #186/#207.
 **Resolution scope:** Partial — C-26/C-27/C-28 are upstream-owned; de-inheritance makes them visible and testable, not fixed.
 
 ### Cluster H: Go-global verification debt — discharged unevenly by run-0
@@ -180,6 +180,26 @@ ADR-013's Erratum E3 stated that a views-pipeline-core fix — an editable insta
 This is the same shape as vpp_017 §7a, arrived at from the other side: a check may rest on a fact we own, on a fact another repository has declared in the public registry, or on an outcome we can observe. Our pin is a fact we own, but it was standing in for *pipeline-core's release feed*, which is none of the three. The guard measured a proxy and reported the proxy's date.
 
 **What replaces it is smaller on purpose.** E3 now says the lift is in force for producers running 3.0.1 or later, and no future release falsifies that — there is no expiry left to watch, so re-pointing the tripwire at 3.0.1 would be inventing one. The successor checks only that E3 does not regain the superseded sentence and still names the release that discharged it, mutation-proven on three branches. Related: C-86 (upstream editions), C-97.
+
+---
+
+### C-100: The "four-method port" has three used methods and a dead third module behind it
+
+| Field | Value |
+|-------|-------|
+| ID | C-100 |
+| Tier | 4 — no correctness impact; the code is unreachable, not wrong. Registered because deleting it is a decision (the second store, #97) rather than a cleanup, and because an unreachable method inside a seam four documents describe is the kind of thing that gets maintained forever by accident. |
+| Source | Reading the whole port while fixing C-99, 2026-08-14 |
+| Trigger | The second partner store (#97) is scoped, or anyone proposes deleting `contract/store_metadata.py` — at which point this entry says what it costs and what moves with it. |
+| Location | `views_postprocessing/{unfao,crafd}/store_port.py` (`file_metadata`); `views_postprocessing/contract/store_metadata.py` |
+
+`_ContractStorePort.file_metadata` has **no caller in the package**. Measured: `latest_file_id` is called three times and `download` three times, both in `contract/wire/source_selection.py`; `upload` three times — `contract/wire/sink.py:164` plus each partner's historical artifact at `managers/<partner>.py:325`; `file_metadata` is called by nothing. Its only body is a call to `contract/store_metadata.py:file_metadata`, whose own module docstring says *"the one caller is `_ContractStorePort.file_metadata`"* — true, and the chain terminates there. The module has tests (`tests/test_store_metadata.py`) and no production reader.
+
+The "four methods" the docs describe (`docs/ADRs/015_the_pipeline_core_appwrite_import.md:70`, both `store_port.py:5`, `tests/test_store_port.py:20`) are not wrong — the port really does define four. What none of them says, because nobody had counted, is that three of them run and the fourth is reachable only from a test.
+
+**Not fixed here on purpose.** C-99's change was a correctness fix on a live delivery path; deleting a public-ish port method and a contract module in the same commit would have mixed a refusal with a removal. It is also not obviously a deletion: the second prediction store (#97) is scoped to be sample-bearing and multi-target, and reading a selected file's identity metadata is the kind of thing that partner may need. The decision is "delete it or give it a caller", and it belongs with #97 rather than with a download bug.
+
+Cross-refs: **C-99** (the fix that surfaced it), **C-97**, **C-33** (the same symbol exists twice by design).
 
 ---
 
@@ -350,7 +370,13 @@ What actually keeps it open is neither of those — it is the two deferrals belo
 - Deferral 1's trigger is *"when #243 finishes touching `tests/test_env_declaration.py`"*. #243 finished. The leak guards are still in that file; `tests/test_redaction_guard.py` is only cross-referenced.
 - Deferral 2 was *"routed to #243"* — and #243 closed without it. `test_the_drift_check_would_catch_a_rename` still rebuilds its subject's comparison with its own comprehension rather than driving the checked function.
 
-Both were unowned, which is worse than deferred — **now filed as #265**, with acceptance criteria and the reason each is not urgent. That issue closing is what closes this entry: its stated condition was already met by #243. *(An earlier draft of this amendment named the problem and left it there, which under ADR-014 §4 converts two compliant deferrals into two non-compliant items. Naming is not rehoming.)*
+Both were unowned, which is worse than deferred — filed as **#265**, and **both discharged 2026-08-14**. *(An earlier draft of this amendment named the problem and left it there, which under ADR-014 §4 converts two compliant deferrals into two non-compliant items. Naming is not rehoming.)*
+
+**Deferral 2 is fixed as filed.** The comparison the gated check ran inline is now `_name_and_class_drift`, called by both it and the proof, so the proof drives its subject instead of a copy of it. Mutation-proven: making that function return `([], {})` now fails the proof for both partners, where before it stayed green. *(The sibling defects were repaired by driving the real check under `monkeypatch` instead; here the comparison is a pure function of two dicts that both callers want whole, so sharing it is the same guarantee with less machinery.)* It also gained an assertion that the report names *both* sides of a mismatch — what this package expects and what the registry declares — since a reader who cannot tell which moved cannot act on it.
+
+**Deferral 1 is answered "no", with the reason recorded rather than deferred a third time.** The coordinate-value scan **stays in `tests/test_env_declaration.py`**. Its subject is `_EXPECTED_NAMES`, derived from `_PARTNER_ENV` — the declaration of what each partner reads, which is the substance of that module. Moving a guard away from the declaration it guards, so that a filename reads better, trades a real coupling (CCP) for a filing convenience, and would require exporting a private name from one test module into another.
+
+What *was* misfiled moved instead: `registry_at` / `registry_current` / `rows` are the shared **reader**, not this package's environment declarations, and their five refusal tests plus `_scratch_repo` are now `tests/test_seam_registry.py`. That is the boundary that was actually wrong: **109 lines of test code moved out**, no shared private state left behind — the new module imports only from `tests/seam_registry.py`. `test_env_declaration.py` is 1406 lines against 1503 before this change — the split removed more than that and the shared comparison above put some back.
 
 **Two deferrals, both with triggers (ADR-014 §4).**
 
@@ -818,6 +844,16 @@ Mitigation: a small `DeliveryProfile` (bucket/collection/database ids, category,
 3. **Partially mitigated by þing-01 #134.** `unfao/appwrite_env.py` now declares the env **names** centrally (`CONNECTION_ENV`, `PROD_FORECASTS_ENV`, `UNFAO_ENV`) and validates them fail-loud before every `AppwriteConfig` construction, following the PLATFORM-001 coordinate registry. Names are no longer scattered string literals. **What is still hardcoded is store *identity*** — which names apply to which store, the targets list, and the category strings — so the `DeliveryProfile` case stands. Tier held at 2.
 4. **The deferral condition has expired**: D-09 scheduled this "after the FAO global delivery ships." It shipped 2026-07-27. Ready for the "calm 1-day job" whenever #97 scoping lands.
 
+**Update 2026-08-14 — the extraction trigger has now fired, twice, and this is the record of it.**
+
+This entry's remaining trigger reads: *"a **third** in-repo partner package, **or** the first bug that must be hand-patched identically in both manager files — whichever comes first."* The second arm has fired twice. C-79 (2026-08-05) fixed `_ContractStorePort.upload`'s fail-open result check by hand in both partners. C-99 (2026-08-14) fixed the identical fault in `download`, again by hand in both.
+
+**The decision is still to duplicate, and the reason has changed.** It is no longer "no second incident has shown the shape" — one has. It is that the shape the incidents showed is not the one this entry proposes extracting. C-33's mitigation is a `DeliveryProfile` carrying store identity, and neither C-79 nor C-99 was about store identity; both were a result-shape check that happens to live in a duplicated file. Extracting a `DeliveryProfile` would not have prevented either.
+
+**What has changed is that the duplication is now mechanically held.** `tests/test_store_port.py::test_the_two_partners_ports_have_not_drifted` fails if the two `store_port.py` files differ. Note precisely what that does *not* buy: it would not have caught C-79 or C-99, because both files stayed byte-identical throughout while carrying the defect in the untreated method. It closes the partner-vs-partner axis; the method-vs-method axis is closed by `tests/test_store_port.py` covering all four methods, which it now does for three and records the fourth as C-100.
+
+The `DeliveryProfile` extraction stays where D-09 put it: with the second store's scoping (#97). What is discharged here is the pretence that nobody had hit the trigger.
+
 **Update 2026-08-03 (PR #211) — the thing this entry warned about has happened, and it is being kept on purpose.**
 
 This entry's own Tier-2 rationale was that the design *"forces copy-pasting a 273-line manager per store."* PR #211 added `views_postprocessing/crafd/` — a second partner package whose `managers/crafd.py` is a **line-for-line copy** of `unfao/managers/unfao.py`. Measured with
@@ -878,7 +914,7 @@ See also C-24 (schema contract per store), C-77 (the fourth home for partner ide
 
 **Wire contract posted (2026-07-03) — the S6/#45 circular wait is dissolved.** A three-way audit (pipeline-core / producers / consumer+substrate, all on `origin/development` + maintainer-authored issues) established: (i) there are **two wire hops** (producer→store; vpp→faoapi) and the roadmap's arrow work covered only the second; (ii) **no publish path from PFE to the prediction store exists at all** — models#143's "no pipeline-core change required" is **falsified** (PFE's `use_prediction_store` is stored then only logged, `prediction_frame_ensemble.py:141/:799`; `PredictionIOManager._upload_to_prediction_store` raises `NotImplementedError`, `io.py:117`); (iii) full global draws ≈ **9.5 GB/target**, so the wire mandates per-month sharding; (iv) the "platform ADR-046" cited as the format authority **does not exist** (phantom). **ADOPTED 2026-07-15 as ADR-013** *(post-adoption: F1 invisibility confirmed live — six stranded orange_ensemble forecast docs in unfao_bucket, forecast serving has been empty all along; both §11.4 legacy guards merged same day, Hop-B guard must reach production before vpp's first contract upload — **views-faoapi C-161**)* after five reviewed iterations (two seat reviews, reconciliation, owner-ratified F1) — maintainer sign-off on views-models#149. The v1 proposal history: Hop A = Track A zip archive per (run,target,month) + manifest-last commit marker (new **pipeline-core#269**); Hop B = per-month `views_frames.io.arrow` (#91/faoapi#100); interior = per-target 2-D `PredictionFrame`; the 9 GAUL columns move to a **gid-keyed sidecar**; the **#149 no-collapse boundary is named: vpp `delivery/draws.py`** (a new invariant, sibling of coverage/identity — follow-on vpp work with the durable vpp ADR after explicit sign-off); target vocabulary **decided: `lr_ged_sb/ns/os`**, producers rename at publish (models#146).
 
-**Update 2026-07-31 (review-rr — the prescribed DIP mitigation has half landed, uncredited).** This entry's mitigation was: "*keep the subclass as a thin shell but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager calls, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP).*" The **sink half exists**: `_ContractStorePort` (`unfao.py:37-78`) wraps `DatastoreModule` behind a four-method port (`latest_file_id` / `file_metadata` / `download` / `upload`), and the contract delivery path drives the store through it. The **invariant half also largely exists** as pipeline-core-free modules the manager calls: `delivery/coverage.py`, `identity.py`, `draws.py`, `parity.py`, `provenance.py`, `observed_range.py` (the package docstring pins them representation-free), plus `unfao/historical.py` and `unfao/wire/`. **Residual scope of this entry is now the input side and the shell itself:** the double inheritance at `:80` (consequences a/c/d), the inherited `ViewsDataLoader`/`PGMDataset` on the legacy branch, and the fact that the FAO logic still cannot be instantiated without the framework. Tier held at 2 — the blast radius argument is unchanged for what remains. This is the root of **Cluster G**.
+**Update 2026-07-31 (review-rr — the prescribed DIP mitigation has half landed, uncredited).** This entry's mitigation was: "*keep the subclass as a thin shell but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager calls, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP).*" The **sink half exists**: `_ContractStorePort` (`<partner>/store_port.py` since 2026-08-14 — it lived at `unfao.py:37-78` when this was written) wraps the store client behind a four-method port (`latest_file_id` / `file_metadata` / `download` / `upload`), and the contract delivery path drives the store through it. The **invariant half also largely exists** as pipeline-core-free modules the manager calls: `delivery/coverage.py`, `identity.py`, `draws.py`, `parity.py`, `provenance.py`, `observed_range.py` (the package docstring pins them representation-free), plus `unfao/historical.py` and `unfao/wire/`. **Residual scope of this entry is now the input side and the shell itself:** the double inheritance at `:80` (consequences a/c/d), the inherited `ViewsDataLoader`/`PGMDataset` on the legacy branch, and the fact that the FAO logic still cannot be instantiated without the framework. Tier held at 2 — the blast radius argument is unchanged for what remains. This is the root of **Cluster G**.
 
 **Update 2026-07-31 (`repo-assimilation`, clone-readiness pass — the coupling is CONTAINED, and this file is the only clone blocker).** Two measurements that change how this entry should be read:
 
@@ -1086,6 +1122,111 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-102: A guard that has never run is unproven, however carefully it was written — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-102 |
+| Tier | 4 — caught before it ran anywhere, so nothing was affected. Registered for the shape, which this repository keeps rediscovering. |
+| Source | `/code-review medium` on PR #275, 2026-08-15 |
+| Trigger | *(closed)* Any dormant check being switched on — a skipped test made live, a gate moved from advisory to required, a guard whose environment finally satisfies its precondition. |
+| Location | `tests/test_release_version.py` (`test_the_newest_release_tag_is_not_ahead_of_the_declared_version`); `.github/workflows/run_pytest.yml` |
+
+`tests/test_release_version.py` was written on 2026-08-13 after tag `1.1.0` was cut while `pyproject.toml` still said `1.0.0`. It was correct, mutation-proven, and **had never executed anywhere except a maintainer's laptop**: CI checked out with no `fetch-depth`, so no tags were fetched and both of its tests skipped. Verified in a real CI log — run `31844578627` shows `tests/test_release_version.py ss`.
+
+PR #275 made it live by fetching tags. Review then found that switching it on would have **broken honest branches on its first day**: the check read `git tag -l`, which lists tags on every branch, so it asked *"has a release been cut anywhere"* rather than *"has one been cut from this line of history without the bump"*. With `1.1.1` tagged on the release line, a branch still declaring `1.1.0` — a long-lived feature branch, a hotfix cut from `1.1.0` — fails with *"the newest release tag is 1.1.1 but pyproject.toml declares 1.1.0"*, having done nothing wrong.
+
+Reproduced in a clone before changing anything: tags anywhere `1.0.0 1.1.0 1.1.1`, tags reachable from the honest branch `1.0.0 1.1.0`, old check fails, `git tag --merged HEAD` passes — while on the tagged line both guards still bite when `pyproject.toml` is set back.
+
+**The lesson is not about tags.** Mutation-proving establishes that a guard *can* fail; it says nothing about whether the guard has ever been *asked*. This one's logic was fine in the only environment it had run in, and its defect lived entirely in the environment it had never seen. ADR-014 §2 requires a guard to be mutation-proven; this entry adds that a guard which has only ever run in one environment is proven in one environment. C-98 is the same family from the other side — a guard that ran, but watched a proxy.
+
+**Fixed in the same change**, and the check now asks about reachable history. ADR-014 §3 was the deciding rule: a guard that reddens honest work is one someone deletes, so a false negative is the better failure.
+
+Cross-refs: **C-98** (a guard measuring a proxy), **C-89**, **C-90**, **C-93** (guards that could not fail), ADR-014 §2 and §3.
+
+---
+
+### C-101: Assembling a target held three copies of it — measured, then bounded — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-101 |
+| Tier | 2 — no incorrect output, but the forecast leg needed roughly three times the memory its product occupies, and the failure mode is an OOM kill mid-delivery rather than a refusal. |
+| Source | views-postprocessing#269, filed from the views-crafdapi seat 2026-08-14 after the first `un_crafd` delivery attempt |
+| Trigger | *(closed)* Any run large enough that three copies of one target's frame did not fit — which on 2026-08-13 meant a machine with 15 GB already in use. |
+| Location | `views_postprocessing/contract/track_a_source.py` (`frames_for_target`); `views_postprocessing/contract/wire/source_selection.py` (`TargetLease.load`) |
+
+**Measured before anything was changed**, because the issue's own diagnosis named one cause and there turned out to be three. A synthetic run through the real `TargetLease.load` — producer-format `.tap.zip` shards, real `read_shard`, `tracemalloc` and peak RSS agreeing to within 2% — at 36 shards x 20,000 cells x 200 samples:
+
+| | before | after |
+|---|---|---|
+| peak, tracemalloc | **3.06x** the delivered frame | **1.13x** |
+| peak, RSS delta | 3.02x | 1.06x |
+
+The 3x was **three roughly equal thirds**, and the issue named only the first:
+
+1. every shard's bytes, resident together — the dict comprehension completed before the first shard was decoded;
+2. every decoded per-shard frame, held for the stack;
+3. the `np.concatenate` result, allocated while (2) was still alive.
+
+The ratio held at 12 and 36 shards, so it is the shape and not the scale. Fixing only (1), as the issue proposed, would have taken 3.06x to about 2x.
+
+**The fix is one loop.** `frames_for_target` now takes `fetch_shard_bytes(name)` instead of a filled dict, drops each shard's bytes the moment they are decoded, and writes each shard into a manifest-sized buffer instead of stacking and concatenating. Peak is now the finished frame plus a **fixed overhead of roughly 4.5 shard-widths** — the raw shard, its decoded array, and the intermediate copies `read_shard` makes unzipping and `np.load`-ing it. Because that overhead is constant while the frame grows with the shard count, the *ratio* falls as 1/n: measured 1.36x at 12 shards, 1.19x at 24, 1.13x at 36, with the absolute overhead steady at about 70 MB throughout. *(An earlier draft of this entry called the residual `2/n_shards`; review pointed out that fits none of its own numbers — 2/12 is 0.17 against a measured 0.36. Re-measured at three shard counts to get the constant above.)*
+
+*What makes the buffer safe.* Its slots are sized from `expected_cell_count`, a declaration this function already enforced per shard, and the enforcement runs **before** anything is written — so a shard whose row count disagrees is refused rather than straddling two months' slots.
+
+*What proves the product did not change — corrected, because the first answer was wrong.* This entry originally cited `tests/test_wire_fixture.py`. **That file does not reference the assembly at all**: it round-trips static artifacts against checked-in bytes and never calls `frames_for_target` or `TargetLease.load`. The real end-to-end proof is `tests/test_hop_b_sink_e2e.py::test_e2e_byte_parity_with_the_fixture`, which drives the whole inbound chain and compares delivered bytes to the golden fixture — but **its fixture has one shard**, so `position * expected_cell_count` never ran with a position above zero.
+
+The core of the rewrite was therefore unverified, and the interleaving guard could not have caught it either: its three shards are byte-identical copies, so any ordering bug would survive. `test_a_multi_shard_run_assembles_in_manifest_order_with_every_row_written` now assembles three shards with distinct values, months and units and asserts the result equals `np.concatenate` in manifest order. Mutation-proven three ways: reversing the slot index, an off-by-one in `stop`, and leaving the identifiers unwritten all fail it.
+
+**At production scale.** 64,742 cells x 36 months, at ADR-013 **§0**'s *"~1000 samples per cell"* — the sample count is the one input here taken from the contract rather than measured — one target's frame is **8.68 GB**, so peak fell from about **26.6 GB to 9.8 GB per target**, roughly **16.8 GB** saved. For scale, run-0's OOM kill recorded `anon-rss:23778224kB` (#126); that incident's root cause was pandas on the *historical* leg and is not this, but the magnitude says this leg alone would have exhausted the same box.
+
+**The manager's historical frame is not the elephant, so it is not being chased.** #269 notes `_historical_frame` is held from `_read` through `_save`. By its own declared dimensions — 64,742 cells x 438 months = 28,356,996 rows — that is about **108 MB** at one float32 column, **1.2%** of a single forecast target frame. **Filed as #273**, carrying the measurement so it cannot be picked up under the impression that it is comparable — and because #269 listed *"the historical frame is released, or not held"* as an acceptance criterion of its own, which this change does not meet. Closing #269 while quietly leaving that unmet was the alternative, and it is not one.
+
+*One refusal added, because the fix moved a constraint.* The buffer's width is fixed by the first shard, so a run whose shards disagree on draws per cell is now this function's constraint rather than an incidental one. Left to the assignment it surfaced as `could not broadcast input array from shape (6,2) into shape (6,4)` — no shard named, no mention of draws. The stacking it replaced was no better, only wordier. It now refuses in its own words, mutation-proven by deleting the check and watching the bare numpy error return.
+
+*Guarded.* `tests/test_track_a_source.py::test_shards_are_fetched_one_at_a_time_not_all_up_front` asserts the fetch/decode interleaving rather than a byte count — a memory threshold in a test is a flake on a busy machine, while "fetch, decode, fetch, decode" is exactly the property that bounds the peak. Mutation-proven: restoring the up-front dict produces `['fetch','fetch','fetch','decode','decode','decode']` and it fails.
+
+Cross-refs: **C-99** (the other defect the same delivery attempt found), **C-75** (the pandas retirement that #126 landed on the historical leg), views-postprocessing#269, views-postprocessing#126.
+
+---
+
+### C-99: `_ContractStorePort.download` failed open where `upload` refuses — C-79's untreated sibling — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-99 |
+| Tier | 2 — no silent corruption, but an unreadable failure on the live FAO delivery leg, in the one place that knows which file it was. |
+| Source | views-postprocessing#268, filed from the views-crafdapi seat 2026-08-14 after the first `un_crafd` delivery attempt |
+| Trigger | *(closed)* Any failed download — a yanked file, an expired key, a rate limit, a network blip — on either partner's contract path. |
+| Location | `views_postprocessing/{unfao,crafd}/store_port.py` (`download`); previously `managers/{unfao,crafd}.py:38-41` |
+
+`download` chained `.get()` onto an unvalidated store result:
+
+```python
+self._dsm.download_prediction(file_id).to_dict().get("data", {}).get("file_bytes", None)
+```
+
+When `data` is **present and null**, the `{}` default never applies and the next `.get` raises `AttributeError: 'NoneType' object has no attribute 'get'` — from inside a dict comprehension over pinned ids in `TargetLease.load`, three frames from the port, naming neither the `file_id` nor the fact that a download had failed. views-crafdapi spent an evening ruling out an OOM kill (there was one in `dmesg`, three minutes later, on a different pid) before finding it.
+
+**It was C-79 with the method name changed.** C-79 fixed exactly this polarity on `upload`, in the same class, on 2026-08-05, and recorded the specification in its own resolution note: *"an unrecognised result should be refused and named, not adapted to silently."* That note was never applied a second time. Nine days later the untreated method cost another repo an evening.
+
+*Why nothing caught it.* `tests/test_store_port.py` was written for C-79 with five parametrised tests across both partners, including `test_an_unrecognised_result_is_refused_rather_than_assumed_good`. It mentioned `download` **zero times**. And `contract/store_metadata.py` already wrote `.get("data", {}) or {}` — the guard `download` lacked, one file away, unapplied.
+
+**Fixed 2026-08-14.** `download` now refuses anything that is not non-empty bytes, naming the `file_id`, that a *download* failed, and the types it actually got. Empty bytes are refused with the rest: no shard, sidecar or manifest is ever zero-length, so `b""` is a failed download wearing a valid type. Byte-identical in both partners, as C-79 chose for `upload` (C-33). Mutation-proven on three mutants — restoring the original one-liner fails 18 of the module's tests, accepting empty bytes fails exactly 2, dropping the `file_id` from the message fails exactly 2.
+
+**It also moved.** The refusal pushed `managers/` to 469 lines against epic #148's 450 bound, and that guard's instruction is to move something out rather than raise the number. `_ContractStorePort` is not the manager, so it went to `{partner}/store_port.py` — 388 lines now, 62 of headroom. The port stopped naming `DatastoreModule` in its constructor on the way: a DIP seam whose stated purpose is that nothing downstream sees the client's types should not name one, and a new module that mentioned `views_pipeline_core` would have widened C-40's blast radius past the two files `test_views_pipeline_core_is_confined_to_the_partner_managers` pins.
+
+**Amendment, same day — the move was right and the way it was reported was not.** The first version of this change moved `_ContractStorePort` out of `managers/` and recorded "388 lines, 62 of headroom" as though the budget had been satisfied. Review measured what actually happened: the counted number fell from **441 to 388** while each partner package grew from **441 to 488**. The guard counts `managers/`, and the code moved to a sibling *of* `managers/`, so 47 lines left the budget's view rather than the codebase.
+
+The budget's own docstring had already named this failure — *"an 800-line helper module beside a 406-line manager was previously unbudgeted, which is the same regrowth wearing a different filename"* — and had closed it one level in. The evasion simply happened one level out. This is C-98's shape again: a guard that watches a proxy reports on the proxy, and the number it prints is true and irrelevant.
+
+`test_the_partner_package_stays_within_its_line_budget` now bounds the whole partner package at 700 (measured 2026-08-14: unfao 626, crafd 635), mutation-proven by dropping a 200-line module beside the manager — the exact evasion — and watching it fire. The extraction itself stands: a store adapter is not the manager, and the inner budget's instruction is to move something out.
+
+Cross-refs: **C-79** (the same defect on `upload`, resolved), **C-100** (the dead fourth method, found while reading this one), **C-33**, **C-40**.
+
+---
 
 ### C-27: Loader construction failures swallowed — surface as remote AttributeError — RESOLVED
 
@@ -1554,7 +1695,7 @@ Cross-refs: **C-44** (the bump that carried this), views-postprocessing#172, pip
 | Tier | 2 |
 | Source | `expert-review` (2026-06-02) |
 | Trigger | When configuring Appwrite connection parameters — in `_ContractStorePort` (contract path) or `_save`/`_read_forecast_data` (legacy path) — verify that timeout parameters are set on the underlying HTTP client; currently no timeout exists and a hung endpoint blocks the pipeline indefinitely |
-| Location | `views_postprocessing/unfao/managers/unfao.py:37-64` (`_ContractStorePort` — all four contract-path store calls), `:247` (legacy selection), `:560`, `:571` (legacy uploads) |
+| Location | `views_postprocessing/unfao/store_port.py` (`_ContractStorePort` — all four contract-path store calls; it was `managers/unfao.py:37-64` until 2026-08-14), `:247` (legacy selection), `:560`, `:571` (legacy uploads) |
 
 `prediction_store_manager.download_latest_file()` (line 131) and `dsm.upload_data()` (lines 262, 272) make network calls to Appwrite with no configured timeout. If the endpoint hangs (DNS resolution stalls, connection accepted but response never arrives, TLS handshake blocks), the pipeline blocks indefinitely. There is no watchdog timer, no circuit breaker, and no automated alert for a run that never completes. The only detection is manual observation that a scheduled run didn't finish.
 
