@@ -1104,7 +1104,13 @@ Measured 2026-08-16 in the project venv: 458 collected, **433 passed, 25 failed*
 
 The consequence is that in a drifted checkout the two largest modules in the package — 387 lines each, 21% of the source — are not merely under-covered but **entirely unexercised**, and the suite reports that in a form indistinguishable from a real break. CI runs `poetry install` and gets the locked versions, so this is a local condition rather than a CI one — **C-81**'s asymmetry running in the other direction, with the laptop the weaker seat rather than the stronger. **C-36** is the precedent for what a suite that is red for a known reason costs: it stops being read.
 
-Cross-refs: **C-72** (owns the pyarrow half — that half is not re-registered here), **C-81** (CI-versus-local coverage asymmetry), **C-36** (a permanently-red suite cannot detect new regressions).
+**Partial mitigation, 2026-08-17.** `tests/test_locked_environment.py` compares the installed versions of the runtime dependencies **declared in `pyproject.toml`** (read from there, not hardcoded) against `poetry.lock`, and fails with one message naming each drifted package, both versions, the command to run, and — the part that matters — that the other failures in the run are consequences rather than defects. Verified against the live drift: it reports `views-pipeline-core installed=2.3.0 locked=3.0.1` and `pyarrow installed=23.0.1 locked=16.1.0`. A second check catches the other direction, a dependency declared in `pyproject.toml` but absent from the lock, which would otherwise be reported as a virtualenv problem when it is a stale lock.
+
+It does **not** fix the drift and does not skip. The 25 failures remain until someone runs `poetry install`; what changes is that a contributor can now tell in one line which kind of problem they have. That is the whole of the entry's cost — the failures were never wrong, they were unreadable — so the entry stays open only until the environment is actually reconciled, which is a machine action rather than engineering work.
+
+Dev-group tools are deliberately out of scope: `ruff`'s reported version varies with how it was installed, and the thing that actually broke CI on 2026-08-03 was its *rule set*, which `pyproject.toml` already pins explicitly.
+
+Cross-refs: **C-72** (owns the pyarrow half — that half is not re-registered here), **C-81** (CI-versus-local coverage asymmetry), **C-36** (a permanently-red suite cannot detect new regressions), **C-102** (the same argument in the other direction: a guard that never runs proves nothing, and a failure nobody can read is not a signal).
 
 ---
 
