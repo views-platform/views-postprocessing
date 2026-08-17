@@ -4,7 +4,7 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-16                           |
+| Last Updated      | 2026-08-17                           |
 | Total Concerns          | 108                                   |
 | Open Concerns           | 28                                   |
 | Resolved Concerns       | 80                                   |
@@ -1104,7 +1104,9 @@ Measured 2026-08-16 in the project venv: 458 collected, **433 passed, 25 failed*
 
 The consequence is that in a drifted checkout the two largest modules in the package — 387 lines each, 21% of the source — are not merely under-covered but **entirely unexercised**, and the suite reports that in a form indistinguishable from a real break. CI runs `poetry install` and gets the locked versions, so this is a local condition rather than a CI one — **C-81**'s asymmetry running in the other direction, with the laptop the weaker seat rather than the stronger. **C-36** is the precedent for what a suite that is red for a known reason costs: it stops being read.
 
-**Partial mitigation, 2026-08-17.** `tests/test_locked_environment.py` compares the installed versions of the runtime dependencies **declared in `pyproject.toml`** (read from there, not hardcoded) against `poetry.lock`, and fails with one message naming each drifted package, both versions, the command to run, and — the part that matters — that the other failures in the run are consequences rather than defects. Verified against the live drift: it reports `views-pipeline-core installed=2.3.0 locked=3.0.1` and `pyarrow installed=23.0.1 locked=16.1.0`. A second check catches the other direction, a dependency declared in `pyproject.toml` but absent from the lock, which would otherwise be reported as a virtualenv problem when it is a stale lock.
+**Partial mitigation, 2026-08-17.** `tests/test_locked_environment.py` compares the installed versions of the runtime dependencies **declared in `pyproject.toml`** (read from there, not hardcoded) against `poetry.lock`, and fails with one message naming each drifted package, both versions, the command to run, and — the part that matters — that the other failures in the run are consequences rather than defects. Verified against the live drift: it reports `views-pipeline-core installed=2.3.0 locked=3.0.1` and `pyarrow installed=23.0.1 locked=16.1.0`. A second check owns the other direction — declared in `pyproject.toml` but absent from the lock — and the version check *skips* names it cannot find rather than reporting them as `locked=None`, so a stale lock is diagnosed once, correctly, instead of twice with one of the two sending the reader at their virtualenv.
+
+Three things it deliberately does not treat as drift: dependencies gated by `optional`, `python` or `markers` (legitimately absent from a given environment — reporting one as "run `poetry install`" would be advice that cannot work), name spellings that differ only by case or separator (both sides are PEP 503-normalized, so `PyYAML` and `views_frames` match their lock entries), and dev-group tools. The failure text names only the packages that actually drifted: the 2026-08-16 incident was pipeline-core and pyarrow, a future one will not be, and a diagnosis describing the wrong packages is the failure this file exists to remove.
 
 It does **not** fix the drift and does not skip. The 25 failures remain until someone runs `poetry install`; what changes is that a contributor can now tell in one line which kind of problem they have. That is the whole of the entry's cost — the failures were never wrong, they were unreadable — so the entry stays open only until the environment is actually reconciled, which is a machine action rather than engineering work.
 
