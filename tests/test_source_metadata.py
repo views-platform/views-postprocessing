@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import PARTNER_PACKAGES
 from views_postprocessing.contract import source_metadata
 
 _REPO = Path(__file__).resolve().parent.parent
@@ -94,9 +95,13 @@ def test_the_producers_answer_passes_through_untouched(monkeypatch):
         )
 
 
-@pytest.mark.parametrize("partner", ("unfao", "crafd"))
+@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
 def test_the_managers_do_not_swallow_the_refusal(partner):
     """The degrade-open must not re-absorb what this module just refused.
+
+    Parametrized over ``PARTNER_PACKAGES`` rather than a literal pair: eight guards
+    once hardcoded ``"unfao"`` and all eight went on passing over ``crafd/`` when it
+    landed (see ``tests/conftest.py``). A ninth would have been this one.
 
     A source check rather than a behavioural one, deliberately: constructing a manager
     needs pipeline-core, a path manager and an Appwrite environment (C-40), and the
@@ -110,8 +115,14 @@ def test_the_managers_do_not_swallow_the_refusal(partner):
         "environment is once again indistinguishable from a producer that publishes "
         "no boundary — and the delivery ships fabricated months either way (C-103)."
     )
+    # Each manager has exactly one broad `except Exception:` (the degrade-open), so a
+    # plain forward search is enough — searching from an offset would only obscure that.
+    assert source.count("except Exception:") == 1, (
+        f"{partner}'s manager grew a second broad except; this check assumes one and "
+        "would compare against the wrong branch"
+    )
     refusal = source.index("except source_metadata.ProducerClientMissing:")
-    broad = source.index("except Exception:", refusal - 2000 if refusal > 2000 else 0)
+    broad = source.index("except Exception:")
     assert refusal < broad, (
         f"{partner}'s manager catches Exception before ProducerClientMissing, so the "
         "narrow branch is unreachable"
