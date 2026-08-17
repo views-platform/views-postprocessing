@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-15                           |
-| Total Concerns          | 102                                   |
-| Open Concerns           | 22                                   |
+| Last Updated      | 2026-08-16                           |
+| Total Concerns          | 107                                   |
+| Open Concerns           | 27                                   |
 | Resolved Concerns       | 80                                   |
 
 ---
@@ -54,7 +54,7 @@ covered a single open entry (see Historical clusters below).
 
 ### Cluster J: Delivery aftercare has no mechanism
 **Root cause:** the delivery pipeline is write-only — nothing exists downstream of upload for correction, recall, or provenance audit.
-**Entries:** C-22 (acute), C-15, C-24
+**Entries:** C-22 (acute), C-15, C-24, C-105 (added 2026-08-16 — a torn upload attempt is aftercare the write-only path has no answer for)
 **Highest tier:** 3
 **Fix strategy:** the C-22 correction procedure (issue #15) plus pipeline-core #245's structured metadata field to retire the description-as-carrier abuse.
 **Resolution scope:** Partial (process, not code).
@@ -1052,6 +1052,101 @@ CI now checks that repository out and those seven run on every pull request — 
 
 Recorded rather than left implicit because "the operator did a console session" is exactly the kind of adjacent fact that gets mistaken for progress on this entry. It is not. What it does establish is that the session is a thing that happens, and these two items are small enough to ride along with the next one.
 
+
+---
+
+### C-103: The clip that keeps fabricated months off the wire depends on a package this repo does not declare, and its absence is swallowed
+
+| Field | Value |
+|-------|-------|
+| ID | C-103 |
+| Tier | 2 — structural fragility with a named scenario: the guard's dependency is absent, the absence is caught by a bare `except Exception`, and the delivery proceeds unclipped. Held at 2 rather than 1 because of a gap, not a judgement — see the verification question below. |
+| Source | `/repo-assimilation` (2026-08-16), measured |
+| Trigger | When the launcher's environment is next built or changed — a views-models deploy, a container rebuild, a `poetry install` on the delivery host — verify `import datafactory_query` succeeds there. The delivery will not tell you if it does not. |
+| Owner | This repository, for the swallow and the declaration. The producer owns the fact itself. |
+| Location | `views_postprocessing/contract/source_metadata.py:37`; `views_postprocessing/unfao/managers/unfao.py:137-142`, `views_postprocessing/crafd/managers/crafd.py:137-142`; `pyproject.toml` (the dependency is absent) |
+
+`source_metadata.last_valid_month_id` lazily imports `datafactory_query.defaults`. Measured 2026-08-16: that package is in neither `pyproject.toml` nor `poetry.lock`, and `import datafactory_query` raises `ModuleNotFoundError` in the project venv. Its only caller wraps the call in `except Exception: lv = None` and then returns the historical frame **unclipped**, logging one WARNING — so "the dependency is missing" and "the producer publishes no boundary attribute" leave through the same branch with the same outcome, and that outcome is unobserved zero-padded months shipping to the partner as observed history. The lazy import states its own reason — *"so this module loads without the heavy datafactory dependency present (e.g. in unit-test environments)"* — but nothing at the call site distinguishes a unit-test environment from a delivery.
+
+**Verification question, stated as a gap rather than dressed as a finding.** Whether the production launcher's environment supplies `datafactory_query` could not be established from this repository; views-models builds that environment. If it does, this is a declaration gap and the swallow is the whole risk. If it does not, C-26's fabrication has been shipping unclipped since #126. **Do not downgrade on inspection of this repo alone** — the instruction C-26 already carries, for the same reason.
+
+**C-60 is this shape, and it was resolved by deleting the degradation.** There, a provenance stamp reached into the producer's ledger schema inside a bare `except … pass` and returned `"unknown"`; the fix was to raise. The difference here is that the degradation is deliberate and documented ("degrade-open, C-26") — which makes the question *whether the open side is still the right one*, not whether someone forgot.
+
+Cross-refs: **C-26** (the fabrication this clip exists to prevent), **C-07** (undeclared runtime dependencies, the same class, resolved), **C-60** (bare-except degradation, resolved by raising), **C-27** (a swallowed failure surfacing far from its cause), **D-07** (the decision that data facts come from the producer, which created this import).
+
+---
+
+### C-104: A stale virtualenv turns 25 tests red, and 20 of them are the only tests that import either manager
+
+| Field | Value |
+|-------|-------|
+| ID | C-104 |
+| Tier | 3 — no production impact. The cost is that a red suite stops carrying signal, on precisely the two modules with the thinnest coverage. |
+| Source | `/repo-assimilation` (2026-08-16), measured |
+| Trigger | When `pytest` reports failures in `tests/test_framework_contract.py` or `tests/test_store_construction.py`, check `pip show views-pipeline-core` against `poetry.lock` before reading them as defects. |
+| Owner | This repository. |
+| Location | `tests/test_framework_contract.py`, `tests/test_store_construction.py` (20 failures); `tests/test_wire_shard.py`, `tests/test_wire_sidecar.py`, `tests/test_hop_b_sink_e2e.py` (5 failures); `poetry.lock` versus the project venv |
+
+Measured 2026-08-16 in the project venv: 458 collected, **433 passed, 25 failed**, 39 xfailed, in 14.85s. The venv holds `views-pipeline-core 2.3.0` and `pyarrow 23.0.1`; `poetry.lock` pins **3.0.1** and **16.1.0**. The pyarrow half is known and predicted: 5 byte-parity failures reporting *"pinned toolchain violated: byte-parity oracle requires pyarrow 16.1.0, found 23.0.1"*, exactly what `tests/fixtures/wire_contract/README.md` says will happen under **C-72**. The pipeline-core half is documented nowhere: `ModuleNotFoundError: No module named 'views_pipeline_core.modules.dataloaders.datafactory_contract'`, raised at import of both managers, which takes out every test that constructs or inspects one.
+
+The consequence is that in a drifted checkout the two largest modules in the package — 387 lines each, 21% of the source — are not merely under-covered but **entirely unexercised**, and the suite reports that in a form indistinguishable from a real break. CI runs `poetry install` and gets the locked versions, so this is a local condition rather than a CI one — **C-81**'s asymmetry running in the other direction, with the laptop the weaker seat rather than the stronger. **C-36** is the precedent for what a suite that is red for a known reason costs: it stops being read.
+
+Cross-refs: **C-72** (owns the pyarrow half — that half is not re-registered here), **C-81** (CI-versus-local coverage asymmetry), **C-36** (a permanently-red suite cannot detect new regressions).
+
+---
+
+### C-105: A run is uploaded file-by-file with no rollback and no idempotency — a mid-run failure leaves orphans and the retry adds more
+
+| Field | Value |
+|-------|-------|
+| ID | C-105 |
+| Tier | 3 — no delivered value is corrupted. The store accumulates unreferenced objects that no artifact describes, in a bucket with no named retention owner. |
+| Source | `/repo-assimilation` (2026-08-16) |
+| Trigger | When the upload interlock is first opened for a live run (`wire_upload_enabled: True`), or when the retention owner D-12 defers is named — whichever comes first — decide what a torn attempt leaves behind and who removes it. |
+| Owner | This repository for the mechanism; the operator for retention. |
+| Location | `views_postprocessing/contract/wire/sink.py:167-171` |
+
+`deliver_run` uploads every shard, then the sidecar, then the run manifest, each through `_ContractStorePort.upload`, which raises on anything but explicit success (**C-79**). A raise at shard *k* of *n* is therefore correct in the one dimension the contract governs — no manifest means the run is invisible to the consumer, which is the §4.2 commit-marker design working — and silent in every other: the *k* uploaded objects remain, nothing records that they exist, and nothing removes them. Re-running the delivery re-uploads all *n* under the same names, and whether that supersedes or duplicates is a store semantic this repository asserts nowhere. At run-0 scale that is roughly 110 objects per attempt.
+
+`docs/operations/correction_procedure.md` covers the *wrong value* case — the contract has no retraction primitive, so a correction is a new complete run, manifest last. A torn attempt is a different case and is not covered by it.
+
+Cross-refs: **C-94** (nothing observes the outcome of an upload at the time it happens), **C-79** (the single-file orphan this generalises), **D-12** (the unnamed retention owner this compounds with). Part of causal cluster: **Cluster J — Delivery aftercare has no mechanism**.
+
+---
+
+### C-106: The §2 header builder — the module that owns the contract version — is reachable only from tests
+
+| Field | Value |
+|-------|-------|
+| ID | C-106 |
+| Tier | 4 — unreached, not wrong. Registered because the identical shape has been closed four times here by deletion, and because this instance sits in a module whose *other* export is live on every delivery. |
+| Source | `/repo-assimilation` (2026-08-16), measured |
+| Trigger | When someone proposes changing `CONTRACT_VERSION`, or when this repository first acts as a Hop-A *producer* rather than only a consumer — at that point `build_header` acquires the caller it was written for and this entry is discharged. |
+| Owner | This repository. |
+| Location | `views_postprocessing/contract/wire/header.py:32` (`build_header`); `views_postprocessing/contract/gaul_schema.py:87` (`colrow`) |
+
+Measured: `build_header` is called from `tests/test_wire_header.py` and `tests/test_wire_shard.py`, and nowhere else. On the delivery path the sink re-embeds the producer's Hop-A header untouched (`contract/wire/sink.py:111-113`, §10.2 *"the sink mints nothing"*), so the builder never runs in a delivery. The module is half-reached rather than dead: `CONTRACT_VERSION = "1.5"` is imported by `contract/wire/run_manifest.py:19` and written into every run manifest, so deletion is not the question — what `build_header` is *for* is. Separately, `gaul_schema.colrow` has zero callers anywhere, tests and build scripts included. Neither is a defect; both are surface a reader must make a decision about, and neither currently has one recorded.
+
+Cross-refs: **C-100** (the live sibling — a four-method port with three used methods), **C-64**, **C-75**, **C-45** (three prior instances of unreached declared surface, all resolved by deleting).
+
+---
+
+### C-107: The doc-accuracy scan reads markdown only, so a docstring pointing at a moved file rots unwatched — two already have
+
+| Field | Value |
+|-------|-------|
+| ID | C-107 |
+| Tier | 4 — navigational, with no correctness or reliability impact. Registered because this repository's stated discipline is that a docstring points at the one home of a fact, which makes a broken pointer a failure of the discipline rather than a typo. |
+| Source | `/repo-assimilation` (2026-08-16), measured |
+| Trigger | When the next module moves under `views_postprocessing/`, check its inbound docstring references as well as its markdown ones — or when someone proposes widening `tests/test_doc_accuracy.py`'s corpus, at which point C-97's objection applies and this entry states what the gap actually is. |
+| Owner | This repository. |
+| Location | `tests/test_doc_accuracy.py:76-78,133-134` (the scanned corpus); `views_postprocessing/delivery/coverage.py:5`; `views_postprocessing/delivery/observed_range.py:6` |
+
+`test_doc_accuracy` scans `README.md`, `docs/architecture/*.md`, package `README.md` files, ADRs and CICs. Python docstrings are outside that corpus. Two are already stale, and both point at files that moved in exactly the refactors whose *markdown* fallout the same test was extended to catch: `delivery/coverage.py` sends the reader to `views_postprocessing/unfao/extraction.py`, deleted in #151, and `delivery/observed_range.py` to `views_postprocessing/unfao/source_metadata.py`, moved to `contract/` in #153.
+
+**This is not a proposal to scan docstrings.** C-97 measured what that costs for the no-copy scan and argued it down under ADR-014 §3 — a guard that fires on ordinary prose gets deleted, after which the real rule is unguarded. The two scans are not the same (a deleted symbol or a repo-relative module path is a far narrower pattern than a store name in a sentence), so the objection is not decisive here — but it is the reason this is registered as a measured gap rather than fixed on sight.
+
+Cross-refs: **C-80** (the same guard, the adjacent corpus gap, resolved by widening), **C-97** (why widening a scan into docstrings is not automatic).
 
 ---
 
