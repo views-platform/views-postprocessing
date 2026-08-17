@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-16                           |
-| Total Concerns          | 107                                   |
-| Open Concerns           | 27                                   |
+| Total Concerns          | 108                                   |
+| Open Concerns           | 28                                   |
 | Resolved Concerns       | 80                                   |
 
 ---
@@ -817,6 +817,10 @@ Verified 2026-06-12: of the datafactory's 64,818 `land`-region cells, 64,736 hav
 
 **Mitigation landed (S4, 2026-06-26, `sprint/fao-input-integrity`):** the 76 excluded gids are pinned as a frozen manifest in `delivery/coverage.py` (`EXCLUDED_GIDS_BY_REGION`), the count is corrected to 64,742, `assert_no_excluded_cells` is wired into the manager's `_check_coverage` **region-gated** (a no-op for unpinned `africa_me_legacy`, so its 5 ocean cells are unaffected), the 76 are disclosed in `docs/fao_excluded_cells.md`, and a test cross-checks the manifest against the datafactory sibling when present (drift tripwire). **Residual:** still Tier 1 until the live `land_gaul` run (views-platform/views-models#127) exercises it end-to-end — the guard is unit-proven but not yet run against a real global delivery.
 
+**The tripwire now runs in the gate, and it did not until 2026-08-17.** *"When present"* meant a developer laptop: views-datafactory was not fetched in CI, so `test_manifest_matches_datafactory_land_minus_land_gaul` skipped on every pull request. That mattered more than it looked, because on 2026-08-17 this repository told FAO in writing that the exclusion list *"is frozen in code and asserted against the producer in our test suite, so it cannot drift without failing loudly"* — a guarantee the gate was not carrying. The sibling is now fetched (see C-46 for why the earlier attempt was reverted and why that reason did not survive checking), and the tripwire reads `src/datafactory_query/{land,land_gaul}_pgids.json`, both of which views-datafactory tracks.
+
+This does **not** move the tier. The residual above is unchanged: the guard is now enforced continuously rather than incidentally, but what holds C-30 at Tier 1 is the absence of a real global delivery exercising it end-to-end, and no CI wiring supplies that.
+
 **RESIDUAL DISCHARGED 2026-07-27 — run-0 exercised the guard live.** The stated residual was "*still Tier 1 until the live `land_gaul` run (views-models#127) exercises it end-to-end — the guard is unit-proven but not yet run against a real global delivery.*" **Run-0 delivered on 2026-07-27** against producer run `rusty_bucket_forecasting_20260727_095355`: `region=land_gaul`, coverage gate reported **64,742 distinct cells / 28,356,996 rows** for the historical frame, the forecast leg shipped 108 shards + sidecar + manifest, and the process exited cleanly with no loud failures. The pinned count and the 76-gid exclusion manifest were both correct against a real global delivery. **Tier recalibrated from 1 to 2 during review-rr (2026-07-31):** the silent-corruption path is now guarded and proven, so what remains is regression risk under upstream change — which is exactly what the rewritten trigger watches.
 
 **MERGED: C-34 (Spatial coverage has no contract) absorbed here, review-rr 2026-07-31.** C-34 registered the absence of any expected-cell-count assertion, with the coverage decision split across three repos (views-models region string → views-datafactory cell-set → consequences here). Both concerns are now implemented by **one module** (`delivery/coverage.py`) and were discharged by **one event** (run-0), so tracking them separately doubled the maintenance without adding signal. C-34's distinctive contribution — that the trigger is an *upstream* region/cell-set change in either of two other repos — is carried into the merged trigger and Location above. C-34 remains as a forwarding stub in Resolved Concerns.
@@ -1149,6 +1153,26 @@ Cross-refs: **C-100** (the live sibling — a four-method port with three used m
 Cross-refs: **C-80** (the same guard, the adjacent corpus gap, resolved by widening), **C-97** (why widening a scan into docstrings is not automatic).
 
 ---
+
+### C-108: Two `xfail(strict=True)` deploy gates have never evaluated their own assertions — anywhere
+
+| Field | Value |
+|-------|-------|
+| ID | C-108 |
+| Tier | 4 — no delivery correctness depends on them. Registered because `xfail(strict=True)` *reads* as an armed tripwire, and a future maintainer will believe views-datafactory#223 is being watched when nothing is watching it. |
+| Source | `/code-review high` on PR #280, 2026-08-17 (finding 2), extended by measurement |
+| Trigger | When views-datafactory#223 is closed, or when anyone cites these gates as evidence that the served artifact is being tracked — check they are not skipping first. |
+| Owner | This repository for the gate; views-datafactory for the artifacts. |
+| Location | `tests/test_datafactory_deploy_readiness.py` — `TestServedArtifactMatchesBranch::test_assembled_grid_not_older_than_gaul_parquets`, `TestServedArtifactProvenanceTracksGaul::test_provenance_includes_admin_digest` |
+
+Both gates read `data/assembled/grid.npy`, `data/assembled/provenance.json` and the GAUL parquets from the views-datafactory checkout. **None of those is tracked upstream, and `data/assembled/` is empty in the maintainer's own checkout** (measured 2026-08-17). So the tests were failing on a missing file, `xfail(strict=True)` was recording that as an expected failure, and the report read green. The staleness comparison and the `admin_digest` assertion — the things the gates exist to make — have never once been evaluated.
+
+The strict flip is the entire mechanism: when views-datafactory#223 is fixed the test should XPASS and turn the build red, forcing someone to look. A test that can only ever fail on `FileNotFoundError` can never XPASS, so the flip could not fire. ADR-014 §1 — a guarantee is attached to a check, or it is not a guarantee — and C-102's lesson recurring in a form that is harder to see, because here the guard *runs*.
+
+**Partially addressed in the same PR**, and deliberately only partially: both tests now `pytest.skip()` when their inputs are absent, so the state is visible in the report instead of disguised as a passing xfail. That converts a false green into an honest skip. It does **not** make the gate work — closing that needs the assembled artifacts reachable from CI, which is the same blocker as C-46's producer-comparison half and is not this repository's to solve.
+
+Cross-refs: **C-46** (the untracked-artifact blocker these share), **C-102** (a guard that has never run is unproven), **C-36** (the gates' original home).
+
 
 ## Disagreements
 
@@ -2149,6 +2173,23 @@ Verified 2026-08-02: `grep -rn "/home/" tests/ scripts/ views_postprocessing/ --
 **Overridden 2026-08-10 (ADR-016), and the objection was designed around rather than dismissed.** Sibling checkouts *were* added to the per-PR workflow. The recommendation's argument was specific — *"it couples this repo's CI to another repo's **default branch**, so an unrelated upstream commit turns this repo red"* — and every sibling checkout declares **`ref: main`** for exactly that reason. A commit on someone's feature branch, or on a default branch that is not `main` (views-appwrite's default is `development`), cannot reach us. `test_ci_sibling_coverage.py` makes `ref: main` a rule rather than a habit.
 
 **What is genuinely accepted, and should not be glossed:** a change merged to a sibling's `main` — a registry edition bump, say — *can* turn this repository red and block merges here until someone re-pins. That is not a defect being tolerated; it is the drift detector working, and the alternative is the state this entry was open about, where the drift was noticed only when a maintainer happened to run the suite. The cost is real and the trade is deliberate.
+
+**The last residual closed 2026-08-17, and the reason it stayed open for two weeks is the finding.** ADR-016 added sibling checkouts but fetched only views-appwrite, so this entry's own subject — the deploy gate — still ran nowhere but a laptop. The stated blocker was that views-datafactory's GAUL parquets are untracked, so a checkout would turn honest skips into `FileNotFoundError`; that was tried on 2026-08-03 and reverted. **The observation was right and the diagnosis was wrong.** `test_gaul_lookup_fidelity` gated on `data/raw/gaul_admin/` being a *directory*, and that directory **is** tracked — it holds `supplement_azores.geojson` — while the seven parquets beside it are not. So a checkout satisfied the gate, the comparison ran, and it died. The sibling was never the problem; the gate was asking whether a folder existed when it needed to ask whether the files it reads existed.
+
+Reproduced 2026-08-17 against a tracked-files-only worktree (`git worktree add --detach`, which contains exactly what `actions/checkout` produces): `1 failed, 37 passed, 1 skipped`, the failure being `FileNotFoundError: .../gaul0_code.parquet`. After re-gating on the seven parquets themselves: no failures. views-datafactory is now fetched in `run_pytest.yml` and declared `ci_checkout=True`.
+
+**A second, larger instance of the same mistake was found while fixing the first.** All four sibling-aware tests in `test_gaul_lookup_fidelity.py` shared **one** gate keyed to the parquets — including two that read no parquet and one that reads no sibling at all. So they sat dark in CI for no reason anybody had chosen:
+
+| test | actually reads | was gated on |
+|---|---|---|
+| `test_lookup_values_match_the_producer_parquets` | the 7 GAUL parquets (untracked) | parquets — correct |
+| `test_lookup_gid_set_equals_the_declared_region` | `land_gaul_pgids.json` — **tracked** | parquets |
+| `test_coordinate_formula_matches_every_priogrid_cell` | `priogrid_cell.dbf`, and self-skips on it | parquets |
+| `test_coord_dtypes_are_wire_stable` | **only the committed lookup** | parquets |
+
+The last one matters beyond tidiness: it is the check that `CODE_COLS` survive the §5.1 int64→float64 wire cast losslessly (`abs(v) < 2**53`) — the property ADR-013 §5.1a and the 2026-08-17 mail to FAO both rest on — and it needs no sibling whatsoever. Each test now gates on the artifact it reads.
+
+Measured across the whole change, CI goes from **426 passed / 6 skipped** to **430 passed / 3 skipped**: four checks move from skipped to running — C-30's exclusion tripwire, this entry's `TestReleaseGate::test_land_gaul_commit_is_in_a_release_tag`, the region-set check, and the wire-cast dtype check. The producer-comparison half still skips, honestly, and still needs the parquets published somewhere fetchable.
 
 The cross-repo deploy-readiness gates introduced under C-36 are guarded by `skipif` on a **hardcoded local datafactory checkout path**, so they are **skipped in CI** and only ever execute on one developer's machine. There, `test_version_bumped_past_latest_tag` is currently **failing**: it is an `xfail(strict)` that flipped to XPASS because datafactory moved to `1.5.0`-dev past its `v1.4.0` tag — exactly the auto-flip C-36's resolution anticipated, but because of the hardcoded path the flip surfaces as a **local red** rather than a CI signal, and breaks local `pytest` runs (the suite is run with this test deselected). No correctness/reliability impact on the delivery → **Tier 4** (test hygiene). C-36 (resolved) converted these gates to strict-xfail but did not capture the local-path / CI-skip dimension.
 
