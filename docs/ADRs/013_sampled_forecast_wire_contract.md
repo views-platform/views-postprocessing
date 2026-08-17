@@ -661,6 +661,40 @@ geography. **Source:** the sidecar is built from this repo's ADR-011 GAUL lookup
 (`views_postprocessing/data/gaul_lookup.parquet`, area-majority cell→region mapping
 sourced from views-datafactory); the #91 sink leg attaches it per run.
 
+**§5.1a Nullable int64 was considered and rejected** *(clarification 2026-08-17,
+MINOR — no change to the rule, and no `contract_version` bump; this records an
+alternative the 2026-07-19 ruling did not weigh).* The partner has now twice asked
+for the `*_code` columns as integers (#278; views-postprocessing#272), and the
+justification given each time — that an integer column cannot carry a missing
+value — is a property of NumPy-backed pandas, **not** of Parquet. Parquet and Arrow
+both carry nullable integers natively, and this repo's own lookup stores all three
+code columns as `int64` with zero nulls; the float is introduced by our writer
+(`contract/wire/sidecar.py`), not by the source. So the alternative is real and the
+old reason for dismissing it was wrong.
+
+It is rejected anyway, on a measured ground rather than that one. What §5.1 requires
+is a schema that does not depend on the data. Nullable int64 does not deliver that
+at the layer the consumer observes — it relocates the dependence. Measured
+2026-08-17 (pyarrow 23.0.1, pandas 3.0.5): an int64 Parquet column containing **no**
+null reads back as `int64` under a default `pd.read_parquet`, and the same column
+containing **one** null reads back as `float64`. Under float64 the consumer sees one
+dtype always; under nullable int64 they would see `int64` usually and `float64`
+whenever a run happened to contain a missing code — which is the data-dependent
+schema the 2026-07-19 ruling rejected, moved from our writer to their reader. The
+escape (`dtype_backend="numpy_nullable"`) is a consumer-side commitment this repo
+can neither verify nor enforce (cf. C-87, C-92). Independently, faoapi's reader
+`reindex`es the sidecar onto the forecast's gids and then calls `.to_numpy()`, both
+of which return float64 from a nullable integer column — so the change would not
+even reach the consumer as integers.
+
+**Consequence for the partner, and it is the useful half:** because the delivered
+region excludes the GAUL-uncovered cells (`delivery/coverage.py`), no delivered code
+is ever missing — `tests/test_gaul_lookup_fidelity.py::test_lookup_has_no_nulls`
+holds this in CI — so `astype("int64")` on read is lossless for this product. That
+is a property of the delivered **region**, not of the contract: a future region with
+no exclusion list could carry genuinely missing codes, which is exactly why the
+column type stays float64.
+
 **§5.2 Consistency.** The sidecar's cell-id set must equal the forecast's cell-id
 set (views-postprocessing's existing coverage/identity invariants, to be extended
 to the sidecar in the #91 leg — not yet built as of 2026-07-19). The sidecar hash is pinned in **the Hop-B run manifest
