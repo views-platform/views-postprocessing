@@ -61,16 +61,34 @@ _GROUND_TRUTH = _REPO / "tests" / "fixtures" / "priogrid_geometry" / "priogrid_c
 _REGION = "land_gaul"
 
 _DATAFACTORY = sibling_repo("views-datafactory")
-_HAS_DATAFACTORY = _DATAFACTORY is not None and (
-    _DATAFACTORY / "data" / "raw" / "gaul_admin"
-).is_dir()
+_GAUL_ADMIN = None if _DATAFACTORY is None else _DATAFACTORY / "data" / "raw" / "gaul_admin"
+
+#: Gate on the FILES this half reads, never on the directory that holds them.
+#:
+#: `data/raw/gaul_admin/` **is** tracked in views-datafactory — it carries
+#: `supplement_azores.geojson` — while the seven GAUL parquets beside it are not. So
+#: `.is_dir()` is true in any fresh checkout, the comparison below then runs, and it
+#: dies on `FileNotFoundError: .../gaul0_code.parquet` instead of skipping.
+#:
+#: That is exactly what happened on 2026-08-03, and it is the whole reason
+#: views-datafactory was withdrawn from CI (C-46, and the note in
+#: `tests/conftest.py::SIBLINGS` that this commit corrects). The cause was read as
+#: "the sibling cannot be checked out" when it was "this gate asks the wrong
+#: question". The neighbouring PRIO-GRID check at the bottom of this file already
+#: had it right, gating on `priogrid_cell.dbf` itself.
+_HAS_DATAFACTORY = _GAUL_ADMIN is not None and all(
+    (_GAUL_ADMIN / f"{src}.parquet").exists() for src in SOURCE_RENAME
+)
 _needs_datafactory = pytest.mark.skipif(
     not _HAS_DATAFACTORY,
     reason=(
-        "views-datafactory checkout not found — set VIEWS_DATAFACTORY=/path/to/"
-        "views-datafactory, or place it alongside this repo. Only the "
-        "producer-comparison half is skipped; the always-on tests still guard the "
-        "committed artifact."
+        "the producer's GAUL parquets (data/raw/gaul_admin/*.parquet) are not present. "
+        "They are NOT in views-datafactory's git repository, so a checkout alone is not "
+        "enough and CI cannot run this half — see C-46. On a developer machine, point "
+        "VIEWS_DATAFACTORY at a checkout that has them. Only the producer-comparison "
+        "half is skipped; the always-on tests still guard the committed artifact, and "
+        "the exclusion-manifest tripwire in test_delivery_coverage.py reads the tracked "
+        "pgid lists and does run in CI."
     ),
 )
 

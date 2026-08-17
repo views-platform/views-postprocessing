@@ -122,13 +122,24 @@ class Sibling:
 SIBLINGS = {
     "views-datafactory": Sibling(
         env="VIEWS_DATAFACTORY",
-        ci_checkout=False,
+        ci_checkout=True,
         note=(
-            "PUBLIC, but its checks need the producer's raw GAUL parquets "
-            "(data/raw/gaul_admin/*.parquet), which are NOT in its git repository. "
-            "Checking it out converts an honest skip into a FileNotFoundError — measured "
-            "2026-08-03, tried and reverted. Closing this needs the data published "
-            "somewhere fetchable, not an access grant. Register C-46."
+            "PUBLIC, and fetched since 2026-08-17. The 2026-08-03 revert was real but "
+            "its cause was misread: `test_gaul_lookup_fidelity` gated on "
+            "`data/raw/gaul_admin/` being a DIRECTORY, and that directory IS tracked "
+            "(it holds supplement_azores.geojson) while the parquets beside it are not. "
+            "So a checkout satisfied the gate, the comparison ran, and it died on "
+            "FileNotFoundError — which read as 'this sibling cannot be checked out' when "
+            "it was 'that gate asks the wrong question'. Reproduced against a "
+            "tracked-files-only worktree on 2026-08-17, then fixed by gating on the "
+            "seven parquets themselves. "
+            "What the fetch buys: `test_delivery_coverage.py::"
+            "test_manifest_matches_datafactory_land_minus_land_gaul` reads "
+            "`src/datafactory_query/{land,land_gaul}_pgids.json`, both of which ARE "
+            "tracked, so C-30's exclusion-manifest drift tripwire now runs in the gate "
+            "rather than only on a laptop. The value-fidelity half still skips, honestly, "
+            "and closing THAT still needs the parquets published somewhere fetchable "
+            "rather than an access grant. Register C-46, C-30."
         ),
     ),
     "views-appwrite": Sibling(

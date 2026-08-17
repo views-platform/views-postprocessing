@@ -75,6 +75,27 @@ jobs:
         path: _siblings/views-appwrite
         fetch-depth: 0
 
+    # Fetched for ONE check: `test_delivery_coverage.py::test_manifest_matches_
+    # datafactory_land_minus_land_gaul`, C-30's drift tripwire on the 76-cell exclusion
+    # manifest. It reads `src/datafactory_query/{land,land_gaul}_pgids.json`, both of
+    # which are tracked here, and until 2026-08-17 it ran only on a laptop — while this
+    # repository told a partner in writing that the manifest "cannot drift without
+    # failing loudly". It could; nothing in the gate was watching.
+    #
+    # This checkout was tried on 2026-08-03 and reverted, and the revert note said the
+    # sibling could not be fetched because its GAUL parquets are untracked. That was the
+    # wrong diagnosis. `data/raw/gaul_admin/` IS tracked (it holds a geojson); only the
+    # parquets are not — so `test_gaul_lookup_fidelity`'s `.is_dir()` gate passed and the
+    # comparison died on FileNotFoundError. The gate now checks for the seven parquets
+    # themselves, so that half skips honestly here and still runs where they exist.
+    - name: Checkout views-datafactory (sibling)
+      uses: actions/checkout@v3
+      with:
+        repository: views-platform/views-datafactory
+        ref: main
+        path: _siblings/views-datafactory
+        fetch-depth: 0
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -97,6 +118,7 @@ jobs:
     - name: Run tests
       env:
         VIEWS_APPWRITE: ${{ github.workspace }}/_siblings/views-appwrite
+        VIEWS_DATAFACTORY: ${{ github.workspace }}/_siblings/views-datafactory
       run: |
         set -e
         poetry run pytest tests/
