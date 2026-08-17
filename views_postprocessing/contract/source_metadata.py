@@ -20,6 +20,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class ProducerClientMissing(RuntimeError):
+    """``datafactory_query`` is not importable, so no producer fact can be read."""
+
+
 def last_valid_month_id(zarr_url: str | None = None) -> int | None:
     """The producer's last *observed* month for the served zarr (a datafactory fact).
 
@@ -31,9 +35,45 @@ def last_valid_month_id(zarr_url: str | None = None) -> int | None:
         zarr_url: the served zarr; ``None`` uses datafactory's default store (which the
             FAO queryset itself uses — ``ZARR_URL = DEFAULT_REMOTE.zarr_url``).
 
-    The import is lazy so this module loads without the heavy datafactory dependency
-    present (e.g. in unit-test environments).
+    Raises:
+        ProducerClientMissing: if ``datafactory_query`` cannot be imported.
+
+    **The dependency is the launcher's to supply, and it does.** ``datafactory_query``
+    ships inside ``views-datafactory``; it is not separately installable and it is not
+    declared in this repository's ``pyproject.toml``. Both launchers declare it —
+    views-models ``postprocessors/{un_fao,un_crafd}/requirements.txt`` pin
+    ``views-datafactory>=1.9.0,<2.0.0``. The import stays lazy so this module, and
+    everything that imports it, loads in a unit-test environment without the producer's
+    (heavy) package present.
+
+    **Why the absence raises rather than returning None (register C-103).** The caller
+    degrades open when the boundary is unavailable — a deliberate C-26 decision, because
+    a producer that publishes no ``last_valid_month_id`` is a normal, older store. But a
+    *missing client* is not that. It is a broken environment, and returning ``None`` for
+    it would make the two indistinguishable and ship the unobserved zero-padded tail as
+    observed history. Same shape as C-60, where a provenance stamp degraded to
+    ``"unknown"`` on a bare except and made every delivery untraceable.
+
+    This is defence in depth rather than the first line: a missing ``datafactory_query``
+    already fails earlier and louder, because the postprocessor's ``config_queryset``
+    imports it at module scope and raises, which ``launch_config.
+    assert_queryset_was_importable`` turns into a refusal before any frame is read
+    (C-83). Verified 2026-08-17. This guard exists for the paths that gate does not
+    cover — a direct caller, a future launcher, a partner that does not go through the
+    same queryset.
     """
-    from datafactory_query.defaults import get_last_valid_month_id
+    try:
+        from datafactory_query.defaults import get_last_valid_month_id
+    except ImportError as exc:
+        err_msg = (
+            "datafactory_query is not importable, so the producer's "
+            "last_valid_month_id cannot be read. It ships inside views-datafactory "
+            "(there is no separate distribution), and the launcher is expected to "
+            "supply it: pip install 'views-datafactory>=1.9.0,<2.0.0'. Refusing rather "
+            "than reporting 'no boundary published', which is a different condition and "
+            "would let unobserved months ship as observed history (C-103, C-26)."
+        )
+        logger.error(err_msg)  # ADR-008: logged persistently AND raised
+        raise ProducerClientMissing(err_msg) from exc
 
     return get_last_valid_month_id(zarr_url)
