@@ -75,12 +75,14 @@ jobs:
         path: _siblings/views-appwrite
         fetch-depth: 0
 
-    # Fetched for ONE check: `test_delivery_coverage.py::test_manifest_matches_
-    # datafactory_land_minus_land_gaul`, C-30's drift tripwire on the 76-cell exclusion
-    # manifest. It reads `src/datafactory_query/{land,land_gaul}_pgids.json`, both of
-    # which are tracked here, and until 2026-08-17 it ran only on a laptop — while this
-    # repository told a partner in writing that the manifest "cannot drift without
-    # failing loudly". It could; nothing in the gate was watching.
+    # Fetched for the checks that need only views-datafactory's TRACKED files. The one
+    # that motivated it is `test_delivery_coverage.py::test_manifest_matches_datafactory_
+    # land_minus_land_gaul`, C-30's drift tripwire on the 76-cell exclusion manifest: it
+    # reads `src/datafactory_query/{land,land_gaul}_pgids.json`, both tracked here, and
+    # until 2026-08-17 it ran only on a laptop — while this repository told a partner in
+    # writing that the manifest "cannot drift without failing loudly". It could; nothing
+    # in the gate was watching. Three more checks came with it (the release gate, the
+    # region-set check, the wire-cast dtype check); see C-46 for the full accounting.
     #
     # This checkout was tried on 2026-08-03 and reverted, and the revert note said the
     # sibling could not be fetched because its GAUL parquets are untracked. That was the

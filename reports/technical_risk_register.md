@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-08-16                           |
-| Total Concerns          | 107                                   |
-| Open Concerns           | 27                                   |
+| Total Concerns          | 108                                   |
+| Open Concerns           | 28                                   |
 | Resolved Concerns       | 80                                   |
 
 ---
@@ -1153,6 +1153,26 @@ Cross-refs: **C-100** (the live sibling — a four-method port with three used m
 Cross-refs: **C-80** (the same guard, the adjacent corpus gap, resolved by widening), **C-97** (why widening a scan into docstrings is not automatic).
 
 ---
+
+### C-108: Two `xfail(strict=True)` deploy gates have never evaluated their own assertions — anywhere
+
+| Field | Value |
+|-------|-------|
+| ID | C-108 |
+| Tier | 4 — no delivery correctness depends on them. Registered because `xfail(strict=True)` *reads* as an armed tripwire, and a future maintainer will believe views-datafactory#223 is being watched when nothing is watching it. |
+| Source | `/code-review high` on PR #280, 2026-08-17 (finding 2), extended by measurement |
+| Trigger | When views-datafactory#223 is closed, or when anyone cites these gates as evidence that the served artifact is being tracked — check they are not skipping first. |
+| Owner | This repository for the gate; views-datafactory for the artifacts. |
+| Location | `tests/test_datafactory_deploy_readiness.py` — `TestServedArtifactMatchesBranch::test_assembled_grid_not_older_than_gaul_parquets`, `TestServedArtifactProvenanceTracksGaul::test_provenance_includes_admin_digest` |
+
+Both gates read `data/assembled/grid.npy`, `data/assembled/provenance.json` and the GAUL parquets from the views-datafactory checkout. **None of those is tracked upstream, and `data/assembled/` is empty in the maintainer's own checkout** (measured 2026-08-17). So the tests were failing on a missing file, `xfail(strict=True)` was recording that as an expected failure, and the report read green. The staleness comparison and the `admin_digest` assertion — the things the gates exist to make — have never once been evaluated.
+
+The strict flip is the entire mechanism: when views-datafactory#223 is fixed the test should XPASS and turn the build red, forcing someone to look. A test that can only ever fail on `FileNotFoundError` can never XPASS, so the flip could not fire. ADR-014 §1 — a guarantee is attached to a check, or it is not a guarantee — and C-102's lesson recurring in a form that is harder to see, because here the guard *runs*.
+
+**Partially addressed in the same PR**, and deliberately only partially: both tests now `pytest.skip()` when their inputs are absent, so the state is visible in the report instead of disguised as a passing xfail. That converts a false green into an honest skip. It does **not** make the gate work — closing that needs the assembled artifacts reachable from CI, which is the same blocker as C-46's producer-comparison half and is not this repository's to solve.
+
+Cross-refs: **C-46** (the untracked-artifact blocker these share), **C-102** (a guard that has never run is unproven), **C-36** (the gates' original home).
+
 
 ## Disagreements
 

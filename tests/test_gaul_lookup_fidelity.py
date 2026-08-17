@@ -21,7 +21,7 @@ views-datafactory puts a cell in the wrong country, every test here still passes
 That is views-datafactory#387 (square-degree area math at high latitudes), and it
 must not be conflated with what this file guarantees.
 
-**Split by the artifact each test actually reads** — three gates, not two, and the
+**Split by the artifact each test actually reads** — four gates, not two, and the
 distinction is load-bearing (corrected 2026-08-17):
 
   * **always-on** — self-consistency of the committed artifact, its wire-cast dtype
@@ -29,20 +29,24 @@ distinction is load-bearing (corrected 2026-08-17):
     Touches no sibling; runs anywhere, including CI.
   * **`_needs_region_pgids`** — needs only `src/datafactory_query/*_pgids.json`, which
     views-datafactory **tracks**. A plain checkout suffices, so this runs in CI too.
-  * **`_needs_gaul_parquets`** — needs `data/raw/gaul_admin/*.parquet`, which
-    views-datafactory does **not** track. A checkout is not enough; this is the only
-    half that cannot run in CI (C-46).
+  * **`_needs_gaul_parquets`** — needs `data/raw/gaul_admin/*.parquet`, **untracked**
+    upstream. A checkout is not enough (C-46).
+  * **`_needs_priogrid_dbf`** — needs the PRIO-GRID shapefile, likewise untracked.
 
 Until 2026-08-17 all four sibling-aware tests shared one gate keyed to the parquets,
 so two tests that read no parquets — and one that reads no sibling at all — sat dark
 in CI for no reason. Gating a test on an artifact it does not read is the same mistake
 that made a tracked directory stand in for untracked files; both are recorded in C-46.
+
+**The rule this file now follows: a gate names the artifact its test opens.** Anything
+looser has failed here three times — a directory standing in for files, one mark
+serving four dependencies, and a path built from a `None` checkout before the
+`.exists()` that was supposed to guard it.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import numpy as np
@@ -109,6 +113,24 @@ _REGION_PGIDS = (
     None if _DATAFACTORY is None
     else _DATAFACTORY / "src" / "datafactory_query" / f"{_REGION}_pgids.json"
 )
+#: The PRIO-GRID shapefile, also untracked upstream. Declared here rather than built
+#: inside the test: `_DATAFACTORY` is None when nothing resolves, and `None / "data"`
+#: is a TypeError, not a skip. The test used to be shielded from that by a mark it did
+#: not need; removing the mark exposed it, which is the third instance in this file of
+#: a gate and its test disagreeing about what must exist.
+_PRIOGRID_DBF = (
+    None if _DATAFACTORY is None
+    else _DATAFACTORY / "data" / "raw" / "priogrid" / "shapefile" / "priogrid_cell.dbf"
+)
+_needs_priogrid_dbf = pytest.mark.skipif(
+    _PRIOGRID_DBF is None or not _PRIOGRID_DBF.exists(),
+    reason=(
+        "the PRIO-GRID shapefile (data/raw/priogrid/shapefile/priogrid_cell.dbf) is not "
+        "present. Like the GAUL parquets it is not tracked in views-datafactory, so a "
+        "checkout alone is not enough and CI cannot run this half."
+    ),
+)
+
 _needs_region_pgids = pytest.mark.skipif(
     _REGION_PGIDS is None or not _REGION_PGIDS.exists(),
     reason=(
@@ -323,13 +345,12 @@ def test_lookup_gid_set_equals_the_declared_region(gids):
     )
 
 
+@_needs_priogrid_dbf
 def test_coordinate_formula_matches_every_priogrid_cell():
     """The committed fixture samples 219 cells; the sibling lets us check all 259,200."""
     import struct
 
-    dbf = _DATAFACTORY / "data" / "raw" / "priogrid" / "shapefile" / "priogrid_cell.dbf"
-    if not dbf.exists():
-        pytest.skip("PRIO-GRID shapefile not present in the datafactory checkout")
+    dbf = _PRIOGRID_DBF
     with dbf.open("rb") as fh:
         header = fh.read(32)
         n_records = struct.unpack("<I", header[4:8])[0]
@@ -561,7 +582,7 @@ def test_a_short_digest_is_refused_rather_than_truncated_silently():
         builder._lookup_version("land_gaul", {"land_gaul_region": {"content_digest": "abcd"}})
 
 
-def test_the_builder_and_the_tests_resolve_the_same_datafactory():
+def test_the_builder_and_the_tests_resolve_the_same_datafactory(monkeypatch):
     """The one thing worth guarding about the deliberate duplication (S7 / #188).
 
     ``scripts/build_gaul_lookup._resolve_datafactory`` and
@@ -580,11 +601,17 @@ def test_the_builder_and_the_tests_resolve_the_same_datafactory():
     # first — and it is exercised precisely when no checkout exists. So compare the
     # computed paths unconditionally: gating this on a checkout being present would
     # skip the one case the test is for, and skip it in CI, where it matters most.
-    if "VIEWS_DATAFACTORY" not in os.environ:
-        assert builder._resolve_datafactory() == _REPO.parent / "views-datafactory", (
-            "the builder's fallback and the tests' fallback resolve different "
-            "directories; with no environment override they would disagree silently"
-        )
+    # Assert the fallback UNCONDITIONALLY by removing the override for the duration.
+    # This was `if "VIEWS_DATAFACTORY" not in os.environ`, which was correct until CI
+    # started setting that variable (2026-08-17) — at which point the branch stopped
+    # running in the one place the comment above says it matters most, and the
+    # assertion below degenerated into comparing $VIEWS_DATAFACTORY with itself.
+    monkeypatch.delenv("VIEWS_DATAFACTORY", raising=False)
+    assert builder._resolve_datafactory() == _REPO.parent / "views-datafactory", (
+        "the builder's fallback and the tests' fallback resolve different "
+        "directories; with no environment override they would disagree silently"
+    )
+    monkeypatch.undo()
 
     resolved = sibling_repo("views-datafactory")
     if resolved is None:
