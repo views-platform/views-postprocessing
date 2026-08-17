@@ -136,8 +136,18 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         )
         try:
             lv = source_metadata.last_valid_month_id(self.configs.get("zarr_url"))
+        except source_metadata.ProducerClientUnavailable:
+            # NOT degrade-open. A producer client that will not load is a broken
+            # environment, not a producer that publishes no boundary — and the whole
+            # point of the two branches is that they are different conditions (C-103).
+            raise
         except Exception:
-            logger.warning("last_valid_month_id unavailable; skipping clip (degrade-open, C-26).", exc_info=True)
+            logger.warning(
+                "last_valid_month_id could not be read; skipping the observed-range "
+                "clip (degrade-open, C-26). Any unobserved months above the producer's "
+                "boundary WILL ship as observed history in this delivery.",
+                exc_info=True,
+            )
             lv = None
         if lv is None:
             self._historical_frame = frame
