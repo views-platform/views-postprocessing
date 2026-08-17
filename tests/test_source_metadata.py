@@ -20,6 +20,7 @@ except and made every delivery untraceable in exactly the field it existed to an
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -29,19 +30,57 @@ from views_postprocessing.contract import source_metadata
 
 _REPO = Path(__file__).resolve().parent.parent
 
+#: The numpy 1.x/2.x ABI break recorded in views-models
+#: `postprocessors/un_fao/requirements.txt` on 2026-08-13, found by the pre-delivery
+#: rehearsal. It is a `ValueError`, not an `ImportError` — which is why the guard
+#: catches `Exception`.
+_ABI_BREAK = (
+    "numpy.dtype size changed, may indicate binary incompatibility. "
+    "Expected 96 from C header, got 88"
+)
 
-def test_a_missing_client_raises_rather_than_reporting_no_boundary():
-    """``datafactory_query`` is genuinely absent here, so this needs no simulation."""
-    with pytest.raises(source_metadata.ProducerClientMissing):
+
+@pytest.fixture
+def absent_client(monkeypatch):
+    """Make `datafactory_query` unimportable REGARDLESS of what is installed.
+
+    The first draft of this module relied on the package happening to be absent in the
+    developer venv, which meant four of these tests would have failed in the launcher
+    prefix — the environment they describe. That is the C-30/C-46 shape again: a guard
+    whose proof rests on an ambient property nothing declares.
+    """
+    monkeypatch.setitem(sys.modules, "datafactory_query", None)
+    monkeypatch.setitem(sys.modules, "datafactory_query.defaults", None)
+
+
+@pytest.fixture
+def exploding_client(monkeypatch):
+    """`datafactory_query` is INSTALLED and raises on load — the real-world case."""
+
+    class _Exploding:
+        __name__ = "datafactory_query.defaults"
+
+        def __getattr__(self, name):
+            raise ValueError(_ABI_BREAK)
+
+    module = types.ModuleType("datafactory_query")
+    defaults = _Exploding()
+    module.defaults = defaults
+    monkeypatch.setitem(sys.modules, "datafactory_query", module)
+    monkeypatch.setitem(sys.modules, "datafactory_query.defaults", defaults)
+
+
+def test_an_absent_client_raises_rather_than_reporting_no_boundary(absent_client):
+    with pytest.raises(source_metadata.ProducerClientUnavailable):
         source_metadata.last_valid_month_id()
 
 
-def test_the_refusal_names_the_package_and_why_it_is_not_None():
-    with pytest.raises(source_metadata.ProducerClientMissing) as excinfo:
+def test_an_absent_client_is_told_to_install_the_package(absent_client):
+    with pytest.raises(source_metadata.ProducerClientUnavailable) as excinfo:
         source_metadata.last_valid_month_id()
     message = str(excinfo.value)
+    assert "not installed" in message
     assert "views-datafactory" in message, "the refusal must name the package to install"
-    assert "datafactory_query" in message, "and the module that was actually missing"
     # The reader must be able to tell this apart from the degrade-open case.
     assert "observed" in message, (
         "the refusal must say what degrading open would have cost — unobserved months "
@@ -49,16 +88,36 @@ def test_the_refusal_names_the_package_and_why_it_is_not_None():
     )
 
 
-def test_the_refusal_chains_the_original_importerror():
-    """``raise ... from exc``: the traceback must still say what could not be imported."""
-    with pytest.raises(source_metadata.ProducerClientMissing) as excinfo:
+def test_a_client_that_raises_on_load_is_NOT_reported_as_missing(exploding_client):
+    """The failure this environment actually had: a ValueError, not an ImportError.
+
+    An `except ImportError` clause would let this reach the caller's degrade-open and
+    ship the unobserved tail — the precise case the guard exists to separate.
+    """
+    with pytest.raises(source_metadata.ProducerClientUnavailable) as excinfo:
+        source_metadata.last_valid_month_id()
+    message = str(excinfo.value)
+    assert "present but raised while loading" in message
+    assert "ValueError" in message and "numpy.dtype size changed" in message, (
+        "the refusal must quote what actually went wrong; the operator cannot act on "
+        "'could not be loaded' alone"
+    )
+    assert "Do NOT reinstall" in message, (
+        "reporting an installed-but-broken package as missing sends the operator to a "
+        "fix they have already applied"
+    )
+
+
+def test_the_refusal_chains_the_original_exception(absent_client):
+    """``raise ... from exc``: the traceback must still say what actually failed."""
+    with pytest.raises(source_metadata.ProducerClientUnavailable) as excinfo:
         source_metadata.last_valid_month_id()
     assert isinstance(excinfo.value.__cause__, ImportError)
 
 
-def test_it_is_logged_as_well_as_raised(caplog):
+def test_it_is_logged_as_well_as_raised(caplog, absent_client):
     """ADR-008: a refusal on the delivery path is logged persistently AND raised."""
-    with caplog.at_level("ERROR"), pytest.raises(source_metadata.ProducerClientMissing):
+    with caplog.at_level("ERROR"), pytest.raises(source_metadata.ProducerClientUnavailable):
         source_metadata.last_valid_month_id()
     assert any(r.levelname == "ERROR" for r in caplog.records), (
         "the refusal was raised but never logged; a traceback that dies inside a "
@@ -105,25 +164,34 @@ def test_the_managers_do_not_swallow_the_refusal(partner):
 
     A source check rather than a behavioural one, deliberately: constructing a manager
     needs pipeline-core, a path manager and an Appwrite environment (C-40), and the
-    property worth pinning is one line — that ``ProducerClientMissing`` is re-raised
+    property worth pinning is one line — that ``ProducerClientUnavailable`` is re-raised
     *before* the broad ``except``. Someone tidying the two branches back into one is
     precisely how C-103 would return, and it would return silently.
     """
     source = (_REPO / "views_postprocessing" / partner / "managers" / f"{partner}.py").read_text()
-    assert "except source_metadata.ProducerClientMissing:" in source, (
-        f"{partner}'s manager no longer re-raises ProducerClientMissing, so a broken "
-        "environment is once again indistinguishable from a producer that publishes "
-        "no boundary — and the delivery ships fabricated months either way (C-103)."
+
+    # Scope to `_read_historical_frame`. Comparing offsets across the whole file would
+    # let a narrow branch on some unrelated `try` satisfy the ordering while the
+    # boundary read's branch was gone.
+    start = source.index("def _read_historical_frame")
+    body = source[start:source.index("\n    def ", start)]
+
+    narrow = body.count("except source_metadata.ProducerClientUnavailable:")
+    broad = body.count("except Exception:")
+    assert narrow == 1, (
+        f"{partner}'s _read_historical_frame has {narrow} ProducerClientUnavailable "
+        "branches, expected 1. Without it a broken environment is indistinguishable "
+        "from a producer that publishes no boundary, and the delivery ships fabricated "
+        "months either way (C-103)."
     )
-    # Each manager has exactly one broad `except Exception:` (the degrade-open), so a
-    # plain forward search is enough — searching from an offset would only obscure that.
-    assert source.count("except Exception:") == 1, (
-        f"{partner}'s manager grew a second broad except; this check assumes one and "
-        "would compare against the wrong branch"
+    assert broad == 1, (
+        f"{partner}'s _read_historical_frame has {broad} broad `except Exception:` "
+        "branches, expected 1 (the C-26 degrade-open). If it is gone the refusal may "
+        "be fine, but this check no longer describes the code — read it and rewrite it."
     )
-    refusal = source.index("except source_metadata.ProducerClientMissing:")
-    broad = source.index("except Exception:")
-    assert refusal < broad, (
-        f"{partner}'s manager catches Exception before ProducerClientMissing, so the "
-        "narrow branch is unreachable"
+    assert body.index("except source_metadata.ProducerClientUnavailable:") < body.index(
+        "except Exception:"
+    ), (
+        f"{partner} catches Exception before ProducerClientUnavailable, so the narrow "
+        "branch is unreachable"
     )

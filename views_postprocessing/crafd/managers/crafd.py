@@ -136,10 +136,10 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         )
         try:
             lv = source_metadata.last_valid_month_id(self.configs.get("zarr_url"))
-        except source_metadata.ProducerClientMissing:
-            # NOT degrade-open. A missing producer client is a broken environment, not
-            # a producer that publishes no boundary — and the whole point of the two
-            # branches is that they are different conditions (C-103).
+        except source_metadata.ProducerClientUnavailable:
+            # NOT degrade-open. A producer client that will not load is a broken
+            # environment, not a producer that publishes no boundary — and the whole
+            # point of the two branches is that they are different conditions (C-103).
             raise
         except Exception:
             logger.warning(
