@@ -49,6 +49,7 @@ _MACHINERY = (
     "views_postprocessing.delivery.coverage",
     "views_postprocessing.delivery.draws",
     "views_postprocessing.delivery.parity",
+    "views_postprocessing.delivery.findability",
     "views_postprocessing.delivery.observed_range",
     "views_postprocessing.delivery.provenance",
     "views_postprocessing.contract.wire.sink",

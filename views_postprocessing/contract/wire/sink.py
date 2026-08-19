@@ -160,13 +160,19 @@ def deliver_run(
 
     common = {"name": consumer_name, "category": "forecast", "loa": "pgm"}
 
-    def _upload(file_name: str, doc_type: str, targets: list) -> None:
-        store.upload(staging / file_name, filename=file_name, doc_type=doc_type, targets=targets, **common)
+    def _upload(file_name: str, doc_type: str, targets: list):
+        file_id = store.upload(
+            staging / file_name, filename=file_name, doc_type=doc_type, targets=targets, **common
+        )
         logger.info("uploaded %s (type=%s, run=%s)", file_name, doc_type, run_id)  # the ledger
+        return file_id
 
     for record in shard_records:
         _upload(record["name"], SHARD_DOC_TYPE, [record["target"]])
     _upload(sidecar_file, SIDECAR_DOC_TYPE, list(per_target))
-    _upload(manifest_file, MANIFEST_DOC_TYPE, list(per_target))  # the commit marker
+    # The manifest is uploaded LAST, so it is the newest `category="forecast"` document
+    # in the store — which is exactly what the consumer's query returns. Carried out so
+    # the C-94 read-back can assert the consumer would find THIS run (register C-94).
+    summary["manifest_file_id"] = _upload(manifest_file, MANIFEST_DOC_TYPE, list(per_target))
     summary["uploaded"] = True
     return summary
