@@ -140,12 +140,15 @@ def _assert_delivery_is_findable(model_path, consumer_name: str) -> None:
     """
     port = _ContractStorePort(_build_partner_read_store(model_path))
     for category in ("forecast", "historical"):
+        try:
+            found = port.latest_file_id({"name": consumer_name, "category": category})
+        except Exception as exc:  # could not ask != asked and got nothing (C-99, C-103)
+            raise findability.unverified(category, exc) from exc
         findability.assert_findable(
-            port.latest_file_id({"name": consumer_name, "category": category}),
-            consumer_name=consumer_name,
-            category=category,
+            found, consumer_name=consumer_name, category=category
         )
     logger.info("Findability preflight passed: both legs retrievable under %r.", consumer_name)
+
 
 class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
     def __init__(

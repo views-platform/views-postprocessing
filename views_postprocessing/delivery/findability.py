@@ -32,6 +32,28 @@ class DeliveryNotFindableError(RuntimeError):
     """An upload succeeded, and the consumer's own query cannot find it."""
 
 
+class FindabilityUnverifiedError(RuntimeError):
+    """The read-back could not be performed, so findability is unknown."""
+
+
+def unverified(category: str, exc: BaseException) -> FindabilityUnverifiedError:
+    """The refusal for *could not ask*, which is not *asked and got nothing*.
+
+    Distinguished for the same reason ``source_metadata`` distinguishes a missing
+    producer client from a producer that publishes no boundary (C-103), and for the
+    same reason ``_ContractStorePort.download`` refuses an unrecognised result rather
+    than adapting to it (C-99): the two conditions call for different operator actions.
+    A delivery that cannot be found is quarantined. A delivery that could not be
+    *checked* may be perfectly fine, and quarantining it on a transient store error
+    would be an outage manufactured by the guard.
+    """
+    return FindabilityUnverifiedError(
+        f"the {category!r} leg uploaded, but the C-94 read-back could not be performed: "
+        f"{type(exc).__name__}: {exc}. The delivery is UNVERIFIED, not known invisible — "
+        "re-run the check before quarantining anything."
+    )
+
+
 def assert_findable(file_id, *, consumer_name: str, category: str) -> None:
     """Raise unless the store returned something for the consumer's own query.
 

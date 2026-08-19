@@ -103,3 +103,34 @@ def test_the_preflight_queries_the_declared_name_not_the_path_managers(partner):
             "separately because a run with one leg missing is invisible in half, and "
             "the historical leg is the one that stranded in run-0 (C-79)."
         )
+
+
+def test_unverified_is_not_the_same_refusal_as_not_findable():
+    """A store that could not be asked is a different event from an empty answer.
+
+    Quarantining a delivery because the *check* failed would be an outage the guard
+    manufactured. Same distinction as C-103 (a missing producer client vs a producer
+    publishing no boundary) and C-99 (an unrecognised store result vs a real one).
+    """
+    exc = findability.unverified("forecast", TimeoutError("read timed out"))
+    assert isinstance(exc, findability.FindabilityUnverifiedError)
+    assert not isinstance(exc, findability.DeliveryNotFindableError), (
+        "the two must not share a type, or a caller cannot act differently on them"
+    )
+    message = str(exc)
+    assert "UNVERIFIED, not known invisible" in message
+    assert "TimeoutError" in message and "read timed out" in message, (
+        "the refusal must quote what actually stopped the check"
+    )
+    assert "forecast" in message, "and say which leg is unverified"
+
+
+@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
+def test_the_preflight_does_not_report_a_failed_query_as_an_invisible_delivery(partner):
+    source = (_REPO / "views_postprocessing" / partner / "managers" / f"{partner}.py").read_text()
+    preflight = source[source.index("def _assert_delivery_is_findable"):]
+    assert "findability.unverified(" in preflight, (
+        f"{partner}'s preflight no longer distinguishes a store error from an empty "
+        "answer, so a transient network failure after a successful delivery would be "
+        "reported as the delivery being invisible — and quarantined (C-94)."
+    )
