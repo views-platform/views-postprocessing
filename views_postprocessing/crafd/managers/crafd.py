@@ -17,7 +17,7 @@ from views_postprocessing.crafd import appwrite_env, product
 from views_postprocessing.crafd.store_port import _ContractStorePort
 from views_postprocessing.contract.wire import sink as wire_sink
 from views_postprocessing.contract.wire import source_selection
-from views_postprocessing.delivery import coverage, observed_range, provenance
+from views_postprocessing.delivery import coverage, findability, observed_range, provenance
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,40 @@ def _partner_appwrite_config(model_path) -> AppwriteConfig:
         database_name=os.getenv("APPWRITE_METADATA_DATABASE_NAME"),
     )
 
+
+def _build_partner_read_store(model_path) -> DatastoreModule:
+    """The partner store for the C-94 read-back, with pipeline-core's automatic
+    ``name == model_name`` filter suppressed.
+
+    That suppression is why this is a separate builder. ``get_latest_file_id`` merges
+    the path manager's model name into every query, so without it the preflight would
+    verify the views-models directory name — which equals the declared consumer name
+    only by coincidence (register **C-77**). C-94 records why it reuses the write key
+    rather than the registry's separate read slot.
+    """
+    store = DatastoreModule(appwrite_file_manager_config=_partner_appwrite_config(model_path))
+    store.model_path = None
+    return store
+
+
+def _assert_delivery_is_findable(model_path, consumer_name: str) -> None:
+    """C-94: ask the store the question the consumer asks, and refuse silence.
+
+    A function, not a method (C-40 (a)): it reads no manager state, so its refusal is
+    observable without a manager, a path manager or an Appwrite environment.
+
+    Both legs are checked separately — a run whose forecast landed and whose historical
+    did not is invisible in exactly one half, and the historical leg is the one that
+    stranded in run-0 (C-79).
+    """
+    port = _ContractStorePort(_build_partner_read_store(model_path))
+    for category in ("forecast", "historical"):
+        findability.assert_findable(
+            port.latest_file_id({"name": consumer_name, "category": category}),
+            consumer_name=consumer_name,
+            category=category,
+        )
+    logger.info("Findability preflight passed: both legs retrievable under %r.", consumer_name)
 
 class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
     def __init__(
@@ -351,6 +385,9 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 description=hist_description,
             )
             logger.info("uploaded %s (historical, run %s)", hist_path.name, summary["run_id"])
+            # C-94: nothing above observes the OUTCOME of an upload. Every call
+            # reported success in run-0 too, and the historical leg still stranded.
+            _assert_delivery_is_findable(self._model_path, product.CONSUMER_DOCUMENT_NAME)
         else:
             logger.info(
                 "Interlock holding: historical artifact staged at %s (no store calls).",

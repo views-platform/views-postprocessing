@@ -3,7 +3,7 @@
 
 **Status:** Active  
 **Owner:** PRIO MD&D Team  
-**Last reviewed:** 2026-08-17  
+**Last reviewed:** 2026-08-18  
 **Related ADRs:** ADR-001, ADR-002, ADR-008, ADR-009  
 
 ---
@@ -90,6 +90,7 @@ Assumptions that are not met **must cause failure**, not fallback behavior. The 
 - **Null values in required metadata columns:** Raises `ValueError` with null count and affected column name (C-01 resolved — validation active)
 - **Dataset initialization failure:** Raises `ValueError` in `_save()` if datasets are None
 - **Appwrite upload failure:** Propagates exception from `DatastoreModule`
+- **Delivery invisible to the consumer:** raises `delivery.findability.DeliveryNotFindableError` (C-94, added 2026-08-18). After both legs are uploaded, the manager queries the partner store as the consumer does — `name == product.CONSUMER_DOCUMENT_NAME`, per category — and refuses a falsy answer. This is the one failure mode where every upload reports success and the consumer still sees nothing; run-0's historical leg stranded exactly that way (C-79). It runs only inside the §11.4 interlock, and queries through a store with pipeline-core's automatic `name == model_name` filter suppressed, so it verifies the declared name rather than the views-models directory name that happens to match (C-77). **It does not detect a delivery that never ran, or stale data served from the consumer's cache** — both recorded as gaps in C-94
 - **Wrong forecast selected:** structurally impossible since #149. Selection is by **run manifest** — a commit marker whose contents are hash-verified — not by scanning the bucket for the newest `category="forecast"` upload. Declared identity is additionally checked **per shard header** against the launched ensemble inside `TargetLease.load()` (`contract/wire/source_selection.py:73-81`), so identity comes from the artifact's own content. The metadata-field check this bullet used to describe (`delivery/identity.py`) was retired in #150 and the legacy reader it served in #149; register C-25 is closed as *superseded by mechanism* <!-- legacy-ok: retirement record -->
 - **Launch config incomplete:** raises `LaunchConfigError` naming the missing key. A launcher that omits `wire_contract` or declares a `data_format` other than `feature_frame` is **refused**, never quietly routed into a fallback (ADR-003, register C-63)
 - **Region coverage mismatch:** Raises `CoverageError` in `_check_coverage()` (called from `_validate()`) if a pinned region's delivered cell count is wrong (S1/C-34) or a GAUL-uncovered excluded cell leaks into the delivery (S4/C-30)
