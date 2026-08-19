@@ -54,7 +54,7 @@ def unverified(category: str, exc: BaseException) -> FindabilityUnverifiedError:
     )
 
 
-def assert_findable(file_id, *, consumer_name: str, category: str) -> None:
+def assert_findable(file_id, *, expected_file_id, consumer_name: str, category: str) -> None:
     """Raise unless the store returned something for the consumer's own query.
 
     Args:
@@ -66,6 +66,12 @@ def assert_findable(file_id, *, consumer_name: str, category: str) -> None:
             rather than "found". Same polarity as ``_ContractStorePort.download``,
             which refuses zero bytes for the reason C-99 records — an unrecognised
             result is refused and named, not adapted to silently.
+        expected_file_id: the id THIS run uploaded for this leg — the manifest for the
+            forecast leg (uploaded last, so it is the newest such document) and the
+            historical artifact for its own. Without it the only available question is
+            *"does any document exist under the consumer's name"*, which the previous
+            delivery already answered yes to — so the check would pass on every run
+            after the first, precisely when a C-79-shaped orphan appeared.
         consumer_name: the DECLARED store-document ``name`` the consumer filters on
             (``product.CONSUMER_DOCUMENT_NAME``), never a path-manager or directory
             name that happens to equal it (C-77).
@@ -77,8 +83,17 @@ def assert_findable(file_id, *, consumer_name: str, category: str) -> None:
     Raises:
         DeliveryNotFindableError: naming the query that found nothing.
     """
-    if file_id:
+    if file_id and file_id == expected_file_id:
         return
+    if file_id:
+        raise DeliveryNotFindableError(
+            f"delivery is INVISIBLE to the consumer: the newest {category!r} document "
+            f"under name == {consumer_name!r} is {file_id!r}, but this run uploaded "
+            f"{expected_file_id!r}. The consumer will go on serving the PREVIOUS "
+            "delivery while this one reports success — which is why the check is scoped "
+            "to this run rather than asking whether any document exists (a question the "
+            "previous run already answered). Quarantine and inspect the partner bucket."
+        )
     raise DeliveryNotFindableError(
         f"delivery is INVISIBLE to the consumer: uploads for category {category!r} "
         f"reported success, but querying the partner store as the consumer does — "

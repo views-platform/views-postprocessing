@@ -115,37 +115,30 @@ def _partner_appwrite_config(model_path) -> AppwriteConfig:
 
 def _build_partner_read_store(model_path) -> DatastoreModule:
     """The partner store for the C-94 read-back, with pipeline-core's automatic
-    ``name == model_name`` filter suppressed.
-
-    That suppression is why this is a separate builder. ``get_latest_file_id`` merges
-    the path manager's model name into every query, so without it the preflight would
-    verify the views-models directory name — which equals the declared consumer name
-    only by coincidence (register **C-77**). C-94 records why it reuses the write key
-    rather than the registry's separate read slot.
+    ``name == model_name`` filter suppressed — otherwise the preflight would verify the
+    views-models directory name, which equals the declared consumer name only by
+    coincidence (**C-77**). C-94 records why it reuses the write key.
     """
     store = DatastoreModule(appwrite_file_manager_config=_partner_appwrite_config(model_path))
     store.model_path = None
     return store
 
 
-def _assert_delivery_is_findable(model_path, consumer_name: str) -> None:
+def _assert_delivery_is_findable(model_path, consumer_name: str, uploaded: dict) -> None:
     """C-94: ask the store the question the consumer asks, and refuse silence.
 
-    A function, not a method (C-40 (a)): it reads no manager state, so its refusal is
-    observable without a manager, a path manager or an Appwrite environment.
-
-    Both legs are checked separately — a run whose forecast landed and whose historical
-    did not is invisible in exactly one half, and the historical leg is the one that
-    stranded in run-0 (C-79).
+    A function, not a method (C-40 (a)) — its refusal is observable without a manager
+    or an Appwrite environment. ``uploaded`` maps each leg to the file id THIS run put
+    there; `delivery/findability.py` carries why that scoping is the whole guard.
     """
-    port = _ContractStorePort(_build_partner_read_store(model_path))
-    for category in ("forecast", "historical"):
+    for category, expected in uploaded.items():
         try:
+            port = _ContractStorePort(_build_partner_read_store(model_path))
             found = port.latest_file_id({"name": consumer_name, "category": category})
         except Exception as exc:  # could not ask != asked and got nothing (C-99, C-103)
             raise findability.unverified(category, exc) from exc
         findability.assert_findable(
-            found, consumer_name=consumer_name, category=category
+            found, expected_file_id=expected, consumer_name=consumer_name, category=category
         )
     logger.info("Findability preflight passed: both legs retrievable under %r.", consumer_name)
 
@@ -369,7 +362,7 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             Path(summary["staging_dir"]), lookup
         )
         if upload_enabled:
-            store.upload(
+            hist_file_id = store.upload(
                 hist_path,
                 filename=hist_path.name,
                 # The DECLARED consumer name, not `self._model_path.model_name`
@@ -390,7 +383,11 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             logger.info("uploaded %s (historical, run %s)", hist_path.name, summary["run_id"])
             # C-94: nothing above observes the OUTCOME of an upload. Every call
             # reported success in run-0 too, and the historical leg still stranded.
-            _assert_delivery_is_findable(self._model_path, product.CONSUMER_DOCUMENT_NAME)
+            _assert_delivery_is_findable(
+                self._model_path,
+                product.CONSUMER_DOCUMENT_NAME,
+                {"forecast": summary["manifest_file_id"], "historical": hist_file_id},
+            )
         else:
             logger.info(
                 "Interlock holding: historical artifact staged at %s (no store calls).",
