@@ -58,7 +58,7 @@ class TornRunError(SinkError):
     """An upload failed partway, leaving objects in the partner store."""
 
 
-def _torn(run_id, failed_on, uploaded, total, exc):
+def _torn_run_error(run_id, failed_on, uploaded, total, exc) -> TornRunError:
     """The refusal for a run that died mid-upload, naming what is already up (C-105).
 
     The contract handles the *consumer's* side of this correctly and by design: the run
@@ -205,7 +205,7 @@ def deliver_run(
                 staging / file_name, filename=file_name, doc_type=doc_type, targets=targets, **common
             )
         except Exception as exc:
-            raise _torn(run_id, file_name, uploaded, total, exc) from exc
+            raise _torn_run_error(run_id, file_name, uploaded, total, exc) from exc
         uploaded.append({"name": file_name, "file_id": file_id})
         logger.info("uploaded %s (type=%s, run=%s)", file_name, doc_type, run_id)  # the ledger
         return file_id

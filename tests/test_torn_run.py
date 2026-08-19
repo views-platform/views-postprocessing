@@ -22,13 +22,44 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import pyarrow as pa
+
 from views_postprocessing.contract.frames import build_prediction_frame
+from views_postprocessing.contract.gaul_schema import CODE_COLS, COORD_COLS, METADATA_COLS
 from views_postprocessing.contract.wire import sink
 from views_postprocessing.unfao import product
 
-from tests.test_hop_b_sink_e2e import FakeLease, _synthetic_lookup
-
 _GIDS = [100001, 100002, 100003, 100004, 100005, 100006]
+
+
+class FakeLease:
+    """Preloaded values — this file tests the upload phase, not the inbound chain."""
+
+    def __init__(self, run_id, frame, headers):
+        self.run_id = run_id
+        self._value = (frame, headers)
+
+    def load(self):
+        return self._value
+
+
+def _synthetic_lookup() -> pa.Table:
+    """A lookup covering exactly `_GIDS`, built from the declared schema.
+
+    Derived from `gaul_schema` rather than copied as a literal table: the columns are
+    the contract's, and a table hand-written here would drift from it silently. Built
+    locally rather than imported from another test module — reaching into a sibling
+    test's private helper couples two files that should be able to change apart.
+    """
+    columns = {"priogrid_gid": pa.array(_GIDS, pa.int64())}
+    for col in METADATA_COLS:
+        if col in COORD_COLS:
+            columns[col] = pa.array([10.25 + i for i in range(len(_GIDS))], pa.float64())
+        elif col in CODE_COLS:
+            columns[col] = pa.array(list(range(1, len(_GIDS) + 1)), pa.int64())
+        else:
+            columns[col] = pa.array([f"{col}-{i}" for i in range(len(_GIDS))])
+    return pa.table(columns)
 _PRODUCT = {"consumer_name": product.CONSUMER_DOCUMENT_NAME, "s_min": product.S_MIN}
 
 
