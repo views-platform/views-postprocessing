@@ -123,9 +123,11 @@ def test_it_says_the_consumer_is_unaffected_and_nothing_was_removed(tmp_path):
     with pytest.raises(sink.TornRunError) as excinfo:
         _deliver(FailAfter(1), tmp_path)
     message = str(excinfo.value)
-    assert "cannot see this run" in message, (
-        "an operator's first question is whether the partner is being served garbage; "
-        "the §4.2 commit marker means they are not, and the refusal should say so"
+    assert "almost certainly" in message and "cannot see this run" in message, (
+        "an operator's first question is whether the partner is being served garbage. "
+        "The §4.2 commit marker means almost certainly not — but the code cannot KNOW "
+        "it, because a manifest upload can fail after the store committed the document. "
+        "Asserting it categorically would steer a re-run that duplicates every object."
     )
     assert "NOT removed" in message, (
         "the refusal must be explicit that it deleted nothing — a reader who assumes "
@@ -148,3 +150,49 @@ def test_a_clean_run_reports_no_tear(tmp_path):
     assert summary["uploaded"] is True
     assert summary["manifest_file_id"] == "id-3"
     assert len(store.calls) == 3
+
+
+def test_the_object_that_failed_is_named_as_the_likeliest_orphan(tmp_path):
+    """The failing object is the one most likely to be an orphan, and it is not in the
+    confirmed list — because the list only holds uploads that returned.
+
+    `_ContractStorePort.upload` raises precisely in the case its own comment documents:
+    the store "RETURNS success=False with the file already uploaded". So the object that
+    failed is the C-79 shape, sitting in the bucket with no metadata document. Listing
+    only the successes and calling it what remains would send an operator past the very
+    orphan this exists to surface.
+    """
+    store = FailAfter(1)
+    with pytest.raises(sink.TornRunError) as excinfo:
+        _deliver(store, tmp_path)
+    message = str(excinfo.value)
+    assert "MAY ALSO HAVE LANDED" in message
+    assert "C-79" in message, "and say which shape to look for"
+    # the sidecar is what failed here; it must appear even though it is not "confirmed"
+    assert "sidecar" in message
+
+
+def test_a_failure_on_the_very_first_upload_does_not_claim_an_empty_list(tmp_path):
+    """The commonest infrastructure failure: credentials expire, upload #1 refuses.
+
+    The first draft printed "Already in the partner store, and NOT removed: ." — an
+    empty list with a dangling period, presented as a bucket to audit.
+    """
+    with pytest.raises(sink.TornRunError) as excinfo:
+        _deliver(FailAfter(0), tmp_path)
+    message = str(excinfo.value)
+    assert "Nothing is confirmed in the partner store" in message
+    assert "NOT removed: ." not in message, "no dangling empty list"
+    # even here the failing object may have landed, so the caveat must still be present
+    assert "MAY ALSO HAVE LANDED" in message
+
+
+def test_a_tear_is_not_a_malformed_run(tmp_path):
+    """Opposite retry semantics: SinkError means do-not-retry, a tear is transient."""
+    with pytest.raises(sink.TornRunError) as excinfo:
+        _deliver(FailAfter(1), tmp_path)
+    assert not isinstance(excinfo.value, sink.SinkError), (
+        "TornRunError must not share a base with the malformed-run family, or an "
+        "orchestration layer treating SinkError as do-not-retry would silently swallow "
+        "store outages — and test_hop_b_sink_e2e already asserts SinkError for malformed"
+    )

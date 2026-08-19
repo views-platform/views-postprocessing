@@ -54,37 +54,54 @@ class SinkError(ValueError):
     """The assembled run cannot be delivered as declared."""
 
 
-class TornRunError(SinkError):
-    """An upload failed partway, leaving objects in the partner store."""
+class TornRunError(RuntimeError):
+    """An upload failed partway, leaving objects in the partner store.
+
+    Deliberately **not** a ``SinkError``. That family means "the assembled run cannot be
+    delivered as declared" — malformed input, where retrying is pointless; a tear is a
+    transient infrastructure failure with the opposite retry semantics, and
+    ``tests/test_hop_b_sink_e2e`` already uses ``pytest.raises(SinkError)`` as the
+    malformed-run assertion. Sharing a base would let any future orchestration layer
+    that treats ``SinkError`` as do-not-retry silently swallow store outages. Same
+    reasoning, same base, as ``delivery.findability``'s two error types.
+    """
 
 
 def _torn_run_error(run_id, failed_on, uploaded, total, exc) -> TornRunError:
-    """The refusal for a run that died mid-upload, naming what is already up (C-105).
+    """The refusal for a run that died mid-upload, naming what may be left (C-105).
 
-    The contract handles the *consumer's* side of this correctly and by design: the run
-    manifest is uploaded last, so a torn attempt has no commit marker and is invisible
-    rather than half-visible (§4.2). What it does not handle is our side — the objects
-    that did land stay there, and until this existed nothing recorded that they had.
-    At run-0 scale a retry adds ~110 more under the same names.
+    The contract handles the *consumer's* side correctly and by design: the run manifest
+    is uploaded last, so a torn attempt has no commit marker and is invisible rather
+    than half-visible (§4.2). What it does not handle is our side — the objects that did
+    land stay there, and until this existed nothing recorded that they had. At run-0
+    scale a retry adds ~110 more under the same names.
 
     **Nothing is deleted here, deliberately.** Removing objects from a partner bucket is
-    irreversible and is an operator decision, not a delivery-path one; the neighbouring
-    delete surface is its own open question (C-58, views-pipeline-core #333, blocked on a
-    test key). This turns an invisible mess into a documented one, which is the part
+    irreversible and an operator decision, not a delivery-path one; the neighbouring
+    delete surface is its own open question (C-58, views-pipeline-core #333, blocked on
+    a test key). This turns an invisible mess into a documented one, which is the part
     this repository can honestly own.
     """
     landed = ", ".join(f"{u['name']}#{u['file_id']}" for u in uploaded[:5])
-    more = "" if len(uploaded) <= 5 else f" (+{len(uploaded) - 5} more)"
+    more = "" if len(uploaded) <= 5 else f" (+{len(uploaded) - 5} more; every id is in the run log)"
+    confirmed = (
+        f"Confirmed in the partner store, and NOT removed: {landed}{more}."
+        if uploaded
+        else "Nothing is confirmed in the partner store — this was the first upload."
+    )
     return TornRunError(
-        f"run {run_id!r} is TORN: {len(uploaded)} of {total} objects were uploaded "
-        f"before {failed_on!r} failed ({type(exc).__name__}: {exc}).\n"
-        f"Already in the partner store, and NOT removed: {landed}{more}.\n"
-        "The consumer cannot see this run — the manifest is uploaded last and never "
-        "got there — so nothing partial is being served (§4.2). But the objects above "
-        "remain, a re-run will upload all of them again under the same names, and "
-        "whether the store supersedes or duplicates is not something this repository "
-        "asserts. Decide that before re-running: see docs/operations/"
-        "correction_procedure.md and register C-105."
+        f"run {run_id!r} is TORN: {len(uploaded)} of {total} objects were confirmed "
+        f"uploaded before {failed_on!r} failed ({type(exc).__name__}: {exc}).\n"
+        f"{confirmed}\n"
+        f"{failed_on!r} MAY ALSO HAVE LANDED, as a file carrying no metadata document — "
+        "the store reports failure *after* uploading the file when the document write "
+        "fails, which is the C-79 orphan shape. Check for it as well as anything listed above; "
+        "it is the likeliest orphan of the whole run.\n"
+        "The manifest upload did not report success, so the consumer almost certainly "
+        "cannot see this run (§4.2 — the manifest is the commit marker). Verify that "
+        "before re-running: a re-run uploads every object again under the same names, "
+        "and whether the store supersedes or duplicates is not something this "
+        "repository asserts. See docs/operations/correction_procedure.md and C-105."
     )
 
 
@@ -207,7 +224,9 @@ def deliver_run(
         except Exception as exc:
             raise _torn_run_error(run_id, file_name, uploaded, total, exc) from exc
         uploaded.append({"name": file_name, "file_id": file_id})
-        logger.info("uploaded %s (type=%s, run=%s)", file_name, doc_type, run_id)  # the ledger
+        logger.info(  # the ledger — file_id included, it is the only persistent record
+            "uploaded %s (type=%s, run=%s, file_id=%s)", file_name, doc_type, run_id, file_id
+        )
         return file_id
 
     for record in shard_records:
