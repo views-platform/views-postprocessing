@@ -54,6 +54,40 @@ class SinkError(ValueError):
     """The assembled run cannot be delivered as declared."""
 
 
+class TornRunError(SinkError):
+    """An upload failed partway, leaving objects in the partner store."""
+
+
+def _torn(run_id, failed_on, uploaded, total, exc):
+    """The refusal for a run that died mid-upload, naming what is already up (C-105).
+
+    The contract handles the *consumer's* side of this correctly and by design: the run
+    manifest is uploaded last, so a torn attempt has no commit marker and is invisible
+    rather than half-visible (§4.2). What it does not handle is our side — the objects
+    that did land stay there, and until this existed nothing recorded that they had.
+    At run-0 scale a retry adds ~110 more under the same names.
+
+    **Nothing is deleted here, deliberately.** Removing objects from a partner bucket is
+    irreversible and is an operator decision, not a delivery-path one; the neighbouring
+    delete surface is its own open question (C-58, views-pipeline-core #333, blocked on a
+    test key). This turns an invisible mess into a documented one, which is the part
+    this repository can honestly own.
+    """
+    landed = ", ".join(f"{u['name']}#{u['file_id']}" for u in uploaded[:5])
+    more = "" if len(uploaded) <= 5 else f" (+{len(uploaded) - 5} more)"
+    return TornRunError(
+        f"run {run_id!r} is TORN: {len(uploaded)} of {total} objects were uploaded "
+        f"before {failed_on!r} failed ({type(exc).__name__}: {exc}).\n"
+        f"Already in the partner store, and NOT removed: {landed}{more}.\n"
+        "The consumer cannot see this run — the manifest is uploaded last and never "
+        "got there — so nothing partial is being served (§4.2). But the objects above "
+        "remain, a re-run will upload all of them again under the same names, and "
+        "whether the store supersedes or duplicates is not something this repository "
+        "asserts. Decide that before re-running: see docs/operations/"
+        "correction_procedure.md and register C-105."
+    )
+
+
 def deliver_run(
     per_target: dict,
     *,
@@ -160,10 +194,19 @@ def deliver_run(
 
     common = {"name": consumer_name, "category": "forecast", "loa": "pgm"}
 
+    # The ledger is kept in memory as well as in the log, so a torn run can say what
+    # it left behind rather than leaving an operator to diff the bucket (C-105).
+    uploaded: list[dict] = []
+    total = len(shard_records) + 2  # shards + sidecar + manifest
+
     def _upload(file_name: str, doc_type: str, targets: list):
-        file_id = store.upload(
-            staging / file_name, filename=file_name, doc_type=doc_type, targets=targets, **common
-        )
+        try:
+            file_id = store.upload(
+                staging / file_name, filename=file_name, doc_type=doc_type, targets=targets, **common
+            )
+        except Exception as exc:
+            raise _torn(run_id, file_name, uploaded, total, exc) from exc
+        uploaded.append({"name": file_name, "file_id": file_id})
         logger.info("uploaded %s (type=%s, run=%s)", file_name, doc_type, run_id)  # the ledger
         return file_id
 

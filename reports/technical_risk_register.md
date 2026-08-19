@@ -1146,7 +1146,13 @@ Cross-refs: **C-72** (owns the pyarrow half — that half is not re-registered h
 
 `docs/operations/correction_procedure.md` covers the *wrong value* case — the contract has no retraction primitive, so a correction is a new complete run, manifest last. A torn attempt is a different case and is not covered by it.
 
-Cross-refs: **C-94** (nothing observes the outcome of an upload at the time it happens), **C-79** (the single-file orphan this generalises), **D-12** (the unnamed retention owner this compounds with). Part of causal cluster: **Cluster J — Delivery aftercare has no mechanism**.
+**Partial mitigation, 2026-08-19 — the tear is now documented, not removed.** `deliver_run` keeps an in-memory ledger of what it has uploaded, and a failure anywhere in the upload phase raises `TornRunError` naming the run, how many of how many objects landed, their names *and* file ids, and what is true about the consumer. Tested in `tests/test_torn_run.py` (5), mutation-proven against both dropping the wrapper and dropping the ledger.
+
+The refusal says three things an operator otherwise has to establish by hand: the consumer **cannot see this run** (the manifest is the commit marker and never landed, so nothing partial is being served — §4.2 working as designed); the objects listed are **still there and were NOT removed**; and a re-run will upload all of them again under the same names, with supersede-or-duplicate being a store semantic this repository does not assert.
+
+**What is deliberately NOT done: deletion.** Removing objects from a partner bucket is irreversible and an operator decision rather than a delivery-path one, and the neighbouring delete surface is its own open question (**C-58**, views-pipeline-core #333, blocked on a test key). So this entry stays open: the mess is now legible, and it is still a mess. Closing it needs a decision about who cleans up and whether the store supersedes — neither of which is engineering work here.
+
+Cross-refs: **C-94** (nothing observes the outcome of an upload at the time it happens), **C-79** (the single-file orphan this generalises), **C-58** (the delete surface deletion would have to go through), **D-12** (the unnamed retention owner this compounds with). Part of causal cluster: **Cluster J — Delivery aftercare has no mechanism**.
 
 ---
 
