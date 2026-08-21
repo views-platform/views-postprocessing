@@ -275,6 +275,53 @@ def test_the_machinery_does_not_pull_in_pipeline_core():
 
 
 @pytest.mark.parametrize("partner", _PARTNER_PACKAGES)
+def test_a_partner_does_not_import_its_sibling(partner):
+    """The partners are independent, not merely both below the machinery.
+
+    Everything else in this file proves the *vertical* arrows of ADR-002 — machinery
+    imports no partner, invariants import no machinery. Nothing proved the horizontal
+    one, and it is the arrow that keeps a partner liftable: `crafd/` and `unfao/` are
+    deliberate clones (register **C-33**), so the realistic violation is a copy-paste
+    that leaves a sibling's import behind. `test_the_machinery_imports_without_any_partner`
+    cannot see it — that test imports the machinery, and this would be partner-to-partner.
+
+    Two halves, for the reason the module docstring already gives about regexes: the
+    subprocess is load-bearing and sees transitive arrivals; the source scan is the
+    supplement, and covers `managers/` — which the subprocess deliberately skips because
+    importing a manager needs views-pipeline-core, and a purity check should not be
+    contingent on a heavy framework being installed (C-40 (a)).
+    """
+    siblings = tuple(f"views_postprocessing.{p}" for p in _PARTNER_PACKAGES if p != partner)
+    if not siblings:
+        pytest.skip("independence needs a sibling; only one partner is declared")
+
+    importable = sorted(
+        m for m in _modules_on_disk(partner)
+        if ".managers" not in m and not m.endswith(".__init__")
+    )
+    assert importable, f"no importable modules found for {partner}"
+
+    result = _import_in_subprocess(tuple(importable), siblings)
+    assert result.returncode == 0, (
+        f"{partner}'s own modules failed to import:\n{result.stderr}"
+    )
+    leaked = [m for m in result.stdout.split("LEAKED:")[-1].strip().split(",") if m]
+    assert not leaked, (
+        f"{partner} pulled in a sibling partner: {leaked}. The two are deliberate "
+        "clones (C-33) and must stay liftable one at a time — an import between them "
+        "means neither can be taken without the other, and no other test here sees it."
+    )
+
+    manager = (_PKG / partner / "managers" / f"{partner}.py").read_text()
+    for sibling in siblings:
+        assert sibling not in manager, (
+            f"{partner}'s manager names {sibling}. These files are copies of each other, "
+            "so this is the shape a careless clone leaves behind — and it is outside the "
+            "subprocess half above, which skips managers."
+        )
+
+
+@pytest.mark.parametrize("partner", _PARTNER_PACKAGES)
 def test_the_guard_would_actually_catch_a_violation(partner):
     """A purity test that cannot fail is decoration.
 
