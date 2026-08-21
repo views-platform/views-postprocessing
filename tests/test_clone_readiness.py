@@ -28,6 +28,7 @@ the filesystem, because a guard that names its subject will miss the next subjec
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 import textwrap
@@ -312,13 +313,27 @@ def test_a_partner_does_not_import_its_sibling(partner):
         "means neither can be taken without the other, and no other test here sees it."
     )
 
-    manager = (_PKG / partner / "managers" / f"{partner}.py").read_text()
-    for sibling in siblings:
-        assert sibling not in manager, (
-            f"{partner}'s manager names {sibling}. These files are copies of each other, "
-            "so this is the shape a careless clone leaves behind — and it is outside the "
-            "subprocess half above, which skips managers."
-        )
+    # IMPORTS only, via the AST — not a substring scan of the file. This repository's
+    # comments cite module paths constantly (C-33's own text points at `unfao/product.py`),
+    # so a scan of the whole text would fail on documentation and get deleted for crying
+    # wolf, which is ADR-014 §3's whole point.
+    manager = _PKG / partner / "managers" / f"{partner}.py"
+    imported = set()
+    for node in ast.walk(ast.parse(manager.read_text())):
+        if isinstance(node, ast.Import):
+            imported.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            imported.add(node.module)
+
+    offending = sorted(
+        name for name in imported
+        if any(name == s or name.startswith(s + ".") for s in siblings)
+    )
+    assert not offending, (
+        f"{partner}'s manager imports {offending}. These files are copies of each other, "
+        "so this is the shape a careless clone leaves behind — and it is outside the "
+        "subprocess half above, which skips managers."
+    )
 
 
 @pytest.mark.parametrize("partner", _PARTNER_PACKAGES)
