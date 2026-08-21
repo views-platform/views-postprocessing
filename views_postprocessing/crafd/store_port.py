@@ -63,7 +63,7 @@ class _ContractStorePort:
             "these by name and cannot tell a failed download from an empty artifact."
         )
 
-    def upload(self, file_path, *, filename, name, doc_type, category, loa, targets, description=None) -> None:
+    def upload(self, file_path, *, filename, name, doc_type, category, loa, targets, description=None) -> str | None:
         result = self._dsm.upload_data(
             file=file_path,
             filename=filename,
@@ -98,3 +98,9 @@ class _ContractStorePort:
                 f"without a metadata document): {error}. The store reported "
                 f"success={success!r} (result type {type(result).__name__})."
             )
+        # The uploaded file's id, so the C-94 read-back can be scoped to THIS run.
+        # Discarding it (as this did until 2026-08-19) makes the only available check
+        # "is there any document under the consumer's name", which the previous run
+        # already satisfies — so the guard could never fail from delivery 2 onward.
+        data = getattr(result, "data", None)
+        return data.get("file_id") if isinstance(data, dict) else None

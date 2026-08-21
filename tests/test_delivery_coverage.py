@@ -92,17 +92,22 @@ def test_no_excluded_cells_is_noop_when_region_unpinned():
     assert assert_no_excluded_cells({62356, 94776}, excluded_for("africa_me_legacy")) is None
 
 
-# Cross-check the frozen manifest against the live producer when its checkout is present
-# (CI has no sibling → skip). This is the drift tripwire C-30 asks for.
+# Cross-check the frozen manifest against the live producer. This is the drift tripwire
+# C-30 asks for, and since 2026-08-17 it RUNS IN CI: `run_pytest.yml` fetches
+# views-datafactory, and both pgid lists below are tracked there. It backs a guarantee
+# given to FAO in writing, so it must fail as an assertion rather than as a traceback —
+# hence the gate names both files the body reads, not just the first.
 _DATAFACTORY = sibling_repo("views-datafactory")
 _DF = None if _DATAFACTORY is None else _DATAFACTORY / "src" / "datafactory_query"
 
 
 @pytest.mark.skipif(
-    _DF is None or not (_DF / "land_pgids.json").exists(),
+    _DF is None or not all((_DF / f"{n}_pgids.json").exists() for n in ("land", "land_gaul")),
     reason=(
-        "views-datafactory checkout not found — set VIEWS_DATAFACTORY=/path/to/"
-        "views-datafactory, or place it alongside this repo"
+        "views-datafactory checkout not found, or it does not carry both "
+        "src/datafactory_query/{land,land_gaul}_pgids.json — set VIEWS_DATAFACTORY="
+        "/path/to/views-datafactory, or place it alongside this repo. Both files are "
+        "tracked upstream, so a plain checkout is enough (this runs in CI)"
     ),
 )
 def test_manifest_matches_datafactory_land_minus_land_gaul():

@@ -19,6 +19,22 @@ scattered rather than stated.
 `COLUMNS` below states each column's role and wire dtype once; everything else is
 derived from it. Reordering `COLUMNS` **is a wire change** and will fail the §10
 byte-parity fixture — which is the intended consequence, not an accident.
+
+**Before proposing integer code columns, read ADR-013 §5.1a.** The partner has asked
+twice (#278, #272), and will ask again; the reason recorded here until 2026-08-17 was
+not a good one. "Codes are always float64" is *not* because an integer column cannot
+hold a missing value — parquet and arrow carry nullable integers natively, and the
+lookup this module describes stores all three code columns as `int64` with zero
+nulls. The float is introduced by the builders below, not by the data.
+
+The rule survives on a different, measured ground: an int64 parquet column reads back
+as `int64` under a default pandas read when it holds no null, and as `float64` when it
+holds one, so nullable int64 would move the dtype instability from our writer to the
+consumer's reader and make it depend on what a given run contained. §5.1a carries the
+measurement, the consumer-side evidence, and the one useful consequence — that because
+the delivered region excludes the GAUL-uncovered cells, no delivered code is ever
+missing (`tests/test_gaul_lookup_fidelity.py::test_lookup_has_no_nulls`), so a
+consumer's `astype("int64")` on read is lossless for this product.
 """
 
 from __future__ import annotations

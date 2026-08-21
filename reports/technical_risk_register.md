@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-15                           |
-| Total Concerns          | 102                                   |
-| Open Concerns           | 22                                   |
+| Last Updated      | 2026-08-21                           |
+| Total Concerns          | 109                                   |
+| Open Concerns           | 29                                   |
 | Resolved Concerns       | 80                                   |
 
 ---
@@ -54,7 +54,7 @@ covered a single open entry (see Historical clusters below).
 
 ### Cluster J: Delivery aftercare has no mechanism
 **Root cause:** the delivery pipeline is write-only — nothing exists downstream of upload for correction, recall, or provenance audit.
-**Entries:** C-22 (acute), C-15, C-24
+**Entries:** C-22 (acute), C-15, C-24, C-105 (added 2026-08-16 — a torn upload attempt is aftercare the write-only path has no answer for)
 **Highest tier:** 3
 **Fix strategy:** the C-22 correction procedure (issue #15) plus pipeline-core #245's structured metadata field to retire the description-as-carrier abuse.
 **Resolution scope:** Partial (process, not code).
@@ -275,7 +275,7 @@ Cross-refs: **C-94**, **C-96**, þing-01 `orð_dómr.md` D2, issue #249.
 | ID | C-94 |
 | Tier | 2 — the failure mode is invisible by construction and lands on the live FAO path: upload succeeds, storage is billed, the consumer's endpoint returns empty, nothing raises anywhere. ADR-013 §4.1a's *"invisible to the consumer, not merely degraded."* |
 | Source | `/expert-code-review` of the standing decisions, 2026-08-12 |
-| Trigger | **Re-specified twice on 2026-08-13; the first attempt was not exclusive and its own worked example matched two arms.** (a) A delivery is reported empty **and an upload occurred after the bucket reached the state under investigation** — that is what the preflight below would catch, and the time bound is what the first attempt omitted. (b) `APPWRITE_READ_API_KEY` is provisioned, at which point the deferral has no remaining cost. *(A third arm — "reported empty with no upload since" — was drafted and withdrawn: it is not observable from this repository, which the amendment says four lines on, and ADR-014 §4 requires a trigger someone can notice. It is a gap, and is stated as one below rather than dressed as a trigger.)* |
+| Trigger | **Re-specified twice on 2026-08-13; the first attempt was not exclusive and its own worked example matched two arms.** (a) A delivery is reported empty **and an upload occurred after the bucket reached the state under investigation** — that is what the preflight below would catch, and the time bound is what the first attempt omitted. (b) `APPWRITE_READ_API_KEY` is provisioned, at which point the deferral has no remaining cost. *(A third arm — "reported empty with no upload since" — was drafted and withdrawn: it is not observable from this repository, which the amendment says four lines on, and ADR-014 §4 requires a trigger someone can notice. It is a gap, and is stated as one below rather than dressed as a trigger.)* **Rewritten 2026-08-18, because arm (b) expired without firing** (register conventions: a trigger whose event has already occurred reads identically to a pending one). The preflight was built *without* `APPWRITE_READ_API_KEY`, so "it is provisioned" can no longer arm anything. What remains live is arm (a), now narrowed: **a delivery is reported empty, an upload occurred since, and the preflight did NOT raise** — that combination means the check is looking in the wrong place, and it is the only arm this repository can still be surprised by. |
 | Owner | This repository, for the mechanism. The credential is the operator's. |
 | Location | `views_postprocessing/contract/wire/sink.py` (the upload path, where nothing verifies); `views_postprocessing/delivery/`. |
 
@@ -292,6 +292,21 @@ FAO emailed at **09:15 UTC** that `faoapi.viewsforecasting.org` returned no data
 **But the cause was not an invisible delivery.** faoapi's post-mortem (`views-faoapi/reports/post_mortems/2026-08-13_fao_empty_bucket_unannounced_migration.md`) records that *"the seam coordinates match (the producer writes to the FAO bucket under the declared document name; the consumer reads exactly that — the ADR-017 invisible-delivery work held)"*, and that the empty bucket was *"the migration + no-delivery-since state, not a producer/seam/credential failure"* — a deliberate destructive migration upstream, with no run executed since. **No upload occurred**, so a post-upload findability check would have observed nothing and reported nothing.
 
 **So the trigger was mis-specified, not the mechanism.** "A delivery is reported empty" names a symptom with at least two causes, and this entry's preflight addresses only one of them.
+
+**Partial mitigation, 2026-08-18 — the preflight is built.** After both legs are uploaded, each manager asks the partner store the question the consumer asks — `name == product.CONSUMER_DOCUMENT_NAME`, `category ∈ {forecast, historical}` — and refuses a falsy answer (`delivery/findability.py`, `DeliveryNotFindableError`). The two legs are checked separately on purpose: a run whose forecast landed and whose historical did not is invisible in exactly one half, and the historical leg is the one that actually stranded in run-0 (C-79).
+
+**Two decisions inside it that a later reader should not have to re-derive:**
+
+1. **It runs on the existing key, not the registry's `APPWRITE_READ_API_KEY` slot.** Verified in the Appwrite console 2026-08-18: the live `VIEWS Pipeline Core` key already carries `documents.read`, `rows.read`, `buckets.read` and `files.read`. A separate read credential would buy no isolation here, because the preflight runs *inside the delivery process*, which already holds the write key it just uploaded with. C-96's permission is about the operation being read-only, and it is. The registry slot stays `planned` for a preflight that runs **outside** the delivery, where the isolation would be real.
+2. **It queries through a store with pipeline-core's automatic `name == model_name` filter suppressed** (`_build_partner_read_store`). `get_latest_file_id` delegates to `get_predictions_by_metadata`, which merges the path manager's model name into every query — so without the suppression the check would verify the views-models *directory* name, which equals the declared consumer name only by coincidence (**C-77**). Verifying the coincidence rather than the contract would leave this green while a rename took the delivery dark, which is the precise failure it exists to see.
+
+**The read-back is scoped to THIS run, and that is the whole guard.** The first implementation asked *"is there any document under the consumer's name for this category"* — a question the **previous** delivery already answers yes to. Documents accumulate across runs (that is what makes "latest" meaningful to the consumer), so from delivery 2 onward the check could never fail: run-2's upload reports success, its metadata document is never created — the exact C-79 shape — the query returns run-1's document, and the preflight logs *"passed"* while the consumer goes on serving run-1. Caught by `/code-review high` before merge. `_ContractStorePort.upload` now returns the uploaded `file_id` (it was discarding it), the sink carries the manifest's id out — it is uploaded last, so it is the newest `category="forecast"` document — and the check asserts the newest document the consumer would find **is the one this run put there**. The refusal distinguishes "nothing found" from "found the previous run's", because those are different operator situations.
+
+**A failed read-back is not an invisible delivery.** `findability.unverified` names that separately (`FindabilityUnverifiedError`): a store error after a successful upload means the delivery is UNVERIFIED, not known invisible, and quarantining on it would be an outage the guard manufactured. Same distinction C-103 draws between a missing producer client and a producer that publishes no boundary, and C-99 between an unrecognised store result and a real one — three instances now of the same rule, that *could not ask* and *asked and got nothing* call for different operator actions.
+
+**A note on which pipeline-core you read, because it changed a review's conclusion.** The same review reported that `unverified()` was dead code, on the grounds that `get_predictions_by_metadata` swallows a failed search and returns `[]` — so a store error would arrive as `None` and be reported as an invisible delivery. That is true of **2.3.0**, which is what the drifted developer venv holds (C-104). It is false of **3.0.1**, which `poetry.lock` pins and CI installs: there the method **raises `MetadataSearchIncomplete`**, with a comment in pipeline-core saying why — *"Returning [] here would tell every caller 'no predictions match', which is a statement about the shelf rather than about the lookup… a false negative to an external counterparty"* (views-pipeline-core C-241, its Cluster J). Verified 2026-08-19 by reading `3.0.1` from the views-pipeline-core checkout rather than the installed package. So the split holds where it runs. **This is C-104's hazard in its most expensive form yet**: not a wall of red, but a confident and wrong conclusion about production drawn from a stale environment.
+
+**The tier does not move, and the reason it does not is the point.** The Tier 2 rationale was *"upload succeeds, storage is billed, the consumer's endpoint returns empty, nothing raises anywhere."* For that cause, something now raises. What holds the entry at 2 is the two causes below, which this does not touch and which remain invisible — the tier now rests on the gaps rather than on the mechanism.
 
 **Two uncovered causes, stated as gaps rather than dressed as triggers.** Neither is observable from here, so neither can be a trigger under ADR-014 §4 — a trigger nobody can notice is a wish:
 
@@ -685,7 +700,7 @@ It is a worked example wearing a risk's clothes. **Give it a real trigger or mov
 | ID | C-84 |
 | Tier | 2 — not silent. The delivery fails loudly and completely, which is the correct behaviour and also the whole problem: there is no degraded mode, no fallback identity, and the date is known in advance. A foreseeable total outage that nobody has scheduled work against is a structural risk, not an operational surprise. |
 | Source | views-appwrite coordinate registry v1.4.3/v1.4.4 — operator console read, 2026-08-05 (þing-02 A3(i)) |
-| Trigger | **A date, unusually — 2026-11-17.** The registry records `VIEWS Pipeline Core` expiring 12:35 and `UN FAO` 16:10 that afternoon. Act when the un_fao delivery is next scheduled within a month of it, or when anyone plans a rotation, whichever is first. |
+| Trigger | **A date, unusually — 2026-11-17.** The registry records `VIEWS Pipeline Core` expiring 12:35 and `UN FAO` 16:10 that afternoon. Act when the un_fao delivery is next scheduled within a month of it, or when anyone plans a rotation, whichever is first. **Since 2026-08-19 the first arm fires by itself**: `tests/test_credential_expiry.py` goes red from 2026-10-18, so the date no longer depends on anyone remembering it. |
 | Owner | Simon, and only Simon — issuing and installing keys is a console action. This entry exists so the date is visible from *this* repo's planning surface rather than only from the platform's. |
 | Location | `views_postprocessing/{unfao,crafd}/appwrite_env.py` — the declared coordinates; the values live in the environment and the registry, never here. |
 
@@ -696,6 +711,12 @@ The FAO delivery authenticates with the `UN FAO` key. That key expires **2026-11
 **What this repo can and cannot do.** It cannot rotate anything; it holds no credentials and must not (þing-01 D3). What it can do is fail early and legibly rather than mid-delivery — and it does not currently. `appwrite_env.py` validates that the declared variables are *present*, which an expired key still is. An expired key is indistinguishable from a valid one until the first request comes back unauthorised, by which point a delivery is part-way through.
 
 **Deliberately not fixed here, and the reason is C-84's own shape.** A preflight that checks key validity means an authenticated call at startup, and the only project to make it against is production — which **þing-01 D2** forbids for tests and this would not quite be — and which that verdict explicitly permits as *read-only preflight validation*, so the obstacle here is the authenticated call, not the prohibition (see C-95). The honest position is that this is a *date to act on*, not a mechanism to build, and inventing a mechanism would be building the wrong thing to feel busy. Registered so the date is not discovered by an outage.
+
+**The trigger now fires on its own (2026-08-19), and this is not the mechanism above.** The first arm of the trigger — *"act when the un_fao delivery is next scheduled within a month of it"* — was a trigger nobody could notice: it fired in someone's memory or not at all, which is the same defect that withdrew the third arm of C-94's trigger and which ADR-014 §4 exists to forbid. `tests/test_credential_expiry.py` declares the two expiries and fails from 30 days out, naming the dates, the 3h35m gap, who owns the rotation (operator; views-appwrite#12, key split views-faoapi#338), and the three ways to make it pass — rotate and update the constant, update the constant if a key was replaced early, or set `ACKNOWLEDGED_UNTIL`. **The third is the only one available to someone without console access**, which is most people who will meet this gate; omitting it here would reproduce the merge-queue-hostage outcome the acknowledgement exists to prevent.
+
+**It is emphatically not the key-validity preflight this entry rejected.** No authenticated call, no credential, no network — a calendar and two declared datetimes. The rejection above stands and is unaffected: what was wrong was building a mechanism to *discover* a fact already known; what was missing was making the known fact impossible to forget. **The acknowledgement is the load-bearing part, and the first draft did not have it.** `/code-review high` found two design faults that would each have ended with the test deleted. (a) A literal pin on the two datetimes made the tripwire's own prescribed remediation — *rotate, then update `KEY_EXPIRY`* — fail a second test whose message said not to adjust the constant. A guard that refuses its own documented fix is worse than no guard, and it would have landed on the one person who could not route around it. The pin is gone. (b) From 2026-10-18 the gate would have been red for **every unrelated pull request**, clearable only by an operator console action the repository cannot perform — which is precisely what `pyproject.toml` says about ruff, citing ADR-014 §3: *a gate that starts red gets switched off*. `ACKNOWLEDGED_UNTIL` is the in-repo escape: a declared, reviewed, dated edit meaning *seen, and being acted on*, which **cannot be set on or after the expiry** — so it postpones attention and can never replace it.
+
+Four companion tests keep it honest rather than decorative: the firing branch is exercised against a probe **derived from** `KEY_EXPIRY` (**C-102** — a guard that has never run is unproven; deriving it rather than hardcoding means the proof survives a rotation instead of quietly expiring with it); an acknowledgement past the expiry is refused; `LEAD_DAYS` is floored, because shaving a week off the warning neuters the guard while leaving it looking present; and the outage-day text is checked, since the first draft would have told an operator the keys expired *"in -3 days"* while the seam was down. All verified by mutation.
 
 Cross-refs: **C-81** (the same operator session's other half — branch protection and the CI token), **C-27** (no rotation mechanism for a secret value upstream), **C-57** (the pinned-registry detector, which is how this arrived here at all — it demanded the v1.4.4 bump and the bump is what surfaced the expiry), þing-02 A3(i), views-appwrite C-65 and C-66.
 
@@ -809,13 +830,17 @@ Cross-referenced there to their **#248 / #347** (the same defect class on the Ap
 | Tier | 2 — the exclusion manifest and cell-count contract are pinned in code and were exercised live at global scale in run-0; residual is upstream-regression risk, not an unguarded silent-corruption path |
 | Source | `expert-code-review` (2026-06-12), verified by direct data inspection; **merged with C-34** (`expert-code-review` 2026-06-12) during review-rr 2026-07-31 |
 | Trigger | When a region's expected cell count or exclusion manifest changes upstream — a views-datafactory region redefinition (`regions.py`, the bundled `*_pgids.json`), a new GAUL curation like ADR-043, or a region-string change in views-models `config_queryset.py` — verify `EXPECTED_CELLS_BY_REGION` and `EXCLUDED_GIDS_BY_REGION` are re-derived from the live producer rather than trusted as frozen |
-| Location | `views_postprocessing/delivery/coverage.py:56` (`land_gaul: 64_742`), `:92` (`EXCLUDED_GIDS_BY_REGION`), `:99`; `views_postprocessing/unfao/managers/unfao.py:397` (`_check_coverage`), `:300` (`_validate`); views-models `postprocessors/un_fao/configs/config_queryset.py`; views-datafactory `src/datafactory_query/regions.py` |
+| Location | `views_postprocessing/delivery/coverage.py:56` (`land_gaul: 64_742`), `:92` (`EXCLUDED_GIDS_BY_REGION`), `:99`; `views_postprocessing/unfao/managers/unfao.py::_check_coverage`, `:300` (`_validate`); views-models `postprocessors/un_fao/configs/config_queryset.py`; views-datafactory `src/datafactory_query/regions.py` |
 
 Verified 2026-06-12: of the datafactory's 64,818 `land`-region cells, 64,736 have complete area-majority metadata; exactly 82 are unassigned across all 7 GAUL fields — all remote sub-Antarctic islands FAO's GAUL 2024 boundaries do not cover (Macquarie, Auckland Islands, Prince Edward; sample gids 51078, 51798, 53979, 62356, 94776, 99027). The mitigation must be a named exclusion-list constant with the gids, count-asserted in both the enricher and a test, logged at WARNING, and disclosed to FAO — not a generic `code != -1` filter, which would silently absorb future coverage regressions. Generalizes the previously documented "5 ocean cells" of africa_me_legacy (those 5 are among the excluded set).
 
 **Count drift corrected 2026-06-26 (the frozen-list tripwire working as designed):** deriving the exclusions from the live producer (datafactory **v1.4.0**) gives **64,742** complete + **76** excluded, *not* the 64,736 / 82 verified on 2026-06-12. Cause: datafactory **#163 (ADR-043)** supplemented **6 Azorean cells** (gids 182470, 183190, 183909, 183910, 186058, 186778) into `land_gaul` — they are now covered, not excluded. vpp's *own* built lookup (`data/gaul_lookup.parquet`) already ships 64,742, so the old 64,736 pin would have false-positived against our own artifact. NB the authoritative exclusion source is the **region complement** `land − land_gaul` (76), not the raw `gaul0_code == -1` (82) — the latter does not reflect the ADR-043 curation.
 
 **Mitigation landed (S4, 2026-06-26, `sprint/fao-input-integrity`):** the 76 excluded gids are pinned as a frozen manifest in `delivery/coverage.py` (`EXCLUDED_GIDS_BY_REGION`), the count is corrected to 64,742, `assert_no_excluded_cells` is wired into the manager's `_check_coverage` **region-gated** (a no-op for unpinned `africa_me_legacy`, so its 5 ocean cells are unaffected), the 76 are disclosed in `docs/fao_excluded_cells.md`, and a test cross-checks the manifest against the datafactory sibling when present (drift tripwire). **Residual:** still Tier 1 until the live `land_gaul` run (views-platform/views-models#127) exercises it end-to-end — the guard is unit-proven but not yet run against a real global delivery.
+
+**The tripwire now runs in the gate, and it did not until 2026-08-17.** *"When present"* meant a developer laptop: views-datafactory was not fetched in CI, so `test_manifest_matches_datafactory_land_minus_land_gaul` skipped on every pull request. That mattered more than it looked, because on 2026-08-17 this repository told FAO in writing that the exclusion list *"is frozen in code and asserted against the producer in our test suite, so it cannot drift without failing loudly"* — a guarantee the gate was not carrying. The sibling is now fetched (see C-46 for why the earlier attempt was reverted and why that reason did not survive checking), and the tripwire reads `src/datafactory_query/{land,land_gaul}_pgids.json`, both of which views-datafactory tracks.
+
+This does **not** move the tier. The residual above is unchanged: the guard is now enforced continuously rather than incidentally, but what holds C-30 at Tier 1 is the absence of a real global delivery exercising it end-to-end, and no CI wiring supplies that.
 
 **RESIDUAL DISCHARGED 2026-07-27 — run-0 exercised the guard live.** The stated residual was "*still Tier 1 until the live `land_gaul` run (views-models#127) exercises it end-to-end — the guard is unit-proven but not yet run against a real global delivery.*" **Run-0 delivered on 2026-07-27** against producer run `rusty_bucket_forecasting_20260727_095355`: `region=land_gaul`, coverage gate reported **64,742 distinct cells / 28,356,996 rows** for the historical frame, the forecast leg shipped 108 shards + sidecar + manifest, and the process exited cleanly with no loud failures. The pinned count and the 76-gid exclusion manifest were both correct against a real global delivery. **Tier recalibrated from 1 to 2 during review-rr (2026-07-31):** the silent-corruption path is now guarded and proven, so what remains is regression risk under upstream change — which is exactly what the rewritten trigger watches.
 
@@ -1054,6 +1079,171 @@ Recorded rather than left implicit because "the operator did a console session" 
 
 
 ---
+
+### C-103: The clip that keeps fabricated months off the wire depends on a package this repo does not declare, and its absence is swallowed
+
+| Field | Value |
+|-------|-------|
+| ID | C-103 |
+| Tier | **3** — re-tiered down from 2 on 2026-08-17, when the verification question below was answered and the premise did not hold. The residual is real but narrower: not "the dependency is missing", which a different guard already refuses, but "any failure to read the boundary degrades open". |
+| Source | `/repo-assimilation` (2026-08-16), measured |
+| Trigger | When a delivery logs *"last_valid_month_id could not be read; skipping the observed-range clip"* — that is now the only route to an unclipped delivery, and it is a real one (a network failure or a reshaped `.zattrs` reaches it). Decide then whether degrade-open is still the right side for that case, or whether the partner should be told the tail is unverified. |
+| Owner | This repository, for the swallow and the declaration. The producer owns the fact itself. |
+| Location | `views_postprocessing/contract/source_metadata.py::last_valid_month_id` (the classification); `views_postprocessing/{unfao,crafd}/managers/*.py::_read_historical_frame` (the two branches). **Not `pyproject.toml`** — the original entry listed it as a risk site on the assumption the dependency was undeclared everywhere; it is the launcher's to declare and both launchers do, so there is nothing to add here. **Cited by symbol, not by line (2026-08-21).** The line numbers went stale twice in four days — both times because a later change in the same branch moved them, and the second time the entry carried an explicit *"re-read"* claim that was false by the time it merged. A citation that decays faster than the review cycle is worse than a vaguer one that does not. |
+
+`source_metadata.last_valid_month_id` lazily imports `datafactory_query.defaults`. Measured 2026-08-16: that package is in neither `pyproject.toml` nor `poetry.lock`, and `import datafactory_query` raises `ModuleNotFoundError` in the project venv. Its only caller wraps the call in `except Exception: lv = None` and then returns the historical frame **unclipped**, logging one WARNING — so "the dependency is missing" and "the producer publishes no boundary attribute" leave through the same branch with the same outcome, and that outcome is unobserved zero-padded months shipping to the partner as observed history. The lazy import states its own reason — *"so this module loads without the heavy datafactory dependency present (e.g. in unit-test environments)"* — but nothing at the call site distinguishes a unit-test environment from a delivery.
+
+**ANSWERED 2026-08-17, and the answer moves the tier.** The question was whether the production launcher supplies `datafactory_query`. It does, twice over:
+
+- views-models `postprocessors/un_fao/requirements.txt` and `postprocessors/un_crafd/requirements.txt` both pin **`views-datafactory>=1.9.0,<2.0.0`**, which is what ships the `datafactory_query` module (there is no separate distribution — `pip download datafactory-query` finds nothing; it is one of nine packages in views-datafactory's wheel).
+- More decisively, the postprocessor's `config_queryset.py` imports `datafactory_query.defaults` **at module scope** and raises a `RuntimeError` naming the fix if it is absent. A missing client therefore makes `get_queryset()` return `None`, which `launch_config.assert_queryset_was_importable` turns into a refusal (**C-83**) *before* `_read_historical_frame` is ever reached.
+
+So the scenario this entry was filed on — a missing dependency silently shipping fabricated months on the live path — **cannot occur**. It was already guarded, by a check written for a different reason. The Tier 2 rested on a premise measured only in *this* repository's venv, and the instruction it borrowed from C-26 (*"do not downgrade on inspection of this repo alone"*) was the right instruction: the resolution came from reading the launcher, not from reading here.
+
+**What is genuinely left, and it is why this stays open at Tier 3.** The `except Exception` was never only about the import. A network failure, an auth error, a reshaped `.zattrs`, a timeout — all still leave through one branch, log one WARNING, and deliver the unobserved tail as observed history. That is the recorded C-26 degrade-open decision applied far more broadly than C-26 argued for.
+
+**Partial mitigation, 2026-08-17.** `source_metadata` now raises `ProducerClientUnavailable` instead of letting the import failure fall into the caller's broad `except`, and both managers re-raise it rather than degrading. Defence in depth for the paths `assert_queryset_was_importable` does not cover — a direct caller, a future launcher, a partner not going through the same queryset. The module also gained its first tests (`tests/test_source_metadata.py`, 7, mutation-proven against both the pre-fix return-`None` and a manager that collapses the two branches back into one); it had **none** before, which is how "return None like everything else" ever looked reasonable. The broad degrade-open is deliberately unchanged — narrowing it is a decision about what to tell the partner, not a refactor.
+
+**C-60 is this shape, and it was resolved by deleting the degradation.** There, a provenance stamp reached into the producer's ledger schema inside a bare `except … pass` and returned `"unknown"`; the fix was to raise. The difference here is that the degradation is deliberate and documented ("degrade-open, C-26") — which makes the question *whether the open side is still the right one*, not whether someone forgot.
+
+Cross-refs: **C-26** (the fabrication this clip exists to prevent), **C-07** (undeclared runtime dependencies, the same class, resolved), **C-60** (bare-except degradation, resolved by raising), **C-27** (a swallowed failure surfacing far from its cause), **D-07** (the decision that data facts come from the producer, which created this import).
+
+---
+
+### C-104: A stale virtualenv turns 25 tests red, and 20 of them are the only tests that import either manager
+
+| Field | Value |
+|-------|-------|
+| ID | C-104 |
+| Tier | 3 — no production impact. The cost is that a red suite stops carrying signal, on precisely the two modules with the thinnest coverage. |
+| Source | `/repo-assimilation` (2026-08-16), measured |
+| Trigger | When `pytest` reports failures in `tests/test_framework_contract.py` or `tests/test_store_construction.py`, check `pip show views-pipeline-core` against `poetry.lock` before reading them as defects. |
+| Owner | This repository. |
+| Location | `tests/test_framework_contract.py`, `tests/test_store_construction.py` (20 failures); `tests/test_wire_shard.py`, `tests/test_wire_sidecar.py`, `tests/test_hop_b_sink_e2e.py` (5 failures); `poetry.lock` versus the project venv |
+
+Measured 2026-08-16 in the project venv: 458 collected, **433 passed, 25 failed**, 39 xfailed, in 14.85s. The venv holds `views-pipeline-core 2.3.0` and `pyarrow 23.0.1`; `poetry.lock` pins **3.0.1** and **16.1.0**. The pyarrow half is known and predicted: 5 byte-parity failures reporting *"pinned toolchain violated: byte-parity oracle requires pyarrow 16.1.0, found 23.0.1"*, exactly what `tests/fixtures/wire_contract/README.md` says will happen under **C-72**. The pipeline-core half is documented nowhere: `ModuleNotFoundError: No module named 'views_pipeline_core.modules.dataloaders.datafactory_contract'`, raised at import of both managers, which takes out every test that constructs or inspects one.
+
+The consequence is that in a drifted checkout the two largest modules in the package — 387 lines each, 21% of the source — are not merely under-covered but **entirely unexercised**, and the suite reports that in a form indistinguishable from a real break. CI runs `poetry install` and gets the locked versions, so this is a local condition rather than a CI one — **C-81**'s asymmetry running in the other direction, with the laptop the weaker seat rather than the stronger. **C-36** is the precedent for what a suite that is red for a known reason costs: it stops being read.
+
+**Partial mitigation, 2026-08-17.** `tests/test_locked_environment.py` compares the installed versions of the runtime dependencies **declared in `pyproject.toml`** (read from there, not hardcoded) against `poetry.lock`, and fails with one message naming each drifted package, both versions, the command to run, and — the part that matters — that the other failures in the run are consequences rather than defects. Verified against the live drift: it reports `views-pipeline-core installed=2.3.0 locked=3.0.1` and `pyarrow installed=23.0.1 locked=16.1.0`. A second check owns the other direction — declared in `pyproject.toml` but absent from the lock — and the version check *skips* names it cannot find rather than reporting them as `locked=None`, so a stale lock is diagnosed once, correctly, instead of twice with one of the two sending the reader at their virtualenv.
+
+Three things it deliberately does not treat as drift: dependencies gated by `optional`, `python` or `markers` (legitimately absent from a given environment — reporting one as "run `poetry install`" would be advice that cannot work), name spellings that differ only by case or separator (both sides are PEP 503-normalized, so `PyYAML` and `views_frames` match their lock entries), and dev-group tools. The failure text names only the packages that actually drifted: the 2026-08-16 incident was pipeline-core and pyarrow, a future one will not be, and a diagnosis describing the wrong packages is the failure this file exists to remove.
+
+It does **not** fix the drift and does not skip. The 25 failures remain until someone runs `poetry install`; what changes is that a contributor can now tell in one line which kind of problem they have. That is the whole of the entry's cost — the failures were never wrong, they were unreadable — so the entry stays open only until the environment is actually reconciled, which is a machine action rather than engineering work.
+
+Dev-group tools are deliberately out of scope: `ruff`'s reported version varies with how it was installed, and the thing that actually broke CI on 2026-08-03 was its *rule set*, which `pyproject.toml` already pins explicitly.
+
+Cross-refs: **C-72** (owns the pyarrow half — that half is not re-registered here), **C-81** (CI-versus-local coverage asymmetry), **C-36** (a permanently-red suite cannot detect new regressions), **C-102** (the same argument in the other direction: a guard that never runs proves nothing, and a failure nobody can read is not a signal).
+
+---
+
+### C-105: A run is uploaded file-by-file with no rollback and no idempotency — a mid-run failure leaves orphans and the retry adds more
+
+| Field | Value |
+|-------|-------|
+| ID | C-105 |
+| Tier | 3 — no delivered value is corrupted. The store accumulates unreferenced objects that no artifact describes, in a bucket with no named retention owner. |
+| Source | `/repo-assimilation` (2026-08-16) |
+| Trigger | When the upload interlock is first opened for a live run (`wire_upload_enabled: True`), or when the retention owner D-12 defers is named — whichever comes first — decide what a torn attempt leaves behind and who removes it. |
+| Owner | This repository for the mechanism; the operator for retention. |
+| Location | `views_postprocessing/contract/wire/sink.py::deliver_run` (the upload phase) and `::_torn_run_error` |
+
+`deliver_run` uploads every shard, then the sidecar, then the run manifest, each through `_ContractStorePort.upload`, which raises on anything but explicit success (**C-79**). A raise at shard *k* of *n* is therefore correct in the one dimension the contract governs — no manifest means the run is invisible to the consumer, which is the §4.2 commit-marker design working — and silent in every other: the *k* uploaded objects remain, nothing records that they exist, and nothing removes them. Re-running the delivery re-uploads all *n* under the same names, and whether that supersedes or duplicates is a store semantic this repository asserts nowhere. At run-0 scale that is roughly 110 objects per attempt.
+
+`docs/operations/correction_procedure.md` covers the *wrong value* case — the contract has no retraction primitive, so a correction is a new complete run, manifest last. A torn attempt is a different case and is not covered by it.
+
+**Partial mitigation, 2026-08-19 — the tear is now documented, not removed.** `deliver_run` keeps an in-memory ledger of what it has uploaded, and a failure anywhere in the upload phase raises `TornRunError` naming the run, how many of how many objects were *confirmed* uploaded, and what is true about the consumer. Tested in `tests/test_torn_run.py` (8), mutation-proven three ways.
+
+**Three corrections `/code-review high` made to the first draft, each of which would have sent an operator the wrong way.** (a) The object that FAILED was omitted, and it is the likeliest orphan of the whole run: `_ContractStorePort.upload` raises precisely when the store returns failure *with the file already uploaded* (the C-79 shape), so the refusal now names it as a separate thing to go and look for. (b) File ids were truncated to five in the message and recorded nowhere else, so at run-0 scale ~104 ids existed only in a string nobody kept — the log ledger now carries `file_id` per upload and is the persistent record. (c) A failure on the *first* upload printed an empty list and a dangling period while telling the operator to audit a bucket. The message also no longer asserts categorically that the consumer cannot see the run: a manifest upload can fail after the store committed the document, and steering a re-run on a false certainty duplicates every object.
+
+The refusal says three things an operator otherwise has to establish by hand: the consumer **cannot see this run** (the manifest is the commit marker and never landed, so nothing partial is being served — §4.2 working as designed); the objects listed are **still there and were NOT removed**; and a re-run will upload all of them again under the same names, with supersede-or-duplicate being a store semantic this repository does not assert.
+
+**Remaining scope, found by `/review-diff` on the fix itself: the historical leg is not covered.** `TornRunError` wraps the upload phase inside `deliver_run`. The historical artifact uploads *after* the wire run is committed, from the manager, so a failure there raises unwrapped — and its consequence is different rather than smaller: the manifest already landed, so the consumer sees a **complete, visible forecast run** sitting next to the *previous* run's historical artifact. Not corrupt (the historical is a full snapshot, so the older one is valid, just one run stale) and the delivery does report failure — but it is the one tear where "the consumer cannot see this run" is false, and the wrapper's message would be wrong if it fired there. It does not fire there. Left uncovered deliberately rather than widening this change; the manager is at 434/450 of its line budget and the fix belongs with whoever takes the deletion decision below.
+
+**What is deliberately NOT done: deletion.** Removing objects from a partner bucket is irreversible and an operator decision rather than a delivery-path one, and the neighbouring delete surface is its own open question (**C-58**, views-pipeline-core #333, blocked on a test key). So this entry stays open: the mess is now legible, and it is still a mess. Closing it needs a decision about who cleans up and whether the store supersedes — neither of which is engineering work here.
+
+Cross-refs: **C-94** (nothing observes the outcome of an upload at the time it happens), **C-79** (the single-file orphan this generalises), **C-58** (the delete surface deletion would have to go through), **D-12** (the unnamed retention owner this compounds with). Part of causal cluster: **Cluster J — Delivery aftercare has no mechanism**.
+
+---
+
+### C-106: The §2 header builder — the module that owns the contract version — is reachable only from tests
+
+| Field | Value |
+|-------|-------|
+| ID | C-106 |
+| Tier | 4 — unreached, not wrong. Registered because the identical shape has been closed four times here by deletion, and because this instance sits in a module whose *other* export is live on every delivery. |
+| Source | `/repo-assimilation` (2026-08-16), measured |
+| Trigger | When someone proposes changing `CONTRACT_VERSION`, or when this repository first acts as a Hop-A *producer* rather than only a consumer — at that point `build_header` acquires the caller it was written for and this entry is discharged. |
+| Owner | This repository. |
+| Location | `views_postprocessing/contract/wire/header.py::build_header`; `views_postprocessing/contract/gaul_schema.py::colrow` |
+
+Measured: `build_header` is called from `tests/test_wire_header.py` and `tests/test_wire_shard.py`, and nowhere else. On the delivery path the sink re-embeds the producer's Hop-A header untouched (`contract/wire/sink.py:111-113`, §10.2 *"the sink mints nothing"*), so the builder never runs in a delivery. The module is half-reached rather than dead: `CONTRACT_VERSION = "1.5"` is imported by `contract/wire/run_manifest.py:19` and written into every run manifest, so deletion is not the question — what `build_header` is *for* is. Separately, `gaul_schema.colrow` has zero callers anywhere, tests and build scripts included. Neither is a defect; both are surface a reader must make a decision about, and neither currently has one recorded.
+
+Cross-refs: **C-100** (the live sibling — a four-method port with three used methods), **C-64**, **C-75**, **C-45** (three prior instances of unreached declared surface, all resolved by deleting).
+
+---
+
+### C-107: The doc-accuracy scan reads markdown only, so a docstring pointing at a moved file rots unwatched — two already have
+
+| Field | Value |
+|-------|-------|
+| ID | C-107 |
+| Tier | 4 — navigational, with no correctness or reliability impact. Registered because this repository's stated discipline is that a docstring points at the one home of a fact, which makes a broken pointer a failure of the discipline rather than a typo. |
+| Source | `/repo-assimilation` (2026-08-16), measured |
+| Trigger | When the next module moves under `views_postprocessing/`, check its inbound docstring references as well as its markdown ones — or when someone proposes widening `tests/test_doc_accuracy.py`'s corpus, at which point C-97's objection applies and this entry states what the gap actually is. |
+| Owner | This repository. |
+| Location | `tests/test_doc_accuracy.py:76-78,133-134` (the scanned corpus); `views_postprocessing/delivery/coverage.py:5`; `views_postprocessing/delivery/observed_range.py:6` |
+
+`test_doc_accuracy` scans `README.md`, `docs/architecture/*.md`, package `README.md` files, ADRs and CICs. Python docstrings are outside that corpus. Two are already stale, and both point at files that moved in exactly the refactors whose *markdown* fallout the same test was extended to catch: `delivery/coverage.py` sends the reader to `views_postprocessing/unfao/extraction.py`, deleted in #151, and `delivery/observed_range.py` to `views_postprocessing/unfao/source_metadata.py`, moved to `contract/` in #153.
+
+**This is not a proposal to scan docstrings.** C-97 measured what that costs for the no-copy scan and argued it down under ADR-014 §3 — a guard that fires on ordinary prose gets deleted, after which the real rule is unguarded. The two scans are not the same (a deleted symbol or a repo-relative module path is a far narrower pattern than a store name in a sentence), so the objection is not decisive here — but it is the reason this is registered as a measured gap rather than fixed on sight.
+
+Cross-refs: **C-80** (the same guard, the adjacent corpus gap, resolved by widening), **C-97** (why widening a scan into docstrings is not automatic).
+
+---
+
+### C-108: Two `xfail(strict=True)` deploy gates have never evaluated their own assertions — anywhere
+
+| Field | Value |
+|-------|-------|
+| ID | C-108 |
+| Tier | 4 — no delivery correctness depends on them. Registered because `xfail(strict=True)` *reads* as an armed tripwire, and a future maintainer will believe views-datafactory#223 is being watched when nothing is watching it. |
+| Source | `/code-review high` on PR #280, 2026-08-17 (finding 2), extended by measurement |
+| Trigger | When views-datafactory#223 is closed, or when anyone cites these gates as evidence that the served artifact is being tracked — check they are not skipping first. |
+| Owner | This repository for the gate; views-datafactory for the artifacts. |
+| Location | `tests/test_datafactory_deploy_readiness.py` — `TestServedArtifactMatchesBranch::test_assembled_grid_not_older_than_gaul_parquets`, `TestServedArtifactProvenanceTracksGaul::test_provenance_includes_admin_digest` |
+
+Both gates read `data/assembled/grid.npy`, `data/assembled/provenance.json` and the GAUL parquets from the views-datafactory checkout. **None of those is tracked upstream, and `data/assembled/` is empty in the maintainer's own checkout** (measured 2026-08-17). So the tests were failing on a missing file, `xfail(strict=True)` was recording that as an expected failure, and the report read green. The staleness comparison and the `admin_digest` assertion — the things the gates exist to make — have never once been evaluated.
+
+The strict flip is the entire mechanism: when views-datafactory#223 is fixed the test should XPASS and turn the build red, forcing someone to look. A test that can only ever fail on `FileNotFoundError` can never XPASS, so the flip could not fire. ADR-014 §1 — a guarantee is attached to a check, or it is not a guarantee — and C-102's lesson recurring in a form that is harder to see, because here the guard *runs*.
+
+**Partially addressed in the same PR**, and deliberately only partially: both tests now `pytest.skip()` when their inputs are absent, so the state is visible in the report instead of disguised as a passing xfail. That converts a false green into an honest skip. It does **not** make the gate work — closing that needs the assembled artifacts reachable from CI, which is the same blocker as C-46's producer-comparison half and is not this repository's to solve.
+
+Cross-refs: **C-46** (the untracked-artifact blocker these share), **C-102** (a guard that has never run is unproven), **C-36** (the gates' original home).
+
+
+---
+
+### C-109: Register `Location` line numbers decay faster than the review cycle, and nothing checks them
+
+| Field | Value |
+|-------|-------|
+| ID | C-109 |
+| Tier | 4 — no correctness impact. Registered because `Location` is the field a reader trusts to find the thing an entry describes, and a wrong one sends them to unrelated code with no signal that it is wrong. |
+| Source | `/code-review max` on the release branch, 2026-08-21, then measured across the open set |
+| Trigger | When an entry's `Location` is used to find code and the code is not there — or when anyone proposes a guard over the register's citations, at which point this entry says what such a guard would have to check and why the obvious version does not work. |
+| Owner | This repository. |
+| Location | `reports/technical_risk_register.md` — the `Location` field of every open concern that cites a line. |
+
+**Measured 2026-08-21.** Eleven of the 28 open entries cited a `file.py:line` in `Location`; converting four leaves **eight of 29**. Spot-checking six of the original eleven against the working tree, **three were already stale**: C-105's `sink.py:167-171` (written four days earlier) landed on `staging.mkdir`, C-106's `gaul_schema.py:87` on a section comment, and C-30's `unfao.py:397` on `return summary`. All three drifted because a *later change in the same week* moved the lines — nothing about the entries themselves changed.
+
+C-103 is the sharp case, and the reason this is a class rather than three typos: its `Location` went stale **twice in four days**, both times from a subsequent commit in the same branch, and the second time the entry carried an explicit *"line numbers re-read"* claim that was already false when it merged. A citation that decays faster than the review cycle is worse than a vaguer one that does not, because it is confidently wrong.
+
+**Converted rather than corrected, where the target is a function.** C-103, C-105, C-106 and C-30 now cite `path::symbol`. A symbol survives edits above it, which is the entire failure mode here. Line numbers remain where the target genuinely is a line — a specific literal, a table row — and those are the ones any future guard would have to cover.
+
+**Why the obvious guard does not work, stated so it is not proposed again cheaply.** Checking that a file has at least that many lines catches nothing: every stale citation above points at a real line. Checking *content* requires the entry to declare what it expects to find there, which is a second declaration that can itself go stale — the shape ADR-014 §2 warns about. The cheap and durable move is the convention (`::symbol`), not a test.
+
+Cross-refs: **C-103** (twice stale in four days — the case that made this visible), **C-107** (docstrings outside the doc-accuracy scan; the same "nothing checks the prose" family), **C-82** (governance prose carrying numbers nothing checks, resolved).
 
 ## Disagreements
 
@@ -2054,6 +2244,23 @@ Verified 2026-08-02: `grep -rn "/home/" tests/ scripts/ views_postprocessing/ --
 **Overridden 2026-08-10 (ADR-016), and the objection was designed around rather than dismissed.** Sibling checkouts *were* added to the per-PR workflow. The recommendation's argument was specific — *"it couples this repo's CI to another repo's **default branch**, so an unrelated upstream commit turns this repo red"* — and every sibling checkout declares **`ref: main`** for exactly that reason. A commit on someone's feature branch, or on a default branch that is not `main` (views-appwrite's default is `development`), cannot reach us. `test_ci_sibling_coverage.py` makes `ref: main` a rule rather than a habit.
 
 **What is genuinely accepted, and should not be glossed:** a change merged to a sibling's `main` — a registry edition bump, say — *can* turn this repository red and block merges here until someone re-pins. That is not a defect being tolerated; it is the drift detector working, and the alternative is the state this entry was open about, where the drift was noticed only when a maintainer happened to run the suite. The cost is real and the trade is deliberate.
+
+**The last residual closed 2026-08-17, and the reason it stayed open for two weeks is the finding.** ADR-016 added sibling checkouts but fetched only views-appwrite, so this entry's own subject — the deploy gate — still ran nowhere but a laptop. The stated blocker was that views-datafactory's GAUL parquets are untracked, so a checkout would turn honest skips into `FileNotFoundError`; that was tried on 2026-08-03 and reverted. **The observation was right and the diagnosis was wrong.** `test_gaul_lookup_fidelity` gated on `data/raw/gaul_admin/` being a *directory*, and that directory **is** tracked — it holds `supplement_azores.geojson` — while the seven parquets beside it are not. So a checkout satisfied the gate, the comparison ran, and it died. The sibling was never the problem; the gate was asking whether a folder existed when it needed to ask whether the files it reads existed.
+
+Reproduced 2026-08-17 against a tracked-files-only worktree (`git worktree add --detach`, which contains exactly what `actions/checkout` produces): `1 failed, 37 passed, 1 skipped`, the failure being `FileNotFoundError: .../gaul0_code.parquet`. After re-gating on the seven parquets themselves: no failures. views-datafactory is now fetched in `run_pytest.yml` and declared `ci_checkout=True`.
+
+**A second, larger instance of the same mistake was found while fixing the first.** All four sibling-aware tests in `test_gaul_lookup_fidelity.py` shared **one** gate keyed to the parquets — including two that read no parquet and one that reads no sibling at all. So they sat dark in CI for no reason anybody had chosen:
+
+| test | actually reads | was gated on |
+|---|---|---|
+| `test_lookup_values_match_the_producer_parquets` | the 7 GAUL parquets (untracked) | parquets — correct |
+| `test_lookup_gid_set_equals_the_declared_region` | `land_gaul_pgids.json` — **tracked** | parquets |
+| `test_coordinate_formula_matches_every_priogrid_cell` | `priogrid_cell.dbf`, and self-skips on it | parquets |
+| `test_coord_dtypes_are_wire_stable` | **only the committed lookup** | parquets |
+
+The last one matters beyond tidiness: it is the check that `CODE_COLS` survive the §5.1 int64→float64 wire cast losslessly (`abs(v) < 2**53`) — the property ADR-013 §5.1a and the 2026-08-17 mail to FAO both rest on — and it needs no sibling whatsoever. Each test now gates on the artifact it reads.
+
+Measured across the whole change, CI goes from **426 passed / 6 skipped** to **430 passed / 3 skipped**: four checks move from skipped to running — C-30's exclusion tripwire, this entry's `TestReleaseGate::test_land_gaul_commit_is_in_a_release_tag`, the region-set check, and the wire-cast dtype check. The producer-comparison half still skips, honestly, and still needs the parquets published somewhere fetchable.
 
 The cross-repo deploy-readiness gates introduced under C-36 are guarded by `skipif` on a **hardcoded local datafactory checkout path**, so they are **skipped in CI** and only ever execute on one developer's machine. There, `test_version_bumped_past_latest_tag` is currently **failing**: it is an `xfail(strict)` that flipped to XPASS because datafactory moved to `1.5.0`-dev past its `v1.4.0` tag — exactly the auto-flip C-36's resolution anticipated, but because of the hardcoded path the flip surfaces as a **local red** rather than a CI signal, and breaks local `pytest` runs (the suite is run with this test deselected). No correctness/reliability impact on the delivery → **Tier 4** (test hygiene). C-36 (resolved) converted these gates to strict-xfail but did not capture the local-path / CI-skip dimension.
 

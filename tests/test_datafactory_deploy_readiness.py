@@ -105,7 +105,17 @@ class TestServedArtifactMatchesBranch:
     def test_assembled_grid_not_older_than_gaul_parquets(self):
         grid = _DF / "data/assembled/grid.npy"
         parquet = _DF / "data/raw/gaul_admin/gaul0_code.parquet"
-        assert grid.exists() and parquet.exists()
+        # Neither is tracked in views-datafactory. Before 2026-08-17 the module-level
+        # skipif covered that; now CI fetches the sibling, so without this the test
+        # xfails on a MISSING FILE rather than on the staleness it asserts — and a
+        # strict xfail that can only ever xfail can never flip, which is the entire
+        # mechanism (ADR-014 §1).
+        if not (grid.exists() and parquet.exists()):
+            pytest.skip(
+                "the assembled grid and/or GAUL parquets are absent — they are not "
+                "tracked in views-datafactory, so a checkout alone cannot answer this. "
+                "Skipping rather than xfailing keeps the strict flip meaningful."
+            )
         assert grid.stat().st_mtime >= parquet.stat().st_mtime, (
             "assembled grid is older than the GAUL parquets — re-assemble and "
             "re-export the zarr before deploying, or the served GAUL channels "
@@ -127,7 +137,14 @@ class TestServedArtifactProvenanceTracksGaul:
         strict=True,
     )
     def test_provenance_includes_admin_digest(self):
-        prov = json.loads((_DF / "data/assembled/provenance.json").read_text())
+        provenance = _DF / "data/assembled/provenance.json"
+        if not provenance.exists():
+            pytest.skip(
+                "data/assembled/provenance.json is absent — not tracked in "
+                "views-datafactory, so a checkout alone cannot answer this. Skipping "
+                "rather than xfailing keeps the strict flip meaningful."
+            )
+        prov = json.loads(provenance.read_text())
         sources = prov.get("sources", {})
         assert "admin_digest" in sources, (
             "provenance.sources has no admin_digest — GAUL parquet changes are "

@@ -54,6 +54,72 @@ class SinkError(ValueError):
     """The assembled run cannot be delivered as declared."""
 
 
+class TornRunError(RuntimeError):
+    """An upload failed partway, leaving objects in the partner store.
+
+    Deliberately **not** a ``SinkError``. That family means "the assembled run cannot be
+    delivered as declared" — malformed input, where retrying is pointless; a tear is a
+    transient infrastructure failure with the opposite retry semantics, and
+    ``tests/test_hop_b_sink_e2e`` already uses ``pytest.raises(SinkError)`` as the
+    malformed-run assertion. Sharing a base would let any future orchestration layer
+    that treats ``SinkError`` as do-not-retry silently swallow store outages. Same
+    reasoning, same base, as ``delivery.findability``'s two error types.
+    """
+
+
+def _torn_run_error(run_id, failed_on, uploaded, total, exc) -> TornRunError:
+    """The refusal for a run that died mid-upload, naming what may be left (C-105).
+
+    The contract handles the *consumer's* side correctly and by design: the run manifest
+    is uploaded last, so a torn attempt has no commit marker and is invisible rather
+    than half-visible (§4.2). What it does not handle is our side — the objects that did
+    land stay there, and until this existed nothing recorded that they had. At run-0
+    scale a retry adds ~110 more under the same names.
+
+    **Nothing is deleted here, deliberately.** Removing objects from a partner bucket is
+    irreversible and an operator decision, not a delivery-path one; the neighbouring
+    delete surface is its own open question (C-58, views-pipeline-core #333, blocked on
+    a test key). This turns an invisible mess into a documented one, which is the part
+    this repository can honestly own.
+    """
+    landed = ", ".join(f"{u['name']}#{u['file_id']}" for u in uploaded[:5])
+    more = "" if len(uploaded) <= 5 else f" (+{len(uploaded) - 5} more; full ledger logged at ERROR)"
+    confirmed = (
+        f"Confirmed in the partner store, and NOT removed: {landed}{more}."
+        if uploaded
+        else "Nothing is confirmed in the partner store — this was the first upload."
+    )
+    # ADR-008: logged persistently AND raised — and the COMPLETE ledger goes here
+    # rather than into the message, which truncates at five. The per-upload ledger
+    # above is `logger.info`, and nothing in this package sets a level: pipeline-core
+    # removed its own `setLevel` precisely so the application owns it. A launcher
+    # running at WARNING would therefore have written no file_id anywhere, and the
+    # message's pointer to "the run log" would have been a promise to an empty file —
+    # leaving the operator diffing the bucket by hand, which is the state C-105 exists
+    # to remove. At ERROR the ledger survives any level a launcher is likely to choose.
+    logger.error(
+        "run %s TORN on %s: complete upload ledger follows (%d object(s) confirmed)",
+        run_id, failed_on, len(uploaded),
+    )
+    for entry in uploaded:
+        logger.error("  TORN-LEDGER run=%s name=%s file_id=%s", run_id, entry["name"], entry["file_id"])
+
+    return TornRunError(
+        f"run {run_id!r} is TORN: {len(uploaded)} of {total} objects were confirmed "
+        f"uploaded before {failed_on!r} failed ({type(exc).__name__}: {exc}).\n"
+        f"{confirmed}\n"
+        f"{failed_on!r} MAY ALSO HAVE LANDED, as a file carrying no metadata document — "
+        "the store reports failure *after* uploading the file when the document write "
+        "fails, which is the C-79 orphan shape. Check for it as well as anything listed above; "
+        "it is the likeliest orphan of the whole run.\n"
+        "The manifest upload did not report success, so the consumer almost certainly "
+        "cannot see this run (§4.2 — the manifest is the commit marker). Verify that "
+        "before re-running: a re-run uploads every object again under the same names, "
+        "and whether the store supersedes or duplicates is not something this "
+        "repository asserts. See docs/operations/correction_procedure.md and C-105."
+    )
+
+
 def deliver_run(
     per_target: dict,
     *,
@@ -160,13 +226,30 @@ def deliver_run(
 
     common = {"name": consumer_name, "category": "forecast", "loa": "pgm"}
 
-    def _upload(file_name: str, doc_type: str, targets: list) -> None:
-        store.upload(staging / file_name, filename=file_name, doc_type=doc_type, targets=targets, **common)
-        logger.info("uploaded %s (type=%s, run=%s)", file_name, doc_type, run_id)  # the ledger
+    # The ledger is kept in memory as well as in the log, so a torn run can say what
+    # it left behind rather than leaving an operator to diff the bucket (C-105).
+    uploaded: list[dict] = []
+    total = len(shard_records) + 2  # shards + sidecar + manifest
+
+    def _upload(file_name: str, doc_type: str, targets: list):
+        try:
+            file_id = store.upload(
+                staging / file_name, filename=file_name, doc_type=doc_type, targets=targets, **common
+            )
+        except Exception as exc:
+            raise _torn_run_error(run_id, file_name, uploaded, total, exc) from exc
+        uploaded.append({"name": file_name, "file_id": file_id})
+        logger.info(  # the ledger — file_id included, it is the only persistent record
+            "uploaded %s (type=%s, run=%s, file_id=%s)", file_name, doc_type, run_id, file_id
+        )
+        return file_id
 
     for record in shard_records:
         _upload(record["name"], SHARD_DOC_TYPE, [record["target"]])
     _upload(sidecar_file, SIDECAR_DOC_TYPE, list(per_target))
-    _upload(manifest_file, MANIFEST_DOC_TYPE, list(per_target))  # the commit marker
+    # The manifest is uploaded LAST, so it is the newest `category="forecast"` document
+    # in the store — which is exactly what the consumer's query returns. Carried out so
+    # the C-94 read-back can assert the consumer would find THIS run (register C-94).
+    summary["manifest_file_id"] = _upload(manifest_file, MANIFEST_DOC_TYPE, list(per_target))
     summary["uploaded"] = True
     return summary

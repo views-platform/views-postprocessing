@@ -69,7 +69,7 @@ def test_the_builders_are_functions_not_methods(partner):
 
     module = _managers(partner)
     for name in ("_build_prod_forecasts_store", "_build_partner_store",
-                 "_partner_appwrite_config"):
+                 "_build_partner_read_store", "_partner_appwrite_config"):
         fn = getattr(module, name, None)
         assert fn is not None, (
             f"[{partner}] {name} is gone from the module namespace. If it moved back "
@@ -163,7 +163,8 @@ def test_no_coordinate_value_is_baked_into_the_builders(partner):
     module = _managers(partner)
     source = "".join(
         inspect.getsource(getattr(module, name))
-        for name in ("_build_prod_forecasts_store", "_partner_appwrite_config")
+        for name in ("_build_prod_forecasts_store", "_partner_appwrite_config",
+                     "_build_partner_read_store")
     )
     for line in source.splitlines():
         if "os.getenv(" in line:

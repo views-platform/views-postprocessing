@@ -17,7 +17,7 @@ from views_postprocessing.unfao import appwrite_env, product
 from views_postprocessing.unfao.store_port import _ContractStorePort
 from views_postprocessing.contract.wire import sink as wire_sink
 from views_postprocessing.contract.wire import source_selection
-from views_postprocessing.delivery import coverage, observed_range, provenance
+from views_postprocessing.delivery import coverage, findability, observed_range, provenance
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -113,6 +113,36 @@ def _partner_appwrite_config(model_path) -> AppwriteConfig:
     )
 
 
+def _build_partner_read_store(model_path) -> DatastoreModule:
+    """The partner store for the C-94 read-back, with pipeline-core's automatic
+    ``name == model_name`` filter suppressed — otherwise the preflight would verify the
+    views-models directory name, which equals the declared consumer name only by
+    coincidence (**C-77**). C-94 records why it reuses the write key.
+    """
+    store = DatastoreModule(appwrite_file_manager_config=_partner_appwrite_config(model_path))
+    store.model_path = None
+    return store
+
+
+def _assert_delivery_is_findable(model_path, consumer_name: str, uploaded: dict) -> None:
+    """C-94: ask the store the question the consumer asks, and refuse silence.
+
+    A function, not a method (C-40 (a)) — its refusal is observable without a manager
+    or an Appwrite environment. ``uploaded`` maps each leg to the file id THIS run put
+    there; `delivery/findability.py` carries why that scoping is the whole guard.
+    """
+    for category, expected in uploaded.items():
+        try:
+            port = _ContractStorePort(_build_partner_read_store(model_path))
+            found = port.latest_file_id({"name": consumer_name, "category": category})
+        except Exception as exc:  # could not ask != asked and got nothing (C-99, C-103)
+            raise findability.unverified(category, exc) from exc
+        findability.assert_findable(
+            found, expected_file_id=expected, consumer_name=consumer_name, category=category
+        )
+    logger.info("Findability preflight passed: both legs retrievable under %r.", consumer_name)
+
+
 class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
     def __init__(
         self,
@@ -136,8 +166,18 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         )
         try:
             lv = source_metadata.last_valid_month_id(self.configs.get("zarr_url"))
+        except source_metadata.ProducerClientUnavailable:
+            # NOT degrade-open. A producer client that will not load is a broken
+            # environment, not a producer that publishes no boundary — and the whole
+            # point of the two branches is that they are different conditions (C-103).
+            raise
         except Exception:
-            logger.warning("last_valid_month_id unavailable; skipping clip (degrade-open, C-26).", exc_info=True)
+            logger.warning(
+                "last_valid_month_id could not be read; skipping the observed-range "
+                "clip (degrade-open, C-26). Any unobserved months above the producer's "
+                "boundary WILL ship as observed history in this delivery.",
+                exc_info=True,
+            )
             lv = None
         if lv is None:
             self._historical_frame = frame
@@ -322,7 +362,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             Path(summary["staging_dir"]), lookup
         )
         if upload_enabled:
-            store.upload(
+            hist_file_id = store.upload(
                 hist_path,
                 filename=hist_path.name,
                 # The DECLARED consumer name, not `self._model_path.model_name`
@@ -341,6 +381,13 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 description=hist_description,
             )
             logger.info("uploaded %s (historical, run %s)", hist_path.name, summary["run_id"])
+            # C-94: nothing above observes the OUTCOME of an upload. Every call
+            # reported success in run-0 too, and the historical leg still stranded.
+            _assert_delivery_is_findable(
+                self._model_path,
+                product.CONSUMER_DOCUMENT_NAME,
+                {"forecast": summary["manifest_file_id"], "historical": hist_file_id},
+            )
         else:
             logger.info(
                 "Interlock holding: historical artifact staged at %s (no store calls).",
