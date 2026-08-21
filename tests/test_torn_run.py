@@ -196,3 +196,27 @@ def test_a_tear_is_not_a_malformed_run(tmp_path):
         "orchestration layer treating SinkError as do-not-retry would silently swallow "
         "store outages — and test_hop_b_sink_e2e already asserts SinkError for malformed"
     )
+
+
+def test_the_complete_ledger_is_logged_at_ERROR_not_only_INFO(tmp_path, caplog):
+    """The message truncates at five; the log must carry all of them, at a level a
+    launcher will actually have enabled.
+
+    The per-upload ledger is `logger.info`, and nothing in this package sets a level —
+    pipeline-core removed its own `setLevel` so the application owns it. A launcher at
+    WARNING would have written no file_id anywhere, making the message's pointer to
+    "the run log" a promise to an empty file.
+    """
+    store = FailAfter(2)  # shard + sidecar land, manifest does not
+    with caplog.at_level("ERROR"), pytest.raises(sink.TornRunError):
+        _deliver(store, tmp_path)
+
+    ledger = [r.getMessage() for r in caplog.records if "TORN-LEDGER" in r.getMessage()]
+    assert len(ledger) == 2, (
+        f"expected one ERROR ledger line per confirmed upload, got {len(ledger)}"
+    )
+    for name, line in zip(store.calls, ledger):
+        assert name in line and "file_id=" in line, (
+            "each ledger line must carry the object name AND its file id — the id is "
+            "the only handle an operator has for finding it again"
+        )

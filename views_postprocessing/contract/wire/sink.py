@@ -83,12 +83,27 @@ def _torn_run_error(run_id, failed_on, uploaded, total, exc) -> TornRunError:
     this repository can honestly own.
     """
     landed = ", ".join(f"{u['name']}#{u['file_id']}" for u in uploaded[:5])
-    more = "" if len(uploaded) <= 5 else f" (+{len(uploaded) - 5} more; every id is in the run log)"
+    more = "" if len(uploaded) <= 5 else f" (+{len(uploaded) - 5} more; full ledger logged at ERROR)"
     confirmed = (
         f"Confirmed in the partner store, and NOT removed: {landed}{more}."
         if uploaded
         else "Nothing is confirmed in the partner store — this was the first upload."
     )
+    # ADR-008: logged persistently AND raised — and the COMPLETE ledger goes here
+    # rather than into the message, which truncates at five. The per-upload ledger
+    # above is `logger.info`, and nothing in this package sets a level: pipeline-core
+    # removed its own `setLevel` precisely so the application owns it. A launcher
+    # running at WARNING would therefore have written no file_id anywhere, and the
+    # message's pointer to "the run log" would have been a promise to an empty file —
+    # leaving the operator diffing the bucket by hand, which is the state C-105 exists
+    # to remove. At ERROR the ledger survives any level a launcher is likely to choose.
+    logger.error(
+        "run %s TORN on %s: complete upload ledger follows (%d object(s) confirmed)",
+        run_id, failed_on, len(uploaded),
+    )
+    for entry in uploaded:
+        logger.error("  TORN-LEDGER run=%s name=%s file_id=%s", run_id, entry["name"], entry["file_id"])
+
     return TornRunError(
         f"run {run_id!r} is TORN: {len(uploaded)} of {total} objects were confirmed "
         f"uploaded before {failed_on!r} failed ({type(exc).__name__}: {exc}).\n"
