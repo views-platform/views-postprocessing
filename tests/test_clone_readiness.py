@@ -104,6 +104,40 @@ def _partner_prefixes() -> tuple[str, ...]:
     return tuple(f"views_postprocessing.{name}" for name in _PARTNER_PACKAGES)
 
 
+def _imported_modules(path: Path, package: str) -> set[str]:
+    """Every absolute module name ``path`` imports, relative forms resolved.
+
+    Three forms have to survive this, and the module docstring above names two of them
+    as the misses that made the earlier regex insufficient:
+
+        import views_postprocessing.unfao.product
+        from views_postprocessing.unfao import product
+        from views_postprocessing import unfao          <- the name is on the alias
+        from ..unfao import product                     <- the name is in `level`
+
+    The last two are why this resolves `level` against the file's own package and joins
+    each alias onto the module. A first pass at this skipped both and would have passed
+    a manager importing its sibling relatively — the exact shape `contract/enrichment.py`
+    once used to demonstrate a real gap.
+    """
+    parts = package.split(".")
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = parts[: len(parts) - (node.level - 1)]
+                prefix = ".".join(base + ([node.module] if node.module else []))
+            else:
+                prefix = node.module or ""
+            if not prefix:
+                continue
+            found.add(prefix)
+            found.update(f"{prefix}.{alias.name}" for alias in node.names)
+    return found
+
+
 def _modules_on_disk(package: str) -> set[str]:
     return {
         "views_postprocessing." + f.relative_to(_PKG).with_suffix("").as_posix().replace("/", ".")
@@ -296,9 +330,12 @@ def test_a_partner_does_not_import_its_sibling(partner):
     if not siblings:
         pytest.skip("independence needs a sibling; only one partner is declared")
 
+    # "managers" as a package SEGMENT, not a substring: a partner module named
+    # `managers_shared.py` would otherwise be dropped from this half while also sitting
+    # outside the AST half below, exempting it from the guard entirely with no signal.
+    # (`_modules_on_disk` already excludes `__init__.py`, so those arrive via the glob.)
     importable = sorted(
-        m for m in _modules_on_disk(partner)
-        if ".managers" not in m and not m.endswith(".__init__")
+        m for m in _modules_on_disk(partner) if "managers" not in m.split(".")
     )
     assert importable, f"no importable modules found for {partner}"
 
@@ -314,26 +351,26 @@ def test_a_partner_does_not_import_its_sibling(partner):
     )
 
     # IMPORTS only, via the AST — not a substring scan of the file. This repository's
-    # comments cite module paths constantly (C-33's own text points at `unfao/product.py`),
-    # so a scan of the whole text would fail on documentation and get deleted for crying
-    # wolf, which is ADR-014 §3's whole point.
-    manager = _PKG / partner / "managers" / f"{partner}.py"
-    imported = set()
-    for node in ast.walk(ast.parse(manager.read_text())):
-        if isinstance(node, ast.Import):
-            imported.update(a.name for a in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            imported.add(node.module)
-
-    offending = sorted(
-        name for name in imported
-        if any(name == s or name.startswith(s + ".") for s in siblings)
-    )
-    assert not offending, (
-        f"{partner}'s manager imports {offending}. These files are copies of each other, "
-        "so this is the shape a careless clone leaves behind — and it is outside the "
-        "subprocess half above, which skips managers."
-    )
+    # comments cite module paths constantly (C-33's own text points at
+    # `unfao/product.py`), so scanning the text would fail on documentation and get
+    # deleted for crying wolf, which is ADR-014 §3's whole point.
+    #
+    # EVERY file under `managers/`, not just `<partner>.py`: `managers/__init__.py`
+    # carries a real import today, and the subprocess half skips the whole package.
+    managers = sorted((_PKG / partner / "managers").rglob("*.py"))
+    assert managers, f"{partner} has no managers/ directory to scan"
+    for source in managers:
+        module = "views_postprocessing." + source.relative_to(_PKG).with_suffix("").as_posix().replace("/", ".")
+        package = module.rsplit(".", 1)[0]
+        offending = sorted(
+            name for name in _imported_modules(source, package)
+            if any(name == sib or name.startswith(sib + ".") for sib in siblings)
+        )
+        assert not offending, (
+            f"{source.relative_to(_REPO)} imports {offending}. These files are copies of "
+            "each other, so this is the shape a careless clone leaves behind — and it is "
+            "outside the subprocess half above, which skips managers/."
+        )
 
 
 @pytest.mark.parametrize("partner", _PARTNER_PACKAGES)
