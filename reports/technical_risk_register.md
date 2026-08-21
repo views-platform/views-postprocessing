@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-17                           |
-| Total Concerns          | 108                                   |
-| Open Concerns           | 28                                   |
+| Last Updated      | 2026-08-21                           |
+| Total Concerns          | 109                                   |
+| Open Concerns           | 29                                   |
 | Resolved Concerns       | 80                                   |
 
 ---
@@ -712,7 +712,7 @@ The FAO delivery authenticates with the `UN FAO` key. That key expires **2026-11
 
 **Deliberately not fixed here, and the reason is C-84's own shape.** A preflight that checks key validity means an authenticated call at startup, and the only project to make it against is production — which **þing-01 D2** forbids for tests and this would not quite be — and which that verdict explicitly permits as *read-only preflight validation*, so the obstacle here is the authenticated call, not the prohibition (see C-95). The honest position is that this is a *date to act on*, not a mechanism to build, and inventing a mechanism would be building the wrong thing to feel busy. Registered so the date is not discovered by an outage.
 
-**The trigger now fires on its own (2026-08-19), and this is not the mechanism above.** The first arm of the trigger — *"act when the un_fao delivery is next scheduled within a month of it"* — was a trigger nobody could notice: it fired in someone's memory or not at all, which is the same defect that withdrew the third arm of C-94's trigger and which ADR-014 §4 exists to forbid. `tests/test_credential_expiry.py` declares the two expiries and fails from 30 days out, naming the dates, the 3h35m gap, who owns the rotation (operator; views-appwrite#12, key split views-faoapi#338), and the two honest ways to make it pass — rotate and update the constant, or update the constant if a key was replaced early.
+**The trigger now fires on its own (2026-08-19), and this is not the mechanism above.** The first arm of the trigger — *"act when the un_fao delivery is next scheduled within a month of it"* — was a trigger nobody could notice: it fired in someone's memory or not at all, which is the same defect that withdrew the third arm of C-94's trigger and which ADR-014 §4 exists to forbid. `tests/test_credential_expiry.py` declares the two expiries and fails from 30 days out, naming the dates, the 3h35m gap, who owns the rotation (operator; views-appwrite#12, key split views-faoapi#338), and the three ways to make it pass — rotate and update the constant, update the constant if a key was replaced early, or set `ACKNOWLEDGED_UNTIL`. **The third is the only one available to someone without console access**, which is most people who will meet this gate; omitting it here would reproduce the merge-queue-hostage outcome the acknowledgement exists to prevent.
 
 **It is emphatically not the key-validity preflight this entry rejected.** No authenticated call, no credential, no network — a calendar and two declared datetimes. The rejection above stands and is unaffected: what was wrong was building a mechanism to *discover* a fact already known; what was missing was making the known fact impossible to forget. **The acknowledgement is the load-bearing part, and the first draft did not have it.** `/code-review high` found two design faults that would each have ended with the test deleted. (a) A literal pin on the two datetimes made the tripwire's own prescribed remediation — *rotate, then update `KEY_EXPIRY`* — fail a second test whose message said not to adjust the constant. A guard that refuses its own documented fix is worse than no guard, and it would have landed on the one person who could not route around it. The pin is gone. (b) From 2026-10-18 the gate would have been red for **every unrelated pull request**, clearable only by an operator console action the repository cannot perform — which is precisely what `pyproject.toml` says about ruff, citing ADR-014 §3: *a gate that starts red gets switched off*. `ACKNOWLEDGED_UNTIL` is the in-repo escape: a declared, reviewed, dated edit meaning *seen, and being acted on*, which **cannot be set on or after the expiry** — so it postpones attention and can never replace it.
 
@@ -830,7 +830,7 @@ Cross-referenced there to their **#248 / #347** (the same defect class on the Ap
 | Tier | 2 — the exclusion manifest and cell-count contract are pinned in code and were exercised live at global scale in run-0; residual is upstream-regression risk, not an unguarded silent-corruption path |
 | Source | `expert-code-review` (2026-06-12), verified by direct data inspection; **merged with C-34** (`expert-code-review` 2026-06-12) during review-rr 2026-07-31 |
 | Trigger | When a region's expected cell count or exclusion manifest changes upstream — a views-datafactory region redefinition (`regions.py`, the bundled `*_pgids.json`), a new GAUL curation like ADR-043, or a region-string change in views-models `config_queryset.py` — verify `EXPECTED_CELLS_BY_REGION` and `EXCLUDED_GIDS_BY_REGION` are re-derived from the live producer rather than trusted as frozen |
-| Location | `views_postprocessing/delivery/coverage.py:56` (`land_gaul: 64_742`), `:92` (`EXCLUDED_GIDS_BY_REGION`), `:99`; `views_postprocessing/unfao/managers/unfao.py:397` (`_check_coverage`), `:300` (`_validate`); views-models `postprocessors/un_fao/configs/config_queryset.py`; views-datafactory `src/datafactory_query/regions.py` |
+| Location | `views_postprocessing/delivery/coverage.py:56` (`land_gaul: 64_742`), `:92` (`EXCLUDED_GIDS_BY_REGION`), `:99`; `views_postprocessing/unfao/managers/unfao.py::_check_coverage`, `:300` (`_validate`); views-models `postprocessors/un_fao/configs/config_queryset.py`; views-datafactory `src/datafactory_query/regions.py` |
 
 Verified 2026-06-12: of the datafactory's 64,818 `land`-region cells, 64,736 have complete area-majority metadata; exactly 82 are unassigned across all 7 GAUL fields — all remote sub-Antarctic islands FAO's GAUL 2024 boundaries do not cover (Macquarie, Auckland Islands, Prince Edward; sample gids 51078, 51798, 53979, 62356, 94776, 99027). The mitigation must be a named exclusion-list constant with the gids, count-asserted in both the enricher and a test, logged at WARNING, and disclosed to FAO — not a generic `code != -1` filter, which would silently absorb future coverage regressions. Generalizes the previously documented "5 ocean cells" of africa_me_legacy (those 5 are among the excluded set).
 
@@ -1089,7 +1089,7 @@ Recorded rather than left implicit because "the operator did a console session" 
 | Source | `/repo-assimilation` (2026-08-16), measured |
 | Trigger | When a delivery logs *"last_valid_month_id could not be read; skipping the observed-range clip"* — that is now the only route to an unclipped delivery, and it is a real one (a network failure or a reshaped `.zattrs` reaches it). Decide then whether degrade-open is still the right side for that case, or whether the partner should be told the tail is unverified. |
 | Owner | This repository, for the swallow and the declaration. The producer owns the fact itself. |
-| Location | `views_postprocessing/contract/source_metadata.py:74` (the classification); `views_postprocessing/unfao/managers/unfao.py:137-151`, `views_postprocessing/crafd/managers/crafd.py:137-151` (the two branches). **Not `pyproject.toml`** — the original entry listed it as a risk site on the assumption the dependency was undeclared everywhere; it is the launcher's to declare and both launchers do, so there is nothing to add here. Line numbers re-read 2026-08-17 after the fix moved them. |
+| Location | `views_postprocessing/contract/source_metadata.py::last_valid_month_id` (the classification); `views_postprocessing/{unfao,crafd}/managers/*.py::_read_historical_frame` (the two branches). **Not `pyproject.toml`** — the original entry listed it as a risk site on the assumption the dependency was undeclared everywhere; it is the launcher's to declare and both launchers do, so there is nothing to add here. **Cited by symbol, not by line (2026-08-21).** The line numbers went stale twice in four days — both times because a later change in the same branch moved them, and the second time the entry carried an explicit *"re-read"* claim that was false by the time it merged. A citation that decays faster than the review cycle is worse than a vaguer one that does not. |
 
 `source_metadata.last_valid_month_id` lazily imports `datafactory_query.defaults`. Measured 2026-08-16: that package is in neither `pyproject.toml` nor `poetry.lock`, and `import datafactory_query` raises `ModuleNotFoundError` in the project venv. Its only caller wraps the call in `except Exception: lv = None` and then returns the historical frame **unclipped**, logging one WARNING — so "the dependency is missing" and "the producer publishes no boundary attribute" leave through the same branch with the same outcome, and that outcome is unobserved zero-padded months shipping to the partner as observed history. The lazy import states its own reason — *"so this module loads without the heavy datafactory dependency present (e.g. in unit-test environments)"* — but nothing at the call site distinguishes a unit-test environment from a delivery.
 
@@ -1146,7 +1146,7 @@ Cross-refs: **C-72** (owns the pyarrow half — that half is not re-registered h
 | Source | `/repo-assimilation` (2026-08-16) |
 | Trigger | When the upload interlock is first opened for a live run (`wire_upload_enabled: True`), or when the retention owner D-12 defers is named — whichever comes first — decide what a torn attempt leaves behind and who removes it. |
 | Owner | This repository for the mechanism; the operator for retention. |
-| Location | `views_postprocessing/contract/wire/sink.py:167-171` |
+| Location | `views_postprocessing/contract/wire/sink.py::deliver_run` (the upload phase) and `::_torn_run_error` |
 
 `deliver_run` uploads every shard, then the sidecar, then the run manifest, each through `_ContractStorePort.upload`, which raises on anything but explicit success (**C-79**). A raise at shard *k* of *n* is therefore correct in the one dimension the contract governs — no manifest means the run is invisible to the consumer, which is the §4.2 commit-marker design working — and silent in every other: the *k* uploaded objects remain, nothing records that they exist, and nothing removes them. Re-running the delivery re-uploads all *n* under the same names, and whether that supersedes or duplicates is a store semantic this repository asserts nowhere. At run-0 scale that is roughly 110 objects per attempt.
 
@@ -1158,7 +1158,7 @@ Cross-refs: **C-72** (owns the pyarrow half — that half is not re-registered h
 
 The refusal says three things an operator otherwise has to establish by hand: the consumer **cannot see this run** (the manifest is the commit marker and never landed, so nothing partial is being served — §4.2 working as designed); the objects listed are **still there and were NOT removed**; and a re-run will upload all of them again under the same names, with supersede-or-duplicate being a store semantic this repository does not assert.
 
-**Remaining scope, found by `/review-diff` on the fix itself: the historical leg is not covered.** `TornRunError` wraps the upload phase inside `deliver_run`. The historical artifact uploads *after* the wire run is committed, from the manager, so a failure there raises unwrapped — and its consequence is different rather than smaller: the manifest already landed, so the consumer sees a **complete, visible forecast run** sitting next to the *previous* run's historical artifact. Not corrupt (the historical is a full snapshot, so the older one is valid, just one run stale) and the delivery does report failure — but it is the one tear where "the consumer cannot see this run" is false, and the wrapper's message would be wrong if it fired there. It does not fire there. Left uncovered deliberately rather than widening this change; the manager is at 435/450 of its line budget and the fix belongs with whoever takes the deletion decision below.
+**Remaining scope, found by `/review-diff` on the fix itself: the historical leg is not covered.** `TornRunError` wraps the upload phase inside `deliver_run`. The historical artifact uploads *after* the wire run is committed, from the manager, so a failure there raises unwrapped — and its consequence is different rather than smaller: the manifest already landed, so the consumer sees a **complete, visible forecast run** sitting next to the *previous* run's historical artifact. Not corrupt (the historical is a full snapshot, so the older one is valid, just one run stale) and the delivery does report failure — but it is the one tear where "the consumer cannot see this run" is false, and the wrapper's message would be wrong if it fired there. It does not fire there. Left uncovered deliberately rather than widening this change; the manager is at 434/450 of its line budget and the fix belongs with whoever takes the deletion decision below.
 
 **What is deliberately NOT done: deletion.** Removing objects from a partner bucket is irreversible and an operator decision rather than a delivery-path one, and the neighbouring delete surface is its own open question (**C-58**, views-pipeline-core #333, blocked on a test key). So this entry stays open: the mess is now legible, and it is still a mess. Closing it needs a decision about who cleans up and whether the store supersedes — neither of which is engineering work here.
 
@@ -1175,7 +1175,7 @@ Cross-refs: **C-94** (nothing observes the outcome of an upload at the time it h
 | Source | `/repo-assimilation` (2026-08-16), measured |
 | Trigger | When someone proposes changing `CONTRACT_VERSION`, or when this repository first acts as a Hop-A *producer* rather than only a consumer — at that point `build_header` acquires the caller it was written for and this entry is discharged. |
 | Owner | This repository. |
-| Location | `views_postprocessing/contract/wire/header.py:32` (`build_header`); `views_postprocessing/contract/gaul_schema.py:87` (`colrow`) |
+| Location | `views_postprocessing/contract/wire/header.py::build_header`; `views_postprocessing/contract/gaul_schema.py::colrow` |
 
 Measured: `build_header` is called from `tests/test_wire_header.py` and `tests/test_wire_shard.py`, and nowhere else. On the delivery path the sink re-embeds the producer's Hop-A header untouched (`contract/wire/sink.py:111-113`, §10.2 *"the sink mints nothing"*), so the builder never runs in a delivery. The module is half-reached rather than dead: `CONTRACT_VERSION = "1.5"` is imported by `contract/wire/run_manifest.py:19` and written into every run manifest, so deletion is not the question — what `build_header` is *for* is. Separately, `gaul_schema.colrow` has zero callers anywhere, tests and build scripts included. Neither is a defect; both are surface a reader must make a decision about, and neither currently has one recorded.
 
@@ -1221,6 +1221,29 @@ The strict flip is the entire mechanism: when views-datafactory#223 is fixed the
 
 Cross-refs: **C-46** (the untracked-artifact blocker these share), **C-102** (a guard that has never run is unproven), **C-36** (the gates' original home).
 
+
+---
+
+### C-109: Register `Location` line numbers decay faster than the review cycle, and nothing checks them
+
+| Field | Value |
+|-------|-------|
+| ID | C-109 |
+| Tier | 4 — no correctness impact. Registered because `Location` is the field a reader trusts to find the thing an entry describes, and a wrong one sends them to unrelated code with no signal that it is wrong. |
+| Source | `/code-review max` on the release branch, 2026-08-21, then measured across the open set |
+| Trigger | When an entry's `Location` is used to find code and the code is not there — or when anyone proposes a guard over the register's citations, at which point this entry says what such a guard would have to check and why the obvious version does not work. |
+| Owner | This repository. |
+| Location | `reports/technical_risk_register.md` — the `Location` field of every open concern that cites a line. |
+
+**Measured 2026-08-21.** Eleven of the 28 open entries cited a `file.py:line` in `Location`; converting four leaves **eight of 29**. Spot-checking six of the original eleven against the working tree, **three were already stale**: C-105's `sink.py:167-171` (written four days earlier) landed on `staging.mkdir`, C-106's `gaul_schema.py:87` on a section comment, and C-30's `unfao.py:397` on `return summary`. All three drifted because a *later change in the same week* moved the lines — nothing about the entries themselves changed.
+
+C-103 is the sharp case, and the reason this is a class rather than three typos: its `Location` went stale **twice in four days**, both times from a subsequent commit in the same branch, and the second time the entry carried an explicit *"line numbers re-read"* claim that was already false when it merged. A citation that decays faster than the review cycle is worse than a vaguer one that does not, because it is confidently wrong.
+
+**Converted rather than corrected, where the target is a function.** C-103, C-105, C-106 and C-30 now cite `path::symbol`. A symbol survives edits above it, which is the entire failure mode here. Line numbers remain where the target genuinely is a line — a specific literal, a table row — and those are the ones any future guard would have to cover.
+
+**Why the obvious guard does not work, stated so it is not proposed again cheaply.** Checking that a file has at least that many lines catches nothing: every stale citation above points at a real line. Checking *content* requires the entry to declare what it expects to find there, which is a second declaration that can itself go stale — the shape ADR-014 §2 warns about. The cheap and durable move is the convention (`::symbol`), not a test.
+
+Cross-refs: **C-103** (twice stale in four days — the case that made this visible), **C-107** (docstrings outside the doc-accuracy scan; the same "nothing checks the prose" family), **C-82** (governance prose carrying numbers nothing checks, resolved).
 
 ## Disagreements
 
