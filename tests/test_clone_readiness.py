@@ -28,6 +28,7 @@ the filesystem, because a guard that names its subject will miss the next subjec
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 import textwrap
@@ -101,6 +102,40 @@ _INVARIANTS = tuple(
 
 def _partner_prefixes() -> tuple[str, ...]:
     return tuple(f"views_postprocessing.{name}" for name in _PARTNER_PACKAGES)
+
+
+def _imported_modules(path: Path, package: str) -> set[str]:
+    """Every absolute module name ``path`` imports, relative forms resolved.
+
+    Three forms have to survive this, and the module docstring above names two of them
+    as the misses that made the earlier regex insufficient:
+
+        import views_postprocessing.unfao.product
+        from views_postprocessing.unfao import product
+        from views_postprocessing import unfao          <- the name is on the alias
+        from ..unfao import product                     <- the name is in `level`
+
+    The last two are why this resolves `level` against the file's own package and joins
+    each alias onto the module. A first pass at this skipped both and would have passed
+    a manager importing its sibling relatively — the exact shape `contract/enrichment.py`
+    once used to demonstrate a real gap.
+    """
+    parts = package.split(".")
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = parts[: len(parts) - (node.level - 1)]
+                prefix = ".".join(base + ([node.module] if node.module else []))
+            else:
+                prefix = node.module or ""
+            if not prefix:
+                continue
+            found.add(prefix)
+            found.update(f"{prefix}.{alias.name}" for alias in node.names)
+    return found
 
 
 def _modules_on_disk(package: str) -> set[str]:
@@ -272,6 +307,70 @@ def test_the_machinery_does_not_pull_in_pipeline_core():
         f"the machinery pulled in views_pipeline_core: {leaked}. It is imported only "
         "by the partner managers, and that is what keeps C-40 bounded."
     )
+
+
+@pytest.mark.parametrize("partner", _PARTNER_PACKAGES)
+def test_a_partner_does_not_import_its_sibling(partner):
+    """The partners are independent, not merely both below the machinery.
+
+    Everything else in this file proves the *vertical* arrows of ADR-002 — machinery
+    imports no partner, invariants import no machinery. Nothing proved the horizontal
+    one, and it is the arrow that keeps a partner liftable: `crafd/` and `unfao/` are
+    deliberate clones (register **C-33**), so the realistic violation is a copy-paste
+    that leaves a sibling's import behind. `test_the_machinery_imports_without_any_partner`
+    cannot see it — that test imports the machinery, and this would be partner-to-partner.
+
+    Two halves, for the reason the module docstring already gives about regexes: the
+    subprocess is load-bearing and sees transitive arrivals; the source scan is the
+    supplement, and covers `managers/` — which the subprocess deliberately skips because
+    importing a manager needs views-pipeline-core, and a purity check should not be
+    contingent on a heavy framework being installed (C-40 (a)).
+    """
+    siblings = tuple(f"views_postprocessing.{p}" for p in _PARTNER_PACKAGES if p != partner)
+    if not siblings:
+        pytest.skip("independence needs a sibling; only one partner is declared")
+
+    # "managers" as a package SEGMENT, not a substring: a partner module named
+    # `managers_shared.py` would otherwise be dropped from this half while also sitting
+    # outside the AST half below, exempting it from the guard entirely with no signal.
+    # (`_modules_on_disk` already excludes `__init__.py`, so those arrive via the glob.)
+    importable = sorted(
+        m for m in _modules_on_disk(partner) if "managers" not in m.split(".")
+    )
+    assert importable, f"no importable modules found for {partner}"
+
+    result = _import_in_subprocess(tuple(importable), siblings)
+    assert result.returncode == 0, (
+        f"{partner}'s own modules failed to import:\n{result.stderr}"
+    )
+    leaked = [m for m in result.stdout.split("LEAKED:")[-1].strip().split(",") if m]
+    assert not leaked, (
+        f"{partner} pulled in a sibling partner: {leaked}. The two are deliberate "
+        "clones (C-33) and must stay liftable one at a time — an import between them "
+        "means neither can be taken without the other, and no other test here sees it."
+    )
+
+    # IMPORTS only, via the AST — not a substring scan of the file. This repository's
+    # comments cite module paths constantly (C-33's own text points at
+    # `unfao/product.py`), so scanning the text would fail on documentation and get
+    # deleted for crying wolf, which is ADR-014 §3's whole point.
+    #
+    # EVERY file under `managers/`, not just `<partner>.py`: `managers/__init__.py`
+    # carries a real import today, and the subprocess half skips the whole package.
+    managers = sorted((_PKG / partner / "managers").rglob("*.py"))
+    assert managers, f"{partner} has no managers/ directory to scan"
+    for source in managers:
+        module = "views_postprocessing." + source.relative_to(_PKG).with_suffix("").as_posix().replace("/", ".")
+        package = module.rsplit(".", 1)[0]
+        offending = sorted(
+            name for name in _imported_modules(source, package)
+            if any(name == sib or name.startswith(sib + ".") for sib in siblings)
+        )
+        assert not offending, (
+            f"{source.relative_to(_REPO)} imports {offending}. These files are copies of "
+            "each other, so this is the shape a careless clone leaves behind — and it is "
+            "outside the subprocess half above, which skips managers/."
+        )
 
 
 @pytest.mark.parametrize("partner", _PARTNER_PACKAGES)
