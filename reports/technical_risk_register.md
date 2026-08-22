@@ -1147,9 +1147,9 @@ Cross-refs: **C-26** (the fabrication this clip exists to prevent), **C-07** (un
 | ID | C-104 |
 | Tier | 3 — no production impact. The cost is that a red suite stops carrying signal, on precisely the two modules with the thinnest coverage. |
 | Source | `/repo-assimilation` (2026-08-16), measured |
-| Trigger | When `pytest` reports failures in `tests/test_framework_contract.py` or `tests/test_store_construction.py`, check `pip show views-pipeline-core` against `poetry.lock` before reading them as defects. |
+| Trigger | When `pytest` reports byte-parity or manager-import failures, run `tests/test_locked_environment.py` first and check the interpreter with `python -V` — on 3.12 or newer the drift **cannot** be reconciled and the remedy the test prints will fail. |
 | Owner | This repository. |
-| Location | `tests/test_framework_contract.py`, `tests/test_store_construction.py` (20 failures); `tests/test_wire_shard.py`, `tests/test_wire_sidecar.py`, `tests/test_hop_b_sink_e2e.py` (5 failures); `poetry.lock` versus the project venv |
+| Location | `tests/test_framework_contract.py`, `tests/test_store_construction.py` (20 failures); `tests/test_wire_shard.py`, `tests/test_wire_sidecar.py`, `tests/test_hop_b_sink_e2e.py` (5 failures); `poetry.lock` versus the project venv; `pyproject.toml` line 12 (`python = ">=3.11,<3.15"`) |
 
 Measured 2026-08-16 in the project venv: 458 collected, **433 passed, 25 failed**, 39 xfailed, in 14.85s. The venv holds `views-pipeline-core 2.3.0` and `pyarrow 23.0.1`; `poetry.lock` pins **3.0.1** and **16.1.0**. The pyarrow half is known and predicted: 5 byte-parity failures reporting *"pinned toolchain violated: byte-parity oracle requires pyarrow 16.1.0, found 23.0.1"*, exactly what `tests/fixtures/wire_contract/README.md` says will happen under **C-72**. The pipeline-core half is documented nowhere: `ModuleNotFoundError: No module named 'views_pipeline_core.modules.dataloaders.datafactory_contract'`, raised at import of both managers, which takes out every test that constructs or inspects one.
 
@@ -1162,6 +1162,24 @@ Three things it deliberately does not treat as drift: dependencies gated by `opt
 It does **not** fix the drift and does not skip. The 25 failures remain until someone runs `poetry install`; what changes is that a contributor can now tell in one line which kind of problem they have. That is the whole of the entry's cost — the failures were never wrong, they were unreadable — so the entry stays open only until the environment is actually reconciled, which is a machine action rather than engineering work.
 
 Dev-group tools are deliberately out of scope: `ruff`'s reported version varies with how it was installed, and the thing that actually broke CI on 2026-08-03 was its *rule set*, which `pyproject.toml` already pins explicitly.
+
+**2026-08-22 — the drift is not neglect: `poetry install` cannot succeed on this machine, and the entry's own remedy is the advice it warns about.** Running it took the suite from **26 failed / 470 passed** to **6 failed / 490 passed** — it upgraded `views-pipeline-core` 2.3.0 → 3.0.1 and then died building `levenshtein 0.20.9` from source. What remains is a single drifted package, `pyarrow` installed 23.0.1 against 16.1.0 locked, and all six failures are that one cause: five C-72 byte-parity checks plus the lock check reporting it. No defects among them.
+
+The build failure is not incidental. The developer venv is **Python 3.13.7**; wheel availability for the two blocking packages, measured directly against the index:
+
+| interpreter | `pyarrow 16.1.0` | `levenshtein 0.20.9` |
+|---|---|---|
+| cp311 | yes | yes |
+| cp312 | yes | **no** |
+| cp313 | **no** | **no** |
+
+`levenshtein` is capped `>=0.20,<0.21` by **`ingester3`**, and no release in that range publishes a 3.12+ wheel — so the cap, not this repository, is what fixes the ceiling. **`poetry.lock` is installable on cp311 alone.** CI runs 3.11 and the delivery's own conda prefix is 3.11.15 holding `pyarrow 16.1.0`; both match the lock exactly. Only the developer venv is off, and it cannot be brought back by the command everyone is told to run.
+
+That makes the mitigation above **half wrong in the way it names as a failure**. Its own text rules out reporting a package as "run `poetry install`" when that advice cannot work — and on a 3.12+ interpreter the drift line does exactly that, sending the reader at a command that will fail on a package they have never heard of, thrown by a transitive dependency of a dependency. The remedy is a machine action still, but a different one: rebuild the venv on 3.11, not reinstall on 3.13.
+
+The second half is that `pyproject.toml` declares `python = ">=3.11,<3.15"`, which the table above shows is **false** — a contributor arriving on 3.12 or 3.13 is told the project supports them and then cannot install it. Tracked separately as **#295**, because it is a declaration defect rather than an environment one and its fix is a one-line change with a cross-repo cause.
+
+**This entry stays open, and what closes it has changed.** It is no longer "someone runs `poetry install`" — that is now known not to work here. It is that the venv is rebuilt on a 3.11 interpreter, which is an operator action on the machine.
 
 Cross-refs: **C-72** (owns the pyarrow half — that half is not re-registered here), **C-81** (CI-versus-local coverage asymmetry), **C-36** (a permanently-red suite cannot detect new regressions), **C-102** (the same argument in the other direction: a guard that never runs proves nothing, and a failure nobody can read is not a signal).
 
