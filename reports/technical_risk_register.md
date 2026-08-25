@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-21                           |
+| Last Updated      | 2026-08-26                           |
 | Total Concerns          | 112                                   |
-| Open Concerns           | 32                                   |
-| Resolved Concerns       | 80                                   |
+| Open Concerns           | 31                                   |
+| Resolved Concerns       | 81                                   |
 
 ---
 
@@ -1315,29 +1315,6 @@ Measured 2026-08-21 against the live ruleset: `protect_main` is **active**, the 
 **Closing this is documentation, not code.** Either a release runbook that names the interaction, or a cross-reference in C-84 and C-86 so that whoever reads one meets the other.
 
 Cross-refs: **C-84** (the expiry and the tripwire), **C-86** (no way past a red build; zero bypass actors), **C-81** (what actually gates `main`).
-
----
-
-### C-111: A release can change whether a delivery fails, and the version number is the only thing that says so
-
-| Field | Value |
-|-------|-------|
-| ID | C-111 |
-| Tier | 3 — nothing is silent and nothing corrupts; the cost lands on a consumer who takes a version that changes their pipeline's outcome with no notice, and on whoever then diagnoses it across two repositories. |
-| Source | `/falsify` release-readiness audit, 2026-08-21 (discovered during execution, not predicted) |
-| Trigger | The next version is cut — write what changed for a consumer, or record why the number alone is enough. |
-| Owner | This repository. |
-| Location | The repository root — there is no `CHANGELOG.md`, no `docs/operations/release_notes.md`, and no release notes on the existing tags. |
-
-The delta since tag `1.1.1` adds three exception types that can escape into a launcher: `delivery.findability.DeliveryNotFindableError` and `FindabilityUnverifiedError` (C-94), and `contract.source_metadata.ProducerClientUnavailable` (C-103). The first is the sharp one — **a delivery whose artifacts land somewhere the consumer cannot see previously succeeded silently and now raises.**
-
-That is the intended behaviour and the entire point of C-94. It is still a change a consumer must be told about, and the only signal views-models receives is a MINOR version bump in `VIEWS_POSTPROCESSING_PIN`. Nothing in this repository states that a previously-passing run can now fail.
-
-**The asymmetry is the finding.** This repository is unusually careful about telling *contributors* things — a register, ADRs, CICs, guards that refuse with paragraph-long explanations. It tells *consumers* nothing but an integer. views-models#403 is the shape of the consequence in the other direction: launchers sat on `1.1.0` for eight days after `1.1.1` fixed a defect that had already killed a delivery, because nothing made the difference legible.
-
-**Deliberately not proposed: a full changelog discipline.** What is needed is a line per release naming behaviour a consumer can observe. Whether that lives in `CHANGELOG.md`, in the GitHub release body, or in the pre-release notes FAO already receives is a choice, not a requirement.
-
-Cross-refs: **C-94** and **C-103** (the new failure modes), **C-112** (the inbound half — nothing checks whether a consumer took the release either; the two compound), **views-models#403** (the same gap costing eight days in the other direction), **C-24** (a consumer-facing contract divergence nobody surfaced).
 
 ---
 
@@ -3426,6 +3403,50 @@ Cross-refs: **views-faoapi C-161** (the deploy constraint §0.2a now surfaces �
 | ID | C-36 |
 | Resolved | 2026-06-22 |
 | Resolution | Converted the 43 permanently-failing tests to `xfail(strict=True)` so the suite is green-when-healthy: **119 passed / 43 xfailed / 0 failed**. The 40 falsification probes carry module-level `pytestmark` (plus a per-function mark on `r3_03`); the 3 cross-repo gates in `test_datafactory_deploy_readiness.py` are `xfail(strict)` tracked upstream as **views-datafactory#223** (provenance omits `admin_digest` → stale served grid) and **views-datafactory#224** (development version `1.3.0` collides with released tag). A real regression now surfaces as a `failed` (distinct from the expected xfails), and any probe/gate that *starts passing* flips to a strict failure forcing promotion. Residual (accepted): the pure-`assert False` probes don't test the live condition, so a fixed finding won't auto-flip — inherent to marker-style tests; the deploy gates, being conditional, do auto-flip. |
+
+---
+
+### C-111: A release can change whether a delivery fails, and the version number is the only thing that says so
+
+| Field | Value |
+|-------|-------|
+| ID | C-111 |
+| Tier | 3 — nothing is silent and nothing corrupts; the cost lands on a consumer who takes a version that changes their pipeline's outcome with no notice, and on whoever then diagnoses it across two repositories. |
+| Source | `/falsify` release-readiness audit, 2026-08-21 (discovered during execution, not predicted) |
+| Trigger | The next version is cut — write what changed for a consumer, or record why the number alone is enough. |
+| Owner | This repository. |
+| Location | The repository root — there is no `CHANGELOG.md`, no `docs/operations/release_notes.md`, and no release notes on the existing tags. |
+
+The delta since tag `1.1.1` adds three exception types that can escape into a launcher: `delivery.findability.DeliveryNotFindableError` and `FindabilityUnverifiedError` (C-94), and `contract.source_metadata.ProducerClientUnavailable` (C-103). The first is the sharp one — **a delivery whose artifacts land somewhere the consumer cannot see previously succeeded silently and now raises.**
+
+That is the intended behaviour and the entire point of C-94. It is still a change a consumer must be told about, and the only signal views-models receives is a MINOR version bump in `VIEWS_POSTPROCESSING_PIN`. Nothing in this repository states that a previously-passing run can now fail.
+
+**The asymmetry is the finding.** This repository is unusually careful about telling *contributors* things — a register, ADRs, CICs, guards that refuse with paragraph-long explanations. It tells *consumers* nothing but an integer. views-models#403 is the shape of the consequence in the other direction: launchers sat on `1.1.0` for eight days after `1.1.1` fixed a defect that had already killed a delivery, because nothing made the difference legible.
+
+**Deliberately not proposed: a full changelog discipline.** What is needed is a line per release naming behaviour a consumer can observe. Whether that lives in `CHANGELOG.md`, in the GitHub release body, or in the pre-release notes FAO already receives is a choice, not a requirement.
+
+Cross-refs: **C-94** and **C-103** (the new failure modes), **C-112** (the inbound half — nothing checks whether a consumer took the release either; the two compound), **views-models#403** (the same gap costing eight days in the other direction), **C-24** (a consumer-facing contract divergence nobody surfaced).
+
+**✅ RESOLVED 2026-08-26, at the release its trigger named.** The trigger read *"the
+next version is cut — write what changed for a consumer, or record why the number alone
+is enough."* 1.2.0 is that release, and `CHANGELOG.md` now exists at the repository root
+with an entry naming each of the three escaping exception types, the condition each one
+replaces, and the new `observed_through` provenance field — under the heading the entry
+asked for: **what changed for a consumer**, with the failure modes stated first.
+
+The venue was left open by the entry deliberately, and the choice made here is the root
+`CHANGELOG.md` rather than the GitHub release body, so that a consumer reading the source
+tree at a pinned version can see it without leaving the checkout. The release body quotes it.
+
+Two falsification probes asserted this gap and both are retired by this change — S2 from
+the 2026-08-21 audit and H1 from the 2026-08-25 one. **They are the same finding, located
+twice**, because the second audit designed its probes without reading the first's stubs.
+That is a lesson about the audit procedure rather than about this entry, and it is recorded
+in `tests/test_falsification_release_readiness.py` where the next auditor will meet it.
+
+**What this does not close: C-112**, the inbound half — nothing here can still see what a
+consumer actually runs. A changelog tells views-models what changed; it does not tell this
+repository whether views-models read it.
 
 ---
 
