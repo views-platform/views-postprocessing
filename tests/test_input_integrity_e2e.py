@@ -100,6 +100,7 @@ def test_s5_upload_description_carries_structured_provenance():
         expected_cell_count=coverage.expected_for("land_gaul"),
         actual_cell_count=3,
         unmapped_count=0,
+        observed_through=559,
     )
     description = f"Enriched ... provenance={json.dumps(prov, separators=(',', ':'))}"
 
@@ -120,5 +121,6 @@ def test_s5_provenance_records_unmapped_cells_when_present():
         expected_cell_count=coverage.expected_for("land_gaul"),
         actual_cell_count=3,
         unmapped_count=1,
+        observed_through=559,
     )
     assert prov["unmapped_count"] == 1

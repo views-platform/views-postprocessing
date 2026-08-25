@@ -141,10 +141,17 @@ def test_provenance_carries_only_the_declared_closed_keyset():
         expected_cell_count=64742,
         actual_cell_count=64742,
         unmapped_count=0,
+        observed_through=559,
         fill_count=3,
     )
     assert set(prov) == {
         "lookup_version",
+        # #297: the producer's observed-data frontier this run clipped against. A
+        # month_id integer — no PII, no credential, no internal path — and it is
+        # precisely what the partner needs to tell a sparsely-reported month from
+        # a fabricated one. Widening this keyset is a deliberate act; that is why
+        # this guard exists.
+        "observed_through",
         "region",
         "expected_cell_count",
         "actual_cell_count",
