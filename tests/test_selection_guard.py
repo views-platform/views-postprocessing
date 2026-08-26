@@ -98,6 +98,7 @@ def test_compact_description_fits_the_store_limit():
         expected_cell_count=64742,
         actual_cell_count=64742,
         unmapped_count=0,
+        observed_through=559,
     )
     text = compact_description(prov)
     assert len(text) <= DESCRIPTION_MAX

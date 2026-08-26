@@ -156,6 +156,9 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         logger.info(f"Initializing {self.__class__.__name__}")
         self._forecast_resolution = None  # {target: TargetLease}, set by _read
         self._historical_frame = None  # views_frames.FeatureFrame, set by _read
+        # int | None, set by _read_historical_frame. UNREAD until then, so that
+        # "never read" cannot be mistaken for "read and unavailable" (#297).
+        self._observed_through = provenance.UNREAD
 
     def _read_historical_frame(self):
         """#126: historical actuals as a views_frames.FeatureFrame — the first
@@ -179,6 +182,10 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 exc_info=True,
             )
             lv = None
+        # Stamped into provenance either way: the boundary this run clipped against,
+        # or None meaning the clip was skipped. #297 cost a day of forensics because
+        # the artifact could not answer which.
+        self._observed_through = lv
         if lv is None:
             self._historical_frame = frame
             return
@@ -417,6 +424,7 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             expected_cell_count=coverage.expected_for(region),
             actual_cell_count=len(frame_extraction.cells_of(self._historical_frame)),
             unmapped_count=historical.unmapped_cell_count(table),
+            observed_through=self._observed_through,
         )
         return provenance.compact_description(prov)
 

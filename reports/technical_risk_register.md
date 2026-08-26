@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-21                           |
-| Total Concerns          | 109                                   |
-| Open Concerns           | 29                                   |
-| Resolved Concerns       | 80                                   |
+| Last Updated      | 2026-08-26                           |
+| Total Concerns          | 112                                   |
+| Open Concerns           | 31                                   |
+| Resolved Concerns       | 81                                   |
 
 ---
 
@@ -52,9 +52,15 @@ covered a single open entry (see Historical clusters below).
 **Fix strategy:** this repo already solved this disease once — the ADR-013 audit series ended with a **permanent guard suite** (`tests/test_falsify_adr013_*.py` — `pytest --collect-only -q tests/test_falsify_adr013*.py` for the count, which moves), and the same pattern now guards the þing-01 invariants (`tests/test_env_declaration.py`, `tests/test_redaction_guard.py` — the latter briefly **only over the roots that still existed**, see C-74, resolved: a guard is only as good as the assertion that its inputs are real, and it now carries that assertion). There is **no equivalent for the register**. A small `tests/test_register_integrity.py` — header counts match section counts; no RESOLVED body under `## Open Concerns`; every `C-\d+`/`D-\d+` reference resolves or is namespaced to a foreign register — would make this class self-detecting.
 **Resolution scope:** Full for the mechanical half.
 
+**Succeeded by Cluster N.** This cluster's disease was governance prose drifting out of step with cross-repo state; its mechanical half is guarded now. What replaced it is broader and is tracked as **Cluster N, "This repository cannot see itself"** — the same surface, including the parts no guard reaches.
+
+**✅ CLOSED 2026-08-21 (review-rr triage).** Every entry cited above is resolved, and the cluster's own prescription landed: it asked for *"a small `tests/test_register_integrity.py` — header counts match section counts; no RESOLVED body under `## Open Concerns`; every `C-\d+`/`D-\d+` reference resolves or is namespaced"*. That file exists and does exactly those three things, plus five more; it is green, and it caught two real errors during this week's registrations (a header count off by one, and a views-pipeline-core `C-241` written without its namespace).
+
+**The residual, and it is this cluster's disease one level up.** The guard covers entries. It does **not** cover the Causal Clusters section — which is how this cluster sat with nine resolved entries and no closure marker until a triage read it by hand, and how Cluster J went on calling a resolved C-22 *"acute"*. **C-109** records the same shape for `Location` line numbers. Nothing is proposed here: the honest position is that the mechanical half is done and the prose half is checked by reading, which is what triage is for.
+
 ### Cluster J: Delivery aftercare has no mechanism
 **Root cause:** the delivery pipeline is write-only — nothing exists downstream of upload for correction, recall, or provenance audit.
-**Entries:** C-22 (acute), C-15, C-24, C-105 (added 2026-08-16 — a torn upload attempt is aftercare the write-only path has no answer for)
+**Entries:** C-15, C-24, C-105 (added 2026-08-16 — a torn upload attempt is aftercare the write-only path has no answer for) — plus **C-22, RESOLVED**, which this line called *"acute"* until 2026-08-21
 **Highest tier:** 3
 **Fix strategy:** the C-22 correction procedure (issue #15) plus pipeline-core #245's structured metadata field to retire the description-as-carrier abuse.
 **Resolution scope:** Partial (process, not code).
@@ -158,6 +164,15 @@ history at `3f1ea1f` and earlier; it is omitted here because a navigation aid
 that indexes only deleted code is noise.
 
 ---
+
+### Cluster N: This repository cannot see itself
+**Root cause:** the guards here are unusually good at checking code against a declaration, and absent wherever the subject is the repository's own prose, its own records, or its relationship to anything outside. Every entry below was filed separately; together they are one class.
+**Entries:** C-109 (`Location` line numbers rot faster than the review cycle), C-107 (docstrings sit outside the doc-accuracy scan), C-95 (a verdict mis-cited in three places), C-110 (a release block this repo scheduled for itself, documented nowhere a releaser looks), C-111 (a release changes delivery behaviour and only the version number says so), C-112 (nothing observes what consumers actually run) — plus **C-81**, whose own headline number was falsified by PR #280 and stood stale for four days.
+**Highest tier:** 2 (C-81)
+**Fix strategy:** **not more guards.** C-109 records why the obvious mechanical check fails — content assertions need a second declaration that can itself go stale, which is ADR-014 §2's warning. What works is a *reading* pass: this cluster was assembled by `/review-rr strategic` on 2026-08-21, and four of its seven members were found by reading rather than by any test. Schedule the reading; do not build a linter for prose.
+**Resolution scope:** Partial and by nature. C-107 and C-109 are closable as conventions (scan the docstrings; cite by symbol). C-111 and C-112 are closable as artifacts (a changelog; a pin check). C-95, C-110 and C-81 are closable only by someone re-reading what the register says and comparing it to what is true — which is the activity, not a deliverable.
+
+**Why this cluster was late.** Six of its seven entries arrived between 2026-08-16 and 2026-08-21, during one sprint, each filed as an unrelated finding. The register had no cluster for them because the clusters describe *delivery* risks — inherited surface, go-global debt, aftercare, the lookup artifact. Nothing described the governance layer as a risk surface of its own, even though the register is the artifact four repositories read.
 
 ## Open Concerns
 
@@ -631,6 +646,8 @@ and silent about the *cost*. Adopting `[edition].obliges_consumers` is the defer
 would fix it, and its trigger is below.
 
 
+**A second source of redness, and it is ours — see C-110.** From 2026-10-18 `tests/test_credential_expiry.py` fails by design, so this entry's no-bypass finding starts applying to a block this repository scheduled for itself rather than one a sibling caused.
+
 ---
 
 ### C-87: The delivery label will be checked against a declaration, and nothing will check the declaration against the consumer
@@ -719,6 +736,8 @@ The FAO delivery authenticates with the `UN FAO` key. That key expires **2026-11
 Four companion tests keep it honest rather than decorative: the firing branch is exercised against a probe **derived from** `KEY_EXPIRY` (**C-102** — a guard that has never run is unproven; deriving it rather than hardcoding means the proof survives a rotation instead of quietly expiring with it); an acknowledgement past the expiry is refused; `LEAD_DAYS` is floored, because shaving a week off the warning neuters the guard while leaving it looking present; and the outage-day text is checked, since the first draft would have told an operator the keys expired *"in -3 days"* while the seam was down. All verified by mutation.
 
 Cross-refs: **C-81** (the same operator session's other half — branch protection and the CI token), **C-27** (no rotation mechanism for a secret value upstream), **C-57** (the pinned-registry detector, which is how this arrived here at all — it demanded the v1.4.4 bump and the bump is what surfaced the expiry), þing-02 A3(i), views-appwrite C-65 and C-66.
+
+**The tripwire gates the release path, which this entry did not say when it was added — see C-110.** From 2026-10-18 it reddens `test`, which `protect_main` makes a required check with zero bypass actors, so no release can be tagged until the keys rotate or `ACKNOWLEDGED_UNTIL` is set.
 
 ---
 
@@ -1017,16 +1036,27 @@ Cross-refs: **C-62** (the transitive dependency drag; the other 31 alerts), **C-
 
 ---
 
-### C-81: What actually gates `main` is weaker than it looks — CI verifies 8 fewer tests than local; the enforcement half is discharged
+### C-81: What actually gates `main` is weaker than it looks — CI verifies 2 fewer tests than local; the enforcement half is discharged
 
 | Field | Value |
 |-------|-------|
 | ID | C-81 |
 | Tier | 2 — the guards this arc built to catch cross-repo drift do not run where drift happens, and the branch they protect has no required check. Both halves are structural and both have fired-in-practice evidence. |
 | Source | `code-review max` (2026-08-03) — development→main sync audit |
-| Trigger | **Coverage half, re-specified 2026-08-13:** the next time a views-datafactory change would break a delivery — its 8 gated tests are the whole remaining gap and none of them runs in CI. ~~*Original: when the Appwrite Seam Contract registry next moves, nothing in CI will notice.*~~ **That trigger is false** and has been since 2026-08-10: CI checks out views-appwrite at `ref: main` and sets `VIEWS_APPWRITE`, so every registry-drift detector runs there. ~~**Enforcement half:** the first time someone merges a red PR to `main`~~ — **DISCHARGED 2026-08-13**: `protect_main` now requires the `test` check (see C-86). |
+| Trigger | **Coverage half, re-specified again 2026-08-21 — the previous wording is now false.** It read *"its 8 gated tests are the whole remaining gap and none of them runs in CI"*. PR #280 added the views-datafactory checkout, so four of those now run in the gate. The live trigger is what remains: **the next time a change to a views-datafactory artifact that is NOT in its git repository would break a delivery** — the producer-comparison half of `test_gaul_lookup_fidelity` and the two `test_datafactory_deploy_readiness` gates still skip in CI, because the GAUL parquets and `data/assembled/` are untracked upstream (C-46, C-108). ~~*Original: when the Appwrite Seam Contract registry next moves, nothing in CI will notice.*~~ **That trigger is false** and has been since 2026-08-10: CI checks out views-appwrite at `ref: main` and sets `VIEWS_APPWRITE`, so every registry-drift detector runs there. ~~**Enforcement half:** the first time someone merges a red PR to `main`~~ — **DISCHARGED 2026-08-13**: `protect_main` now requires the `test` check (see C-86). |
 | Owner | Simon — both halves need operator action. The coverage half needs a token for two private repositories; the enforcement half is a GitHub console/ruleset change. Neither is engineering work. |
 | Location | `.github/workflows/run_pytest.yml`; the `protect_main` ruleset; `tests/conftest.py::sibling_repo` |
+
+**⚠ RE-MEASURED 2026-08-21: the headline number was 8 and is now 2, and this entry did not notice for four days.**
+
+| environment | result |
+|---|---|
+| CI-shaped (both siblings, tracked files only) | **468 passed, 5 skipped** |
+| full local (both siblings complete) | **470 passed, 3 skipped** |
+
+PR #280 fetched views-datafactory in CI, moving four checks from skipped to running — C-30's exclusion-manifest tripwire, C-46's release gate, the region-set check and the wire-cast dtype check. The gap it measures closed by three-quarters and the entry went on stating the old figure, in the one place a reader goes to find out how strong the gate is.
+
+**That is not an aside.** This entry exists to measure the distance between what CI checks and what a laptop checks. Carrying a stale number is the same defect one level up, and it is why the "This repository cannot see itself" cluster names this entry alongside C-109 and C-107.
 
 **Coverage.** Measured in an isolated clone, not estimated — **402 collected in every run**, so the whole delta is skips:
 
@@ -1117,9 +1147,9 @@ Cross-refs: **C-26** (the fabrication this clip exists to prevent), **C-07** (un
 | ID | C-104 |
 | Tier | 3 — no production impact. The cost is that a red suite stops carrying signal, on precisely the two modules with the thinnest coverage. |
 | Source | `/repo-assimilation` (2026-08-16), measured |
-| Trigger | When `pytest` reports failures in `tests/test_framework_contract.py` or `tests/test_store_construction.py`, check `pip show views-pipeline-core` against `poetry.lock` before reading them as defects. |
+| Trigger | When `pytest` reports byte-parity or manager-import failures, run `tests/test_locked_environment.py` first and check the interpreter with `python -V` — on 3.12 or newer the drift **cannot** be reconciled and the remedy the test prints will fail. |
 | Owner | This repository. |
-| Location | `tests/test_framework_contract.py`, `tests/test_store_construction.py` (20 failures); `tests/test_wire_shard.py`, `tests/test_wire_sidecar.py`, `tests/test_hop_b_sink_e2e.py` (5 failures); `poetry.lock` versus the project venv |
+| Location | `tests/test_framework_contract.py`, `tests/test_store_construction.py` (20 failures); `tests/test_wire_shard.py`, `tests/test_wire_sidecar.py`, `tests/test_hop_b_sink_e2e.py` (5 failures); `poetry.lock` versus the project venv; `pyproject.toml` line 12 (`python = ">=3.11,<3.15"`) |
 
 Measured 2026-08-16 in the project venv: 458 collected, **433 passed, 25 failed**, 39 xfailed, in 14.85s. The venv holds `views-pipeline-core 2.3.0` and `pyarrow 23.0.1`; `poetry.lock` pins **3.0.1** and **16.1.0**. The pyarrow half is known and predicted: 5 byte-parity failures reporting *"pinned toolchain violated: byte-parity oracle requires pyarrow 16.1.0, found 23.0.1"*, exactly what `tests/fixtures/wire_contract/README.md` says will happen under **C-72**. The pipeline-core half is documented nowhere: `ModuleNotFoundError: No module named 'views_pipeline_core.modules.dataloaders.datafactory_contract'`, raised at import of both managers, which takes out every test that constructs or inspects one.
 
@@ -1132,6 +1162,24 @@ Three things it deliberately does not treat as drift: dependencies gated by `opt
 It does **not** fix the drift and does not skip. The 25 failures remain until someone runs `poetry install`; what changes is that a contributor can now tell in one line which kind of problem they have. That is the whole of the entry's cost — the failures were never wrong, they were unreadable — so the entry stays open only until the environment is actually reconciled, which is a machine action rather than engineering work.
 
 Dev-group tools are deliberately out of scope: `ruff`'s reported version varies with how it was installed, and the thing that actually broke CI on 2026-08-03 was its *rule set*, which `pyproject.toml` already pins explicitly.
+
+**2026-08-22 — the drift is not neglect: `poetry install` cannot succeed on this machine, and the entry's own remedy is the advice it warns about.** Running it took the suite from **26 failed / 470 passed** to **6 failed / 490 passed** — it upgraded `views-pipeline-core` 2.3.0 → 3.0.1 and then died building `levenshtein 0.20.9` from source. What remains is a single drifted package, `pyarrow` installed 23.0.1 against 16.1.0 locked, and all six failures are that one cause: five C-72 byte-parity checks plus the lock check reporting it. No defects among them.
+
+The build failure is not incidental. The developer venv is **Python 3.13.7**; wheel availability for the two blocking packages, measured directly against the index:
+
+| interpreter | `pyarrow 16.1.0` | `levenshtein 0.20.9` |
+|---|---|---|
+| cp311 | yes | yes |
+| cp312 | yes | **no** |
+| cp313 | **no** | **no** |
+
+`levenshtein` is capped `>=0.20,<0.21` by **`ingester3`**, and no release in that range publishes a 3.12+ wheel — so the cap, not this repository, is what fixes the ceiling. **`poetry.lock` is installable on cp311 alone.** CI runs 3.11 and the delivery's own conda prefix is 3.11.15 holding `pyarrow 16.1.0`; both match the lock exactly. Only the developer venv is off, and it cannot be brought back by the command everyone is told to run.
+
+That makes the mitigation above **half wrong in the way it names as a failure**. Its own text rules out reporting a package as "run `poetry install`" when that advice cannot work — and on a 3.12+ interpreter the drift line does exactly that, sending the reader at a command that will fail on a package they have never heard of, thrown by a transitive dependency of a dependency. The remedy is a machine action still, but a different one: rebuild the venv on 3.11, not reinstall on 3.13.
+
+The second half is that `pyproject.toml` declares `python = ">=3.11,<3.15"`, which the table above shows is **false** — a contributor arriving on 3.12 or 3.13 is told the project supports them and then cannot install it. Tracked separately as **#295**, because it is a declaration defect rather than an environment one and its fix is a one-line change with a cross-repo cause.
+
+**This entry stays open, and what closes it has changed.** It is no longer "someone runs `poetry install`" — that is now known not to work here. It is that the venv is rebuilt on a 3.11 interpreter, which is an operator action on the machine.
 
 Cross-refs: **C-72** (owns the pyarrow half — that half is not re-registered here), **C-81** (CI-versus-local coverage asymmetry), **C-36** (a permanently-red suite cannot detect new regressions), **C-102** (the same argument in the other direction: a guard that never runs proves nothing, and a failure nobody can read is not a signal).
 
@@ -1166,7 +1214,7 @@ Cross-refs: **C-94** (nothing observes the outcome of an upload at the time it h
 
 ---
 
-### C-106: The §2 header builder — the module that owns the contract version — is reachable only from tests
+### C-106: The §2 header builder — the module that owns the contract version — is reachable only from tests `[backlog]`
 
 | Field | Value |
 |-------|-------|
@@ -1243,7 +1291,57 @@ C-103 is the sharp case, and the reason this is a class rather than three typos:
 
 **Why the obvious guard does not work, stated so it is not proposed again cheaply.** Checking that a file has at least that many lines catches nothing: every stale citation above points at a real line. Checking *content* requires the entry to declare what it expects to find there, which is a second declaration that can itself go stale — the shape ADR-014 §2 warns about. The cheap and durable move is the convention (`::symbol`), not a test.
 
-Cross-refs: **C-103** (twice stale in four days — the case that made this visible), **C-107** (docstrings outside the doc-accuracy scan; the same "nothing checks the prose" family), **C-82** (governance prose carrying numbers nothing checks, resolved).
+Cross-refs: **C-103** (twice stale in four days — the case that made this visible), **C-95** (a verdict mis-cited in three places — the same defect in prose rather than in a line number, and the nearest sibling), **C-107** (docstrings outside the doc-accuracy scan; the same "nothing checks the prose" family), **C-82** (governance prose carrying numbers nothing checks, resolved).
+
+---
+
+### C-110: The release path will block itself from 2026-10-18, and nothing tells the person it blocks
+
+| Field | Value |
+|-------|-------|
+| ID | C-110 |
+| Tier | 3 — the ability to ship is interrupted on a known date, but the escape is in-repo and reachable. That is what separates it from **C-86**'s Tier 2, where the only responses are console actions by one person. If the acknowledgement were ever removed, or the tripwire made unconditional, this becomes C-86's tier. |
+| Source | `/falsify` release-readiness audit, 2026-08-21 (probe P5) |
+| Trigger | A release is cut on or after **2026-10-18**, or anyone reports a red `test` check on `main` they cannot explain — read `tests/test_credential_expiry.py` before diagnosing anything else. |
+| Owner | This repository for the documentation; the operator for the rotation that removes the cause. |
+| Location | `tests/test_credential_expiry.py::test_the_platform_keys_are_not_about_to_expire`; the `protect_main` ruleset; `docs/operations/` (where the runbook that would say this does not exist). |
+
+Measured 2026-08-21 against the live ruleset: `protect_main` is **active**, the `test` job is a **required status check**, and `bypass_actors` is **empty** — C-86's finding, re-confirmed. `test_credential_expiry` fails from 30 days before the 2026-11-17 expiry, i.e. **2026-10-18**. From that date the required check is red, so no pull request merges to `main` and no release can be tagged.
+
+**This entry exists because it falls between two records and is in neither.** C-84 registers the expiry and the tripwire and does not mention the release path or required checks. C-86 registers that a red build cannot be bypassed and does not mention the tripwire. The interaction — *the guard we added will redden the check that cannot be bypassed, on a date we chose* — is the product of the two, and was not noticed when the tripwire was added four days earlier. The ruleset was never queried at the time; the audit queried it.
+
+**The escape is real and was verified, which is why this is Tier 3.** A pull request that sets `ACKNOWLEDGED_UNTIL` is green on its own branch (measured: `1 failed` → `6 passed`), so the block is not a trap and the fix is not gated behind the thing it fixes. What is missing is that **nothing tells a releaser any of this**. There is no release runbook in `docs/operations/`, and the failure message names `ACKNOWLEDGED_UNTIL` without saying that a release is what it is blocking.
+
+**Closing this is documentation, not code.** Either a release runbook that names the interaction, or a cross-reference in C-84 and C-86 so that whoever reads one meets the other.
+
+Cross-refs: **C-84** (the expiry and the tripwire), **C-86** (no way past a red build; zero bypass actors), **C-81** (what actually gates `main`).
+
+---
+
+### C-112: Nothing here can see what production actually runs, and it ran a defect we had already fixed for eight days
+
+| Field | Value |
+|-------|-------|
+| ID | C-112 |
+| Tier | 3 — nothing is silent: the defect that made this visible failed loudly and killed a delivery. What is missing is any signal about **version lag**, so work landing here does not reach production and no one on this side can tell. Coordination cost, not corruption. |
+| Source | Cross-repo issue sweep, 2026-08-21 — prompted by the question *"have you checked all gh issues related to this repo?"*, which had not been done in this repository at all |
+| Trigger | A release is cut here, **or** a delivery fails in a way this repository has already fixed — before diagnosing, read what `views-models`' launchers pin. If it is behind the newest tag, that is the first hypothesis, not the last. |
+| Owner | This repository for the visibility; views-models for the pin itself. |
+| Location | No file — that is the finding. `views-models` `postprocessors/{un_fao,un_crafd}/run.sh` hold `VIEWS_POSTPROCESSING_PIN`, and nothing in this repository reads them. |
+
+**Measured 2026-08-21.** Both launchers pin **1.1.0**. This repository's newest tag is **1.1.1**, published eight days earlier, and 1.1.0 carries the `_ContractStorePort.download` fail-open — register **C-99**, the defect that killed the first `un_crafd` delivery attempt on 2026-08-13. So production has been running a known-defective build of this package, on the FAO leg as well as CRAF'd, for over a week, and **nothing on this side could see it**. views-models#403 was filed for it and is open.
+
+At the same time, `main` carries **29 commits since 1.1.1** — every guard from this week's work, including the C-94 findability preflight and the C-105 torn-run ledger. None of it is in production either.
+
+**Two gaps, one shape: this repository cannot see the distance between what it declares and what anyone runs.** It does not know what consumers pin, and nothing compares its declared version against what is published. `tests/test_release_version.py` compares `pyproject` to the git tag — both facts *inside this repository* — which is why a version bump that is never tagged, or a tag no consumer ever takes, is invisible to it.
+
+**Why this is not C-111.** That entry is the outbound half — we change delivery behaviour and tell consumers nothing but an integer. This is the inbound half — we do not look at whether they took it. They compound: 1.1.1 fixed a delivery-killing defect, nothing announced it, and nothing checked whether it landed.
+
+**The obvious fix has a known cost, and it is already registered.** CI checks out sibling repositories so cross-repo assertions run (ADR-016); views-models is not among them. Adding it, plus a check that the launchers' pin is not behind the newest tag, would be the same shape as the existing drift checks. It would also add a fifth repository whose `main` can redden this build — **C-86**, no bypass actors. That trade is a decision, not a cleanup, which is why nothing is proposed here.
+
+**The wider observation, recorded once so it is not rediscovered.** Eighty-four open issues across the organisation mention `views-postprocessing`; this repository tracks none of them and had never been swept. Most are informational, several were filed *by* this seat, and a few carry live asks (views-faoapi#390, views-crafdapi#55, views-models#362). No mechanism is proposed for that either — but a sweep belongs in the next repo-assimilation rather than being found by accident at the end of a sprint.
+
+Cross-refs: **C-111** (the outbound half), **C-99** (the defect production is still running), **C-86** (the cost of adding another sibling to CI), **C-81** (what actually gates `main`), views-models#403.
 
 ## Disagreements
 
@@ -3305,6 +3403,50 @@ Cross-refs: **views-faoapi C-161** (the deploy constraint §0.2a now surfaces �
 | ID | C-36 |
 | Resolved | 2026-06-22 |
 | Resolution | Converted the 43 permanently-failing tests to `xfail(strict=True)` so the suite is green-when-healthy: **119 passed / 43 xfailed / 0 failed**. The 40 falsification probes carry module-level `pytestmark` (plus a per-function mark on `r3_03`); the 3 cross-repo gates in `test_datafactory_deploy_readiness.py` are `xfail(strict)` tracked upstream as **views-datafactory#223** (provenance omits `admin_digest` → stale served grid) and **views-datafactory#224** (development version `1.3.0` collides with released tag). A real regression now surfaces as a `failed` (distinct from the expected xfails), and any probe/gate that *starts passing* flips to a strict failure forcing promotion. Residual (accepted): the pure-`assert False` probes don't test the live condition, so a fixed finding won't auto-flip — inherent to marker-style tests; the deploy gates, being conditional, do auto-flip. |
+
+---
+
+### C-111: A release can change whether a delivery fails, and the version number is the only thing that says so
+
+| Field | Value |
+|-------|-------|
+| ID | C-111 |
+| Tier | 3 — nothing is silent and nothing corrupts; the cost lands on a consumer who takes a version that changes their pipeline's outcome with no notice, and on whoever then diagnoses it across two repositories. |
+| Source | `/falsify` release-readiness audit, 2026-08-21 (discovered during execution, not predicted) |
+| Trigger | The next version is cut — write what changed for a consumer, or record why the number alone is enough. |
+| Owner | This repository. |
+| Location | The repository root — there is no `CHANGELOG.md`, no `docs/operations/release_notes.md`, and no release notes on the existing tags. |
+
+The delta since tag `1.1.1` adds three exception types that can escape into a launcher: `delivery.findability.DeliveryNotFindableError` and `FindabilityUnverifiedError` (C-94), and `contract.source_metadata.ProducerClientUnavailable` (C-103). The first is the sharp one — **a delivery whose artifacts land somewhere the consumer cannot see previously succeeded silently and now raises.**
+
+That is the intended behaviour and the entire point of C-94. It is still a change a consumer must be told about, and the only signal views-models receives is a MINOR version bump in `VIEWS_POSTPROCESSING_PIN`. Nothing in this repository states that a previously-passing run can now fail.
+
+**The asymmetry is the finding.** This repository is unusually careful about telling *contributors* things — a register, ADRs, CICs, guards that refuse with paragraph-long explanations. It tells *consumers* nothing but an integer. views-models#403 is the shape of the consequence in the other direction: launchers sat on `1.1.0` for eight days after `1.1.1` fixed a defect that had already killed a delivery, because nothing made the difference legible.
+
+**Deliberately not proposed: a full changelog discipline.** What is needed is a line per release naming behaviour a consumer can observe. Whether that lives in `CHANGELOG.md`, in the GitHub release body, or in the pre-release notes FAO already receives is a choice, not a requirement.
+
+Cross-refs: **C-94** and **C-103** (the new failure modes), **C-112** (the inbound half — nothing checks whether a consumer took the release either; the two compound), **views-models#403** (the same gap costing eight days in the other direction), **C-24** (a consumer-facing contract divergence nobody surfaced).
+
+**✅ RESOLVED 2026-08-26, at the release its trigger named.** The trigger read *"the
+next version is cut — write what changed for a consumer, or record why the number alone
+is enough."* 1.2.0 is that release, and `CHANGELOG.md` now exists at the repository root
+with an entry naming each of the three escaping exception types, the condition each one
+replaces, and the new `observed_through` provenance field — under the heading the entry
+asked for: **what changed for a consumer**, with the failure modes stated first.
+
+The venue was left open by the entry deliberately, and the choice made here is the root
+`CHANGELOG.md` rather than the GitHub release body, so that a consumer reading the source
+tree at a pinned version can see it without leaving the checkout. The release body quotes it.
+
+Two falsification probes asserted this gap and both are retired by this change — S2 from
+the 2026-08-21 audit and H1 from the 2026-08-25 one. **They are the same finding, located
+twice**, because the second audit designed its probes without reading the first's stubs.
+That is a lesson about the audit procedure rather than about this entry, and it is recorded
+in `tests/test_falsification_release_readiness.py` where the next auditor will meet it.
+
+**What this does not close: C-112**, the inbound half — nothing here can still see what a
+consumer actually runs. A changelog tells views-models what changed; it does not tell this
+repository whether views-models read it.
 
 ---
 
