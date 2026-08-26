@@ -52,36 +52,69 @@ def test_the_release_path_survives_its_own_expiry_tripwire():
     )
 
 
-@pytest.mark.xfail(reason="S2: unaddressed falsification — see the audit report", strict=True)
-def test_a_release_announces_delivery_failure_modes_it_adds():
-    """S2 (soft). 1.2.0 can fail a delivery that 1.1.1 completed, and nothing says so.
+# ─────────────────────────────────────────────────────────────────────────────
+# Second audit, 2026-08-25. Claim: *"we are ready to bump the version, set up a
+# PR to main, review, merge when review is good, then tag and publish."*
+#
+# Verdict: FALSIFIED — one hard, two soft.
+#
+# **H1 DISCHARGED 2026-08-26** (release 1.2.0). Its probe asserted that a release
+# names what changed about failing for a consumer. `CHANGELOG.md` now exists and
+# 1.2.0's entry names the three escaping exception types and the new provenance
+# field, so the probe would XPASS and `strict=True` would turn that into a failure.
+# Removed by hand rather than left to flip, per the S4 precedent (#200). Register
+# C-111 is closed by the same change.
+#
+# **S2 DISCHARGED 2026-08-26** by the same change — and it is the same finding.
+# S2 (2026-08-21) and H1 (2026-08-25) are one concern found twice by two audits,
+# which is itself worth recording: the second audit did not read the first's stubs
+# before designing probes. Both are C-111; both are closed by CHANGELOG.md.
+#
+# S1, S3 and S4 remain open and are below. The bump SIZE (minor,
+# not patch) is recorded as an observation, not a falsification: nothing in the
+# repo is wrong about it, it is a way the releaser could be.
+# ─────────────────────────────────────────────────────────────────────────────
 
-    The shipped delta since tag 1.1.1 adds three exception types that can escape into a
-    launcher: `DeliveryNotFindableError` and `FindabilityUnverifiedError` (C-94) and
-    `ProducerClientUnavailable` (C-103). The first is the sharp one — a delivery whose
-    artifacts land somewhere the consumer cannot see previously **succeeded silently**
-    and now raises.
 
-    That is the intended behaviour and the whole point of C-94. It is still a change a
-    consumer must be told about, and the only signal they get is a MINOR version bump.
-    This repository has no CHANGELOG, so views-models' launchers would take 1.2.0 with
-    no notice that a previously-passing run can now fail.
+@pytest.mark.xfail(reason="S3: unaddressed falsification — see the audit report", strict=True)
+def test_tagging_actually_publishes():
+    """S3 (soft). "Tag and publish" is not the mechanism this repo has.
 
-    Fix: a CHANGELOG naming the new failure modes, or release notes on the tag. Either
-    satisfies this; the assertion below is deliberately loose about which.
+    `.github/workflows/publish_package.yml` triggers on `release: published` and
+    `workflow_dispatch` — **not** on tag push. Pushing a tag runs nothing.
+
+    The evidence that this is a live trap rather than a technicality: tags `1.0.0`
+    and `1.1.0` both exist and **neither has a GitHub Release**. Only `1.1.1` does,
+    which is the only version this workflow has ever published.
+
+    Fails until the workflow triggers on tag push, or until a release runbook states
+    that cutting a GitHub Release — not tagging — is the publishing step.
     """
-    candidates = [
-        _REPO / "CHANGELOG.md",
-        _REPO / "docs" / "CHANGELOG.md",
-        _REPO / "docs" / "operations" / "release_notes.md",
-    ]
-    present = [p for p in candidates if p.exists()]
-    assert present, (
-        "no changelog or release-notes file exists, so a consumer's only signal that "
-        "1.2.0 can fail a delivery 1.1.1 completed is the version number itself"
+    wf = (_REPO / ".github/workflows/publish_package.yml").read_text()
+    assert "tags:" in wf or "push:" in wf, (
+        "publish triggers only on `release: published`; a plan that says 'tag, then "
+        "publish' will tag and stop, and nothing will say so"
     )
-    text = "\n".join(p.read_text() for p in present)
-    for failure_mode in ("DeliveryNotFindableError", "ProducerClientUnavailable"):
-        assert failure_mode in text, (
-            f"{failure_mode} can escape into a launcher and is not announced anywhere"
-        )
+
+
+@pytest.mark.xfail(reason="S4: unaddressed falsification — see the audit report", strict=True)
+def test_the_publish_job_cannot_ship_untested_code():
+    """S4 (soft). The publish job runs no tests and declares no dependency.
+
+    `publish_package.yml` has no `needs:`, no pytest step, and one gate: that the
+    version in `pyproject.toml` parses higher than the newest on PyPI. So a GitHub
+    Release cut from any commit — a branch, a stale `main`, a commit whose `test`
+    job failed — builds and uploads to PyPI unconditionally.
+
+    Nothing has gone wrong yet because releases have been cut from a green `main`
+    by hand. The guard is the habit, not the workflow, and habits are what C-86
+    already showed this repo cannot rely on when one person holds them.
+
+    Fails until the publish job depends on a passing test run, or refuses a ref
+    whose checks are not green.
+    """
+    wf = (_REPO / ".github/workflows/publish_package.yml").read_text()
+    assert "needs:" in wf or "pytest" in wf, (
+        "publish validates only version-greater-than-PyPI; nothing establishes that "
+        "the code being shipped passes its own suite"
+    )
