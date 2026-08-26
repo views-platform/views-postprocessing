@@ -21,8 +21,12 @@ The constants and their contract homes:
   contract amendment.
 - ``UPLOAD_ENABLED`` — the §11.4 upload interlock: ``False`` means the sink writes
   artifacts locally and never calls the store. Overriding requires an explicit
-  launch-config declaration (wired in the sink story), and the first live
-  enablement is gated on faoapi's C-161 closure notice.
+  launch-config declaration (wired in the sink story). The consumer-side precondition
+  this once named — faoapi's C-161 closure notice — was **met 2026-07-20**, its
+  residual shipping in faoapi v1.5.4 on 2026-08-21.
+  What gates it now is **ours**: the upload path has never run against a real store —
+  þing-02 D2 forbids testing against production and the org holds no other project
+  (#18). That decision is **views-appwrite#171**.
 """
 
 from __future__ import annotations
