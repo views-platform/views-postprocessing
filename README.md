@@ -1,6 +1,6 @@
 # views-postprocessing
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![Poetry](https://img.shields.io/badge/dependency%20management-poetry-blueviolet)](https://python-poetry.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -43,7 +43,18 @@ poetry install
 pip install views-postprocessing
 ```
 
-Requires **Python 3.11–3.14**.
+Requires **Python 3.11**, and only 3.11.
+
+`pyproject.toml` still declares `>=3.11,<3.15`. **That declaration is wrong** and is
+tracked as **#295**: the lockfile resolves on 3.11 alone, because `ingester3` caps
+`levenshtein >=0.20,<0.21` and no release in that range publishes a 3.12+ wheel.
+Measured 2026-08-25 against the index. CI and the delivery's own environment both run
+3.11, so nothing in production is affected — the cost is that a contributor arriving on
+3.12 or 3.13 is told the project supports them and then cannot install it.
+
+Narrowing the declaration is a one-line edit that invalidates `poetry.lock` and forces a
+full re-resolve, which would move `pyarrow` off the 16.1.0 the ADR-013 §10 byte-parity
+fixtures are pinned to (C-72). So it is #295's own change, not a documentation fix.
 
 ### Dependencies
 
@@ -89,6 +100,21 @@ in #149; their rules survive as called invariants under `delivery/`. See the
 affected, confirm the fault offline, and supersede on the wire. The contract has no
 retraction primitive; a correction is a new complete run, manifest last.
 
+### If a delivery fails loudly
+
+Since **1.2.0** a run can stop in ways it previously would not, and each one replaces a
+silent failure with a refusal. A launcher may see:
+
+| exception | what it means |
+|---|---|
+| `DeliveryNotFindableError` | the upload succeeded but the consumer's own query does not find **this** run — the failure where every call reports success and the partner sees nothing |
+| `FindabilityUnverifiedError` | the check above could not run; *"could not ask"* is deliberately not *"asked and got nothing"* |
+| `ProducerClientUnavailable` | the producer client would not load, so the observed-data boundary is unknown. Refuses rather than shipping the unobserved tail as observed history |
+| `TornRunError` | a run failed partway through uploading. Names every object confirmed uploaded and the one that failed; deletes nothing |
+
+If one fires after an upgrade it is reporting a condition that was already wrong and
+already invisible. [`CHANGELOG.md`](CHANGELOG.md) carries the detail.
+
 ### Output schema (geographic metadata columns)
 
 These 9 columns are the delivered geography contract, declared in
@@ -132,7 +158,8 @@ views-postprocessing/
     │   ├── draws.py                # the §6 no-collapse gate
     │   ├── parity.py               # sidecar covers exactly the forecast's cells
     │   ├── observed_range.py       # fabricated-month decision
-    │   └── provenance.py           # structured upload provenance
+    │   ├── provenance.py           # structured upload provenance
+    │   └── findability.py          # does the consumer's query find THIS run?
     ├── contract/                 # HOW A DELIVERY IS BUILT — partner-neutral
     │   ├── wire/                    # the ADR-013 contract (header, shard, sidecar,
     │   │                            #   run_manifest, sink, source_selection, naming)
@@ -219,7 +246,8 @@ only `.py`; it now scans markdown too.)*
 |-----|----------------|
 | [`docs/architecture/role_and_seams.md`](docs/architecture/role_and_seams.md) | **Start here** — role vs the sibling repos + internal seams |
 | [`docs/ADRs/`](docs/ADRs/) | Architecture decisions (esp. ADR-011 mapper→lookup; ADR-012 ontology) |
-| [`docs/CICs/`](docs/CICs/) | Class intent contracts (`UNFAOPostProcessorManager`) |
+| [`docs/CICs/`](docs/CICs/) | Class intent contracts — one per partner manager; the CRAF'd one is stated as a delta against the UN-FAO one |
+| [`CHANGELOG.md`](CHANGELOG.md) | **What changed for a consumer**, per release — behaviour a launcher can observe, failure modes first |
 | `reports/technical_risk_register.md` | Tracked risks — C-40 (the remaining pipeline-core inheritance), C-30/C-15 (delivery guards), C-43 (enrichment value verification) |
 
 ---
