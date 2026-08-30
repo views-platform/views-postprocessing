@@ -74,7 +74,9 @@ diff views_postprocessing/unfao/managers/unfao.py \
      views_postprocessing/crafd/managers/crafd.py
 ```
 
-Sixteen lines differ on each side and **none of them changes behaviour**: the import,
+The differing lines **change no behaviour**, and the count is deliberately not
+repeated here — it was sixteen when this paragraph was written and is not now. What
+differs is: the import,
 the class name, the two partner-named methods and their two call sites, the four
 env-var literals, one line that both selects which env tuple is validated and labels
 the store, one runtime refusal message, and four lines of prose.

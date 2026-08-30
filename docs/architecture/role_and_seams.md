@@ -106,7 +106,7 @@ The input-integrity guards are split into **two homes** on purpose:
 - `views_postprocessing/delivery/` — **representation-free invariants**. Primitives only
   (sets of ints, numpy arrays, scalars, dicts). **No pandas, no views_frames.** Each is a
   pure rule that raises or passes: `coverage.py`, `draws.py`, `parity.py`,
-  `observed_range.py`, `provenance.py`.
+  `observed_range.py`, `provenance.py`, `findability.py`.
 - `views_postprocessing/contract/frame_extraction.py` — **the representation seam**. It
   turns a `views_frames` frame into the primitives the invariants consume.
 
@@ -171,7 +171,8 @@ views_postprocessing/
 │   ├── draws.py           the §6 no-collapse gate
 │   ├── parity.py          sidecar covers exactly the forecast's cells
 │   ├── observed_range.py  fabricated-month decision
-│   └── provenance.py      structured upload provenance
+│   ├── provenance.py      structured upload provenance
+│   └── findability.py     does the consumer's own query find THIS run? (C-94)
 ├── contract/            HOW A DELIVERY IS BUILT — partner-neutral, reusable by a clone
 │   ├── wire/              the ADR-013 contract (header, shard, sidecar, run_manifest,
 │   │                        sink, source_selection, naming)
