@@ -1341,6 +1341,18 @@ At the same time, `main` carries **29 commits since 1.1.1** — every guard from
 
 **The wider observation, recorded once so it is not rediscovered.** Eighty-four open issues across the organisation mention `views-postprocessing`; this repository tracks none of them and had never been swept. Most are informational, several were filed *by* this seat, and a few carry live asks (views-faoapi#390, views-crafdapi#55, views-models#362). No mechanism is proposed for that either — but a sweep belongs in the next repo-assimilation rather than being found by accident at the end of a sprint.
 
+**2026-08-26 — the sweep was done, and the pin gap recurred within 48 hours of closing.**
+
+The version half first. views-models moved both launchers **1.1.0 → 1.1.1** on 2026-08-24 (their `d0c6969`), closing views-models#403 and the C-99 exposure this entry was written about. **1.2.0 was published two days later, and both launchers are behind again** — views-models#439 now asks for the same move a second time. That sharpens the finding: the eight-day lag was not an incident, it is the **steady state** of a system whose only signal to a consumer is an integer they must notice unaided. Nothing about the first fix made the second lag less likely.
+
+The issue half was executed rather than deferred. **All 66 open issues across the organisation naming this repository were read and triaged on 2026-08-26** (down from 84 on 2026-08-21, without deliberate effort here). Prompted by a `/falsify` audit that had sampled eight and declared the limit rather than claiming the sweep was clean.
+
+**Result: nothing is blocked by this repository that was not already known.** The live asks named above are unchanged in shape — views-faoapi#390 and views-crafdapi#55 are both *ours to them* (C-92; they owe a test driving their real query-construction path), and views-models#362 is trigger-gated on an ADR-013 amendment that is not adopted. views-pipeline-core#488 tracks **their** blocking pin, not ours to move. The commitment this repository made on views-crafdapi#55 — *"we are deleting our check"* — was honoured: `tests/test_product.py::test_the_declared_consumer_name_matches_the_registry` reads the public registry instead of scraping a sibling's source.
+
+**One thing the sweep found that no mechanism would have.** views-postprocessing#123 and views-datafactory#341 are the **same decision**, filed from both sides on 2026-07-20, and **neither names an owner** — 37 days. That is not a block, which is exactly why nothing surfaced it: a block has an owner and a queue position, and this has neither. Recorded on #123. It argues the sweep's value is not the asks it confirms but the *unowned* items it is the only way to see — which in turn argues for repeating the sweep rather than mechanising it.
+
+Still no mechanism proposed, and the trade named above is unchanged: a pin check would add a fifth repository whose `main` can redden this build (**C-86**, no bypass actors). What has changed is the evidence — one recurrence, and one unowned cross-repo decision found only by hand.
+
 Cross-refs: **C-111** (the outbound half), **C-99** (the defect production is still running), **C-86** (the cost of adding another sibling to CI), **C-81** (what actually gates `main`), views-models#403.
 
 ## Disagreements
