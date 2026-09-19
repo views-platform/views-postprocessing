@@ -3343,23 +3343,6 @@ pure-eval = "*"
 tests = ["cython", "littleutils", "pygments", "pytest", "typeguard"]
 
 [[package]]
-name = "stepshift"
-version = "2.2.6"
-description = "Implementation of the Views stepshifting modelling framework"
-optional = false
-python-versions = ">=3.8"
-groups = ["main"]
-files = [
-    {file = "stepshift-2.2.6.tar.gz", hash = "sha256:398681a585c44eb056612b009ad0e3f6d48eb6a9be36f7fc911c8c0dd91af048"},
-]
-
-[package.dependencies]
-pandas = ">=1.3.2"
-PyMonad = ">=2.4.0"
-toolz = ">=0.11.1"
-xarray = ">=0.19.0"
-
-[[package]]
 name = "strconv"
 version = "0.4.2"
 description = "String type inference and conversion"
@@ -3505,35 +3488,33 @@ zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 
 [[package]]
 name = "views-evaluation"
-version = "1.0.0"
+version = "2.0.0"
 description = ""
 optional = false
 python-versions = "<3.15,>=3.11"
 groups = ["main"]
 files = [
-    {file = "views_evaluation-1.0.0-py3-none-any.whl", hash = "sha256:b5b0b2e49e4dad25eebf0919ad587328ada52b8a9aff001775b7123c36f99c7e"},
-    {file = "views_evaluation-1.0.0.tar.gz", hash = "sha256:8bff41285f3c6455e75e232e95e633140c72d38c15954b6998103634db57d093"},
+    {file = "views_evaluation-2.0.0-py3-none-any.whl", hash = "sha256:f18c3427c6c0d57cb37badbc7c2eb21df685798d0f0d8a477f91e3ebb370f487"},
+    {file = "views_evaluation-2.0.0.tar.gz", hash = "sha256:bde3feac02bf998948412c7807f514bcc03c6ec5e53ba0351a2db3d85d083869"},
 ]
 
 [package.dependencies]
 numpy = ">=1.26.4,<2.0.0"
-scikit-learn = ">=1.6.0,<2.0.0"
 scipy = ">=1.11,<2.0"
 
 [package.extras]
-dataframe = ["pandas (>=1.5.3,<2.0.0)"]
 frames = ["views-frames (>=1.10.2,<2)"]
 
 [[package]]
 name = "views-frames"
-version = "1.10.2"
+version = "2.0.0"
 description = "The VIEWS platform data-contract layer: immutable array+identifier frames (numpy only, root of the dependency DAG)."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "views_frames-1.10.2-py3-none-any.whl", hash = "sha256:ace7f6a09bdb743edbb39e7e95139a0c647ef7c6100ef4c612a3ce5975078ef0"},
-    {file = "views_frames-1.10.2.tar.gz", hash = "sha256:96b4916afe9b64389045043ec1cf05fa2ea9b872ac0d12cb57f0d629ffd88106"},
+    {file = "views_frames-2.0.0-py3-none-any.whl", hash = "sha256:389feb16d6bda995d9f2914de6f5619a38ff37025a0022216eb65d44e03f0b48"},
+    {file = "views_frames-2.0.0.tar.gz", hash = "sha256:de13c9713fdecbeb705d0698d285941ea1c614c37e80e8bc2ed7b68f83733ac5"},
 ]
 
 [package.dependencies]
@@ -3545,27 +3526,29 @@ docs = ["jupyterlab (>=4,<5)", "matplotlib (>=3.8,<4)", "nbmake (>=1.5,<2)", "py
 
 [[package]]
 name = "views-pipeline-core"
-version = "3.0.1"
+version = "3.3.0"
 description = "Core orchestration, data and model-management library for the VIEWS conflict forecasting platform."
 optional = false
 python-versions = "<3.15,>=3.11"
 groups = ["main"]
 files = [
-    {file = "views_pipeline_core-3.0.1-py3-none-any.whl", hash = "sha256:816e0093fda788d801bda38aa82c5de606867caa3cd561aa9652c98c740995fe"},
-    {file = "views_pipeline_core-3.0.1.tar.gz", hash = "sha256:c05d88dfe8aa28feff5ae466bb1e5fd96c4a799aa54d665b274469d4a81403d9"},
+    {file = "views_pipeline_core-3.3.0-py3-none-any.whl", hash = "sha256:7c0c7535ee9de7a74528bb64393621e379d57556ee125785d4d149a745dab515"},
+    {file = "views_pipeline_core-3.3.0.tar.gz", hash = "sha256:8edf80123d35a626ce282aae8bac94c9b6a56cdf3b0163c0d98c9ddbfb5aa7d1"},
 ]
 
 [package.dependencies]
 appwrite = {version = ">=13.4.1,<14.0.0", optional = true, markers = "extra == \"appwrite\""}
 art = ">=6.4,<7.0"
 ingester3 = "2.1.1"
+pandas = ">=1.5.3,<3.0"
 polars = ">=1.34.0,<2.0.0"
+pyarrow = ">=14.0.0,<17.0.0"
 pyprojroot = ">=0.3.0,<0.4.0"
-views-evaluation = ">=1.0.0,<2.0.0"
-views-frames = ">=1.10.2,<2.0.0"
-views-transformation-library = ">=2.7.2,<3.0.0"
+tqdm = ">=4.66,<5.0"
+views-evaluation = ">=2.0.0,<3.0.0"
+views-frames = ">=1.10.2,<3.0.0"
 viewser = ">=6.6.4,<7.0.0"
-wandb = ">=0.18.7,<0.19.0"
+wandb = ">=0.18.7,<1.0"
 
 [package.extras]
 appwrite = ["appwrite (>=13.4.1,<14.0.0)"]
@@ -3623,26 +3606,6 @@ files = [
 [package.dependencies]
 numpy = ">=1.20.0"
 pandas = ">=1.5.0,<2.0.0"
-
-[[package]]
-name = "views-transformation-library"
-version = "2.7.2"
-description = "A package containing data transformation functions used by the ViEWS team"
-optional = false
-python-versions = ">=3.8"
-groups = ["main"]
-files = [
-    {file = "views_transformation_library-2.7.2-py3-none-any.whl", hash = "sha256:8869ebb508ae8b397fa0c9daff8a2c448bf233baa88cd296b599b2978fd87b5f"},
-    {file = "views_transformation_library-2.7.2.tar.gz", hash = "sha256:1ce9d7c405d74bd6e609ad0c789d27be97f52007809b40f35fc09006b3ce4173"},
-]
-
-[package.dependencies]
-ingester3 = ">=0.6.0"
-pandas = ">=1.2.3,<2.0.0"
-scikit_learn = ">=1.0.2,<2.0.0"
-scipy = ">=1.6.2,<2.0.0"
-stepshift = ">=1.2.0"
-xarray = ">=0.19.0"
 
 [[package]]
 name = "viewser"
@@ -3757,32 +3720,7 @@ docs = ["Sphinx (>=6.0)", "myst-parser (>=2.0.0)", "sphinx_rtd_theme (>=1.1.0)"]
 optional = ["python-socks", "wsaccel"]
 test = ["pytest", "websockets"]
 
-[[package]]
-name = "xarray"
-version = "2024.3.0"
-description = "N-D labeled arrays and datasets in Python"
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "xarray-2024.3.0-py3-none-any.whl", hash = "sha256:ca2bc4da2bf2e7879e15862a7a7c3fc76ad19f6a08931d030220cef39a29118d"},
-    {file = "xarray-2024.3.0.tar.gz", hash = "sha256:5c1db19efdde61db7faedad8fc944f4e29698fb6fbd578d352668b63598bd1d8"},
-]
-
-[package.dependencies]
-numpy = ">=1.23"
-packaging = ">=22"
-pandas = ">=1.5"
-
-[package.extras]
-accel = ["bottleneck", "flox", "numbagg", "opt-einsum", "scipy"]
-complete = ["xarray[accel,dev,io,parallel,viz]"]
-dev = ["hypothesis", "pre-commit", "pytest", "pytest-cov", "pytest-env", "pytest-timeout", "pytest-xdist", "ruff", "xarray[complete]"]
-io = ["cftime", "fsspec", "h5netcdf", "netCDF4", "pooch", "pydap ; python_version < \"3.10\"", "scipy", "zarr"]
-parallel = ["dask[complete]"]
-viz = ["matplotlib", "nc-time-axis", "seaborn"]
-
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "302cbc3aa750f7dacffe848c6141e6ba542ce30f2f646d99a859409acfd23b49"
+content-hash = "e305efbfd4f9ed430ac7051fca50378ec49692af59354a03c2072ebf5cfaade6"

@@ -140,6 +140,7 @@ def _governance_docs() -> list[Path]:
 #: `unfao/managers/unfao.py`, and no rule turns one into the other.
 _CIC_SUBJECT = {
     "UNFAOPostProcessorManager.md": ("unfao", "managers", "unfao.py"),
+    "CRAFDPostProcessorManager.md": ("crafd", "managers", "crafd.py"),
 }
 
 
@@ -950,3 +951,33 @@ def test_the_runtime_import_guard_catches_both_ways_of_evading_it():
     assert kinds(
         "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import pandas\n"
     ) == ["type-only"], "a legitimate type-only import was flagged — the guard cries wolf"
+
+
+@pytest.mark.parametrize(
+    "doc", ["README.md", "docs/architecture/role_and_seams.md"]
+)
+def test_the_orientation_docs_list_every_delivery_invariant(doc):
+    """Both orientation documents present `delivery/` as a complete list. Nothing checked
+    that it was.
+
+    `delivery/findability.py` shipped on 2026-08-18 and was absent from both files until
+    2026-08-26 — the README frozen since 2026-08-04, `role_and_seams.md` the same day.
+    These are the two files a new contributor opens first, and a *complete* list missing
+    an entry is worse than no list: it is read as exhaustive.
+
+    Scoped to `delivery/` on purpose. It is the one directory both documents enumerate
+    exhaustively — the README collapses `contract/wire/` to a parenthetical, and a guard
+    that fired on that would be crying wolf about a deliberate abbreviation (ADR-014 §3).
+    """
+    modules = {
+        f.stem for f in (_PKG / "delivery").glob("*.py") if f.stem != "__init__"
+    }
+    assert modules, "no delivery modules found — this guard is scanning the wrong place"
+
+    text = (_REPO / doc).read_text()
+    missing = sorted(m for m in modules if f"{m}.py" not in text)
+    assert not missing, (
+        f"{doc} presents delivery/ as a complete list but omits {missing}. Either add "
+        "them or stop presenting the list as exhaustive — findability.py was absent from "
+        "both orientation documents for eight days after it shipped."
+    )

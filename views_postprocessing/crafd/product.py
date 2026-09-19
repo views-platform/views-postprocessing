@@ -27,8 +27,12 @@ The constants and their contract homes:
   it is a contract amendment.
 - ``UPLOAD_ENABLED`` — the §11.4 upload interlock: ``False`` means the sink writes
   artifacts locally and never calls the store. Overriding requires an explicit
-  launch-config declaration, and the first live enablement is gated on the
-  views-crafdapi consumer's selection guard being deployed in production.
+  launch-config declaration. The consumer-side precondition this once named — the
+  views-crafdapi selection guard in production — was **met 2026-08-12**
+  (views-crafdapi#53).
+  What gates it now is **ours**: the upload path has never run against a real store —
+  þing-02 D2 forbids testing against production and the org holds no other project
+  (#18). That decision is **views-appwrite#171**.
 """
 
 from __future__ import annotations

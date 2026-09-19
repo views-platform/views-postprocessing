@@ -118,3 +118,31 @@ def test_the_publish_job_cannot_ship_untested_code():
         "publish validates only version-greater-than-PyPI; nothing establishes that "
         "the code being shipped passes its own suite"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Third audit, 2026-08-26. Claim: *"nothing more to do here now; no pressing GH
+# issues or registered risk; no repos upstream or downstream blocked by this repo."*
+#
+# Verdict: FALSIFIED. Both of its stubs are disposed of here rather than carried:
+#
+# **S5 DISCHARGED 2026-08-26.** It asserted that neither product names a precondition
+# that has already been satisfied. Both did — `unfao` cited faoapi's C-161 closure
+# notice (delivered 2026-07-20), `crafd` cited the views-crafdapi selection guard
+# (views-crafdapi#53, closed 2026-08-12). Both docstrings now name the gate that
+# actually holds, views-appwrite#171. Removed by hand rather than left to XPASS.
+#
+# **S6 WITHDRAWN 2026-08-26 — it was not a guard that could fire.** It asserted the
+# "step 4 is incomplete" banner disappears from `docs/operations/correction_procedure.md`.
+# That banner cannot come down until FAO answers Pre-Release Note 07 Decision B.1, which
+# is not an action available in this repository at any effort. A test that can only go
+# green on an external party's reply is decoration (C-102), and **#292 already tracks the
+# item with more precision than an assertion can carry** — including the part the audit
+# got wrong: the nine mislabelled cells (views-datafactory#387) **were** disclosed to FAO
+# as Note 07 Topic G on 2026-08-21. The audit reported that disclosure as missing. It
+# was not.
+#
+# Two further findings from that audit are facts about the issue tracker, not the tree,
+# and are recorded in the sprint rather than as assertions: views-faoapi is blocked
+# downstream (#294), and #272's second question is unanswered.
+# ─────────────────────────────────────────────────────────────────────────────
