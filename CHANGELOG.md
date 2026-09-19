@@ -9,6 +9,50 @@ This file exists because the version number was the only signal a consumer got
 (register C-111). Releases before 1.2.0 are summarised from their tags rather than
 reconstructed in detail.
 
+## 1.3.0 — 2026-09-19
+
+**No new failure modes.** A launcher that ran 1.2.0 sees nothing new stop. This release
+moves two dependencies across a major version and picks up a statistics fix; the delivered
+bytes are unchanged.
+
+### Dependencies a launcher will resolve differently
+
+- **views-frames `>=2.0.0,<3`** (was `<2`). views-frames 2.0.0 is that package's first
+  MAJOR: its frame constructors now type-check `index` and raise `TypeError` on a non-index
+  where they previously constructed silently. This repository passes real indexes and is
+  unaffected. **Delivery bytes are identical** — shards emitted through `views_frames.io.arrow`
+  hash the same under 1.10.2 and 2.0.0 at the pinned toolchain, and the ADR-013 §10
+  byte-parity fixtures pass under 2.0.0 in CI. Not a contract change.
+- **views-pipeline-core resolves to 3.3.0** on a locked install (was 3.0.1). The declared
+  range `>=3.0.0,<4.0.0` did not change; 3.3.0 is what lifted its own `views-frames <2` cap
+  and made the move above possible. A `pip install` from the tag already resolved the newest
+  3.x, so a launcher installing from git sees no difference here.
+- **pyarrow stays at 16.1.0.** The `<17` ceiling is deliberate and owned by #174.
+
+### Fix picked up from upstream
+
+- views-frames 1.11.0 corrected the published MAP-containment law, which was wrong on
+  **tied draws** — failing roughly 6% of rows on zero-inflated integer count posteriors,
+  this platform's primary data shape. Moving past 1.10.2 brings it in. This repository
+  volunteered to take that fix first.
+
+### Documentation a reader of the code will notice
+
+- Both products' `UPLOAD_ENABLED` docstrings previously named a precondition that had
+  already been met — faoapi's C-161 closure notice (delivered 2026-07-20) and the
+  views-crafdapi selection guard (deployed 2026-08-12). They now name the gate that actually
+  holds: the non-production Appwrite decision, views-appwrite#171. **The interlock itself is
+  unchanged and still closed.** Nothing uploads.
+- `CRAFDPostProcessorManager` has an intent contract (`docs/CICs/`), stated as a delta
+  against the UN-FAO one. The README and `docs/architecture/role_and_seams.md` list every
+  `delivery/` module again, and a test now keeps them complete.
+
+### Upgrading
+
+Nothing to change in a launcher. Environments that hold `views-frames <2` for another
+reason — views-evaluation's `[frames]` extra caps it — will refuse to resolve; this
+repository requests neither that package nor that extra.
+
 ## 1.2.0 — 2026-08-26
 
 **A previously-passing delivery can now fail in three new ways. All three are
