@@ -17,7 +17,7 @@ python = ">=3.11,<3.15"
 # import the SDK unguarded. Without the extra the FAO delivery fails **at import**, not
 # at runtime, and inside a dependency rather than in our own code. Register C-07.
 views-pipeline-core = {version = ">=3.0.0,<4.0.0", extras = ["appwrite"]}
-views-frames = ">=1.10.2,<2"
+views-frames = ">=2.0.0,<3"
 pyarrow = ">=16.1.0,<17.0.0"
 
 # pytest was never declared here; it arrived transitively through pipeline-core, which
