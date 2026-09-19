@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-08-26                           |
-| Total Concerns          | 112                                   |
-| Open Concerns           | 31                                   |
+| Last Updated      | 2026-09-14                           |
+| Total Concerns          | 113                                   |
+| Open Concerns           | 32                                    |
 | Resolved Concerns       | 81                                   |
 
 ---
@@ -1354,6 +1354,31 @@ The issue half was executed rather than deferred. **All 66 open issues across th
 Still no mechanism proposed, and the trade named above is unchanged: a pin check would add a fifth repository whose `main` can redden this build (**C-86**, no bypass actors). What has changed is the evidence — one recurrence, and one unowned cross-repo decision found only by hand.
 
 Cross-refs: **C-111** (the outbound half), **C-99** (the defect production is still running), **C-86** (the cost of adding another sibling to CI), **C-81** (what actually gates `main`), views-models#403.
+
+---
+
+### C-242: The consumer rename reached the forecast and not the historical file — FAO's historical delivery carries wire vocabulary
+
+| Field | Value |
+|-------|-------|
+| ID | C-242 |
+| Tier | 3 — nothing is silent and nothing corrupts. The delivered numbers are right and the join keys are right. The cost lands on an FAO engineer who joins the two files and finds the forecast's value columns named one way and the historical file's another, and on the release note that committed to the first naming for both. |
+| Source | Review of FAO Release Note 06 against the delivered artefacts, 2026-09-14 (found while checking a Pre-Release Note 07 claim, not predicted) |
+| Trigger | The next `un_fao` delivery is cut, or the historical artefact's schema is touched — decide whether the consumer rename applies at this boundary, and if not, say so where the release note makes the commitment. |
+| Owner | This repository, at the write boundary. The name itself is upstream and deliberate — see below.  Tracked as **views-postprocessing#305**. |
+| Location | `views_postprocessing/unfao/managers/unfao.py:440` writes `historical_dataset_{timestamp}.parquet` with the frame's columns unchanged. The name originates in `views-models/postprocessors/un_fao/configs/config_queryset.py:57-59` (`ged_sb_best` → `lr_ged_sb`, and the same for `ns`/`os`). |
+
+The delivered historical artefact carries **`lr_ged_sb`, `lr_ged_ns`, `lr_ged_os`** as its three value columns. Verified against the newest delivery — `historical_dataset_20260813_080043.parquet`, the 13 August re-delivery after the empty-bucket incident, 28,421,738 rows, 14 columns — and against the copy downloaded 2026-09-09. Both carry the wire names.
+
+**The name is deliberate, not legacy drift.** ADR-013's adoption record in this register states: *target vocabulary **decided**: `lr_ged_sb/ns/os`, producers rename at publish (models#146)*. So the wire vocabulary is correct and should not be changed at the producer; `views-datafactory` supplies `ged_sb_best` and the `un_fao` queryset config maps it deliberately.
+
+**What is missing is the consumer-side rename at this boundary.** `D-06` (RESOLVED) already settled the principle: the rename from internal names to consumer-facing names *"belongs in views-faoapi as a response-formatting step, coordinated with FAO"*. For the **forecast** that is now built and shipped — `json_contract.to_consumer_columns` is applied in `forecast/serialize/bulk_parquet.py`, `forecast/serialize/grid_parquet.py`, and the `hdi-map` route, producing `sb_map`, `ns_hdi90_upper` and the rest. It is applied on **no historical path**; `wire_reader.py` records the design as *"the served target keeps the wire vocabulary; mapping to the consumer name happens at the boundary"*, and the historical boundary has no such mapping.
+
+**Why it matters beyond tidiness.** FAO Release Note 06 — drafted, never transmitted — commits in Topic B that consumer-facing columns *"omit the internal VIEWS pipeline prefixes — source (`ged_`), scale/transform (`lr_`, and the deprecated `ln_`), and model-output (`pred_`)"*, and states that the deprecated `lr_`/`ln_` prefix *"must not be read as log space"*. The forecast honours that; the historical file does not. Pre-Release Note 07 (2026-09-14) now names the three columns explicitly so an FAO engineer is not surprised, which is the honest short-term answer but leaves the release note's commitment wider than the implementation.
+
+**Two ways to close it**, and the choice is not this register's to make: rename at this write boundary, mirroring what faoapi does for the forecast (small, and makes RN 06's commitment true); or scope the release note's naming commitment to the forecast columns and leave the historical file on wire vocabulary. The first costs a rename at one boundary; the second costs a paragraph of explanation in every note that touches the schema.
+
+Cross-refs: **D-06** (RESOLVED — the general principle, and the finding that no renaming layer existed at all; this is the residual for one artefact), **C-24** (a consumer-facing contract divergence nobody surfaced), **ADR-013** adoption record above (the wire vocabulary decision), **views-faoapi** `forecast/serialize/json_contract.py` (the implemented half), FAO project `reports/post_mortems/2026-09-14_prn07_writing_session.md` (the review that found it).
 
 ## Disagreements
 
