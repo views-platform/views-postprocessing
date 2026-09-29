@@ -146,3 +146,57 @@ def test_the_publish_job_cannot_ship_untested_code():
 # and are recorded in the sprint rather than as assertions: views-faoapi is blocked
 # downstream (#294), and #272's second question is unanswered.
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fourth audit, 2026-09-29. Claim: *"we are ready for a new full (40-lesson) run."*
+#
+# Verdict: FALSIFIED — two hard, two soft. Only ONE is assertable in this repo and
+# it is below. The others are facts about other repositories' state, and a test
+# here that reached for them would be a guard that cannot fire in CI (C-102):
+#
+#   HARD 1 — views-models still pins VIEWS_POSTPROCESSING_PIN="1.1.1", so a run
+#            launched now installs the build whose guard checks 2 of 110 artefacts.
+#            Lives on views-models#439. Not assertable here: views-models is not in
+#            this repo's CI sibling checkout (ADR-016), so the assertion would pass
+#            vacuously. This is C-112's whole subject.
+#   HARD 2 — a fresh launcher environment is unbuildable (views-models#516, open):
+#            xarray is unpinned in the launcher requirements and datafactory's
+#            `>=2024.1,<2026` cap permits 2025.12.0, which needs pandas>=2.1 against
+#            the platform's pandas 1.5.3. Not ours and not assertable here.
+#   SOFT  4 — ADR-013 §4.6's capacity inequality is an open maintainer item and
+#            40 lessons raises the assembled-run figure ~11%. Needs the run's S,
+#            which this seat does not know. Recorded, not tested.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.xfail(reason="S7: unaddressed falsification — see the audit report", strict=True)
+def test_the_selection_check_does_not_depend_on_an_order_nothing_guarantees():
+    """S7 (soft). The per-object half stopped depending on document order in #314.
+    The SELECTION half still does, through a guarantee that does not exist.
+
+    `verify`'s legs loop calls the port's `latest_file_id`, which is pipeline-core's
+    `get_latest_file_id`. That function DOCUMENTS *"the file ID of the newest matching
+    file based on creation timestamp"* and implements `files_list[0]` over the result of
+    `search_files_by_metadata`, which appends only `Query.equal` per filter and never an
+    `order_desc`/`order_asc` (`modules/appwrite/file.py:1045-1050`).
+
+    So the check that decides whether the consumer's selection lands on THIS run takes
+    an arbitrary element of every `category="forecast"` document ever written, and
+    compares it against this run's manifest id. It has held since August, which means
+    the order has been favourable rather than guaranteed — and the set it indexes into
+    grows by ~110 documents per run, ~120 at 40 lessons.
+
+    The failure is a **false** `DeliveryNotFindableError` on a healthy delivery, which
+    is the direction this module exists to avoid.
+
+    Fails until either the selection half is made order-independent here, or
+    pipeline-core's sort lands and the pin moves. Filed upstream after the #312
+    re-review; the fix is not ours and the dependency is.
+    """
+    source = (_REPO / "views_postprocessing" / "delivery" / "findability.py").read_text()
+    legs_loop = source[source.index("for category, expected in legs.items():"):]
+    assert "resolve_latest(" not in legs_loop.split("assert_all_findable")[0], (
+        "the selection check still resolves through `latest_file_id`, i.e. through "
+        "pipeline-core's unsorted `files_list[0]`"
+    )
