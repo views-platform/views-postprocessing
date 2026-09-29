@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import ast
+import re
 import pytest
 
 from pathlib import Path
@@ -320,3 +322,38 @@ def test_documents_forwards_the_filters_to_the_store_unchanged(partner):
         "that it asks the store the same question views-faoapi asks"
     )
     assert got == store.documents_result
+
+
+@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
+def test_the_documented_datastore_contract_lists_every_method_the_port_calls(partner):
+    """A double satisfying the docstring must actually work.
+
+    `/code-review` caught that the module header said "four-method port" when
+    `documents` made it five. Fixing the header missed the thing that matters: the
+    class docstring also enumerates the datastore methods a caller must supply, and
+    `get_predictions_by_metadata` was absent from it. A test double built to the
+    documented contract raised AttributeError — mid-delivery, after the upload.
+
+    Derived from the source rather than listed here, so the assertion cannot rot the
+    way the prose did (ADR-014 §2: prove the guard's inputs are real).
+    """
+    source = (_PKG / partner / "store_port.py").read_text()
+    called = set(re.findall(r"self\._dsm\.(\w+)\(", source))
+    assert called, "found no datastore calls — this guard is scanning the wrong thing"
+
+    tree = ast.parse(source)
+    doc = "\n".join(
+        [ast.get_docstring(tree) or ""]
+        + [
+            ast.get_docstring(n) or ""
+            for n in ast.walk(tree)
+            if isinstance(n, ast.ClassDef)
+        ]
+    )
+    documented = set(re.findall(r"``(\w+)``", doc))
+    missing = sorted(called - documented)
+    assert not missing, (
+        f"{partner}/store_port.py calls {missing} on the datastore but its class "
+        "docstring does not list them. A caller building to the documented contract "
+        "gets an AttributeError during a delivery, after the upload has happened."
+    )
