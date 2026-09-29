@@ -1,8 +1,8 @@
-"""The prediction store behind a four-method port — the DIP seam of ADR-013 epic #105.
+"""The prediction store behind a five-method port — the DIP seam of ADR-013 epic #105.
 
 ``wire/source_selection`` and ``wire/sink`` drive the store through this object and
 never see the client's types. That is the whole point of the seam, so the constructor
-takes **any** object carrying the four methods below rather than naming a concrete
+takes **any** object carrying the five methods below rather than naming a concrete
 client class — the contract is the methods, not the type.
 
 Both refusals here are the same rule applied twice: *an unrecognised result should be
@@ -26,6 +26,11 @@ class _ContractStorePort:
 
     def latest_file_id(self, filters: dict):
         return self._dsm.get_latest_file_id(filters=filters)
+
+    def documents(self, filters: dict) -> list:
+        """Documents matching ``filters`` — views-faoapi's own resolution shape;
+        `delivery/findability.verify` carries why it is not a filename query."""
+        return self._dsm.get_predictions_by_metadata(filters=filters)
 
     def file_metadata(self, file_id: str) -> dict:
         return store_metadata.file_metadata(self._dsm.get_file_metadata(file_id))
