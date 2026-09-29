@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import ast
+import re
 import pytest
 
 from pathlib import Path
@@ -63,6 +65,8 @@ class _FakeStore:
         self.downloaded = downloaded
         self.calls = []
         self.downloads = []
+        self.metadata_queries = []
+        self.documents_result = [{"filename": "a.parquet", "fileId": "id-a"}]
 
     def upload_data(self, **kwargs):
         self.calls.append(kwargs)
@@ -71,6 +75,10 @@ class _FakeStore:
     def download_prediction(self, file_id):
         self.downloads.append(file_id)
         return self.downloaded
+
+    def get_predictions_by_metadata(self, filters=None):
+        self.metadata_queries.append(filters)
+        return self.documents_result
 
 
 def _port(partner: str, result, downloaded=None):
@@ -293,3 +301,59 @@ def test_the_two_partners_ports_have_not_drifted():
             "twice. Apply it to both, or if the divergence is deliberate, say so in "
             "C-33 and replace this check with one that allows it."
         )
+
+
+@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
+def test_documents_forwards_the_filters_to_the_store_unchanged(partner):
+    """#312 review, finding 3: `documents()` had no test anywhere.
+
+    It is the fifth method on the port and the only one the per-object findability
+    check depends on. The findability tests inject plain callables, so a rename or
+    signature change in pipeline-core's `get_predictions_by_metadata` would have
+    surfaced during a live delivery — after the upload had already happened. Absorbing
+    exactly that change is the port's job, so the port is where it must be asserted.
+    """
+    port, store = _port(partner, None)
+    filters = {"name": "un_fao", "category": "forecast", "type": "sampled_forecast_shard"}
+    got = port.documents(filters)
+
+    assert store.metadata_queries == [filters], (
+        "documents() must forward the filters verbatim — the guard's whole premise is "
+        "that it asks the store the same question views-faoapi asks"
+    )
+    assert got == store.documents_result
+
+
+@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
+def test_the_documented_datastore_contract_lists_every_method_the_port_calls(partner):
+    """A double satisfying the docstring must actually work.
+
+    `/code-review` caught that the module header said "four-method port" when
+    `documents` made it five. Fixing the header missed the thing that matters: the
+    class docstring also enumerates the datastore methods a caller must supply, and
+    `get_predictions_by_metadata` was absent from it. A test double built to the
+    documented contract raised AttributeError — mid-delivery, after the upload.
+
+    Derived from the source rather than listed here, so the assertion cannot rot the
+    way the prose did (ADR-014 §2: prove the guard's inputs are real).
+    """
+    source = (_PKG / partner / "store_port.py").read_text()
+    called = set(re.findall(r"self\._dsm\.(\w+)\(", source))
+    assert called, "found no datastore calls — this guard is scanning the wrong thing"
+
+    tree = ast.parse(source)
+    doc = "\n".join(
+        [ast.get_docstring(tree) or ""]
+        + [
+            ast.get_docstring(n) or ""
+            for n in ast.walk(tree)
+            if isinstance(n, ast.ClassDef)
+        ]
+    )
+    documented = set(re.findall(r"``(\w+)``", doc))
+    missing = sorted(called - documented)
+    assert not missing, (
+        f"{partner}/store_port.py calls {missing} on the datastore but its class "
+        "docstring does not list them. A caller building to the documented contract "
+        "gets an AttributeError during a delivery, after the upload has happened."
+    )

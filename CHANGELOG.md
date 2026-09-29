@@ -9,6 +9,64 @@ This file exists because the version number was the only signal a consumer got
 (register C-111). Releases before 1.2.0 are summarised from their tags rather than
 reconstructed in detail.
 
+## 1.4.0 — 2026-09-29
+
+**Fixes an unservable delivery.** The first live UN-FAO run, earlier today, uploaded
+109 of 110 objects, reported success, and was refused by views-faoapi at ingest. If you
+are pinned below this version, a delivery can still complete successfully and be
+unservable.
+
+### What was wrong
+
+The C-94 findability guard checked **two** things — the run manifest and the historical
+artifact — by querying the newest document per *category*. Every wire object carries
+`category="forecast"` and the manifest is uploaded last, so that query always returned
+the manifest. The GAUL sidecar and the 108 shards were never asked about.
+
+The sidecar's bytes were identical to the previous run's, the content-addressed store
+correctly declined a second copy, the metadata document was updated against the **old**
+file, and the upload returned a real file id for the wrong document. Nothing observed it.
+
+### What changed for a consumer
+
+The guard now asks two questions instead of one, and **refuses in four situations rather
+than two**. A delivery that previously completed can now stop:
+
+| | |
+|---|---|
+| *selection* | does the consumer's own query land on this run? — unchanged |
+| *per-object* | does **every** uploaded artefact resolve under its own filename? — new |
+
+Both raise the existing `DeliveryNotFindableError`; no new exception types. A failed
+*check* still reports `FindabilityUnverifiedError` rather than condemning the delivery.
+
+**If one of these fires after upgrading it is reporting a condition that was already
+wrong and already invisible.** The refusal names every object that does not resolve, and
+says so explicitly when nothing in the run is servable.
+
+### Why this is worth taking promptly
+
+Pooling upstream is deterministic, and every artefact's filename embeds the run id. So a
+**re-run** writes new filenames over identical bytes, and the deduplication path that
+took one object takes **all 110 at once** — the store creates the documents, the count is
+right, and nothing is servable. Re-running is the documented remedy for a torn run, which
+makes this the realistic case rather than the exotic one.
+
+### Also in this release
+
+- The store port gained a fifth method, `documents()`, and its documented duck-typing
+  contract now lists it. A datastore built to the previous docstring would have raised
+  `AttributeError` mid-delivery.
+- `deliver_run`'s summary carries the upload ledger out, as `uploaded_objects`.
+
+### Known, and not ours
+
+`views-pipeline-core`'s `get_latest_file_id` documents *"the newest matching file based on
+creation timestamp"* and takes the first element of an unsorted result. The *selection*
+half of the guard has relied on that since August and can in principle raise a false
+alarm. This release removes the equivalent assumption from the per-object half, which no
+longer depends on document order at all. The upstream half is filed in pipeline-core.
+
 ## 1.3.0 — 2026-09-19
 
 **No new failure modes.** A launcher that ran 1.2.0 sees nothing new stop. This release

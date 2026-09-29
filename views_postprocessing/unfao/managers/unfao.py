@@ -124,23 +124,16 @@ def _build_partner_read_store(model_path) -> DatastoreModule:
     return store
 
 
-def _assert_delivery_is_findable(model_path, consumer_name: str, uploaded: dict) -> None:
-    """C-94: ask the store the question the consumer asks, and refuse silence.
-
-    A function, not a method (C-40 (a)) — its refusal is observable without a manager
-    or an Appwrite environment. ``uploaded`` maps each leg to the file id THIS run put
-    there; `delivery/findability.py` carries why that scoping is the whole guard.
-    """
-    for category, expected in uploaded.items():
-        try:
-            port = _ContractStorePort(_build_partner_read_store(model_path))
-            found = port.latest_file_id({"name": consumer_name, "category": category})
-        except Exception as exc:  # could not ask != asked and got nothing (C-99, C-103)
-            raise findability.unverified(category, exc) from exc
-        findability.assert_findable(
-            found, expected_file_id=expected, consumer_name=consumer_name, category=category
-        )
-    logger.info("Findability preflight passed: both legs retrievable under %r.", consumer_name)
+def _assert_delivery_is_findable(
+    model_path, consumer_name: str, legs: dict, objects: list
+) -> None:
+    """C-94/#312: ask the store the questions the consumer asks. The rule and its
+    refusals live in `delivery/findability.verify`; this owns only the port."""
+    port = _ContractStorePort(_build_partner_read_store(model_path))
+    findability.verify(
+        consumer_name=consumer_name, legs=legs, objects=objects,
+        resolve_latest=port.latest_file_id, list_documents=port.documents,
+    )
 
 
 class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
@@ -394,6 +387,8 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 self._model_path,
                 product.CONSUMER_DOCUMENT_NAME,
                 {"forecast": summary["manifest_file_id"], "historical": hist_file_id},
+                [*summary["uploaded_objects"], {"name": hist_path.name,
+                 "file_id": hist_file_id, "doc_type": "model", "category": "historical"}],
             )
         else:
             logger.info(
