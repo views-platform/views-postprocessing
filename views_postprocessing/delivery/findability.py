@@ -105,3 +105,118 @@ def assert_findable(file_id, *, expected_file_id, consumer_name: str, category: 
         "bucket before re-delivering — the contract has no retraction primitive, so a "
         "correction is a new complete run."
     )
+
+
+def assert_all_findable(resolved: dict, *, consumer_name: str) -> None:
+    """Raise unless EVERY artefact this run uploaded resolves under its own filename.
+
+    Args:
+        resolved: ``{filename: (expected_file_id, found_file_id)}`` — one entry per
+            object the run uploaded, ``found_file_id`` being what the store returns
+            when asked for that exact filename under the consumer's name. ``None``
+            means the query found nothing.
+        consumer_name: the DECLARED store-document ``name`` (C-77).
+
+    Raises:
+        DeliveryNotFindableError: naming every object that does not resolve, not the
+            first — an operator auditing a partner bucket needs the whole list, and
+            the whole list is the difference between "one file is missing" and
+            "nothing in this run is servable".
+
+    **Why by filename and not by id (register C-94, #312).** The first live UN-FAO
+    delivery, 2026-09-29, uploaded 109 of 110 objects and reported success. The GAUL
+    sidecar's bytes were identical to the previous run's, the content-addressed store
+    correctly declined a second copy, ``update_document`` ran against the OLD file, and
+    the port returned a **real file id for the wrong document**. views-faoapi resolves
+    by ``filename``, found nothing, and refused the delivery.
+
+    So an id is not evidence. `assert_findable` above asks whether the consumer's
+    *selection* lands on this run; this asks whether each artefact the manifest
+    references is *there at all*. Both are needed and neither implies the other.
+
+    **Why every object and not a count.** Pooling upstream is deterministic (measured
+    in views-models, 2026-09-29: 25 of 25 anchor cells byte-identical across a re-pool),
+    and `contract/wire/naming.py` embeds the run id in every filename. A re-run
+    therefore writes NEW filenames over IDENTICAL bytes, so the dedup path that took the
+    sidecar takes **all 110 objects at once** — the store creates the documents, the
+    count is right, and nothing is servable. A count-plus-spot-check passes that.
+    Re-running is our own documented remedy for a torn run (C-105) and for a correction
+    (C-22), which is what makes this the realistic case rather than the exotic one.
+    """
+    missing = sorted(name for name, (_, found) in resolved.items() if not found)
+    wrong = sorted(
+        f"{name} (expected {exp!r}, store has {found!r})"
+        for name, (exp, found) in resolved.items()
+        if found and found != exp
+    )
+    if not missing and not wrong:
+        return
+
+    total = len(resolved)
+    parts = [
+        f"delivery is INVISIBLE to the consumer: {len(missing) + len(wrong)} of {total} "
+        f"uploaded object(s) do not resolve under name == {consumer_name!r}."
+    ]
+    if missing:
+        parts.append(
+            f"NOT FOUND by filename ({len(missing)}): {', '.join(missing)}. Every upload "
+            "reported success, so these exist as ids pointing at some other document — "
+            "the shape that stranded the 2026-09-29 sidecar when the store deduplicated "
+            "identical bytes and updated the PREVIOUS run's file instead."
+        )
+    if wrong:
+        parts.append(f"RESOLVES TO THE WRONG DOCUMENT ({len(wrong)}): {'; '.join(wrong)}.")
+    if len(missing) + len(wrong) == total:
+        parts.append(
+            "NOTHING in this run is servable. If this was a re-run of an earlier one, "
+            "that is the expected shape: pooling is deterministic, so a re-run writes "
+            "new filenames over identical bytes and every object deduplicates at once."
+        )
+    parts.append(
+        "The contract has no retraction primitive, so a correction is a new complete "
+        "run — but re-running unchanged reproduces this. Fix the upload path first."
+    )
+    raise DeliveryNotFindableError(" ".join(parts))
+
+
+def verify(*, consumer_name: str, legs: dict, objects: dict, resolve) -> None:
+    """Run both findability questions against a partner store. The caller owns the port.
+
+    Args:
+        consumer_name: the DECLARED store-document ``name`` (C-77).
+        legs: ``{category: expected_file_id}`` — does the consumer's own *selection*
+            land on this run? Answered per category because a run whose forecast
+            landed and whose historical did not is invisible in exactly one half.
+        objects: ``{filename: expected_file_id}`` — is each artefact *there at all*?
+        resolve: ``callable(filters: dict) -> file_id | None``, normally the port's
+            ``latest_file_id``. A callable rather than a store keeps this module free
+            of store types, which is what lets its refusals be tested without Appwrite.
+
+    Raises:
+        DeliveryNotFindableError: the delivery, or part of it, is invisible.
+        FindabilityUnverifiedError: a query failed, so findability is UNKNOWN. This is
+            the deliberate soft edge (ADR-014 §3): ``filename`` is a declared collection
+            attribute, but if a store cannot be queried on it the honest answer is "could
+            not ask", not a manufactured outage on every delivery.
+
+    Lives here rather than in the partner managers because the logic is identical in
+    both and the partner packages are under a ratcheting line budget whose stated
+    response to binding is to move code **out of the package**. It also means one copy
+    of the rule instead of two that can disagree — the C-75 shape.
+    """
+    for category, expected in legs.items():
+        try:
+            found = resolve({"name": consumer_name, "category": category})
+        except Exception as exc:  # could not ask != asked and got nothing (C-99, C-103)
+            raise unverified(category, exc) from exc
+        assert_findable(
+            found, expected_file_id=expected, consumer_name=consumer_name, category=category
+        )
+
+    resolved = {}
+    for filename, expected in objects.items():
+        try:
+            resolved[filename] = (expected, resolve({"name": consumer_name, "filename": filename}))
+        except Exception as exc:
+            raise unverified(f"object {filename!r}", exc) from exc
+    assert_all_findable(resolved, consumer_name=consumer_name)

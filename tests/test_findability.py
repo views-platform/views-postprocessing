@@ -187,14 +187,35 @@ def test_unverified_is_not_the_same_refusal_as_not_findable():
     assert "forecast" in message, "and say which leg is unverified"
 
 
-@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
-def test_the_preflight_does_not_report_a_failed_query_as_an_invisible_delivery(partner):
-    source = (_REPO / "views_postprocessing" / partner / "managers" / f"{partner}.py").read_text()
-    preflight = _function_source(source, "_assert_delivery_is_findable")
-    assert "findability.unverified(" in preflight, (
-        f"{partner}'s preflight no longer distinguishes a store error from an empty "
-        "answer, so a transient network failure after a successful delivery would be "
-        "reported as the delivery being invisible — and quarantined (C-94)."
+def test_the_preflight_does_not_report_a_failed_query_as_an_invisible_delivery():
+    """The distinction must survive wherever the query loop lives.
+
+    It used to live in each partner manager and this test read it there. #312 moved it
+    into `delivery/findability.verify` — one copy instead of two, and out of the partner
+    packages, whose line budget says to move code out rather than raise it. The claim is
+    unchanged: a store that could not be asked must not be reported as an invisible
+    delivery. Only its address changed, so the test follows it rather than being deleted.
+
+    Behavioural, not a source scan, now that the logic is reachable without a manager.
+    """
+    def explodes(_filters):
+        raise TimeoutError("read timed out")
+
+    with pytest.raises(findability.FindabilityUnverifiedError):
+        findability.verify(
+            consumer_name="un_fao", legs={"forecast": "a"}, objects={}, resolve=explodes
+        )
+
+    # and the same for the by-name half, which #312 added
+    with pytest.raises(findability.FindabilityUnverifiedError) as caught:
+        findability.verify(
+            consumer_name="un_fao",
+            legs={},
+            objects={"run__sidecar.parquet": "a"},
+            resolve=explodes,
+        )
+    assert "run__sidecar.parquet" in str(caught.value), (
+        "an unverified object must name which object could not be checked"
     )
 
 
@@ -221,4 +242,148 @@ def test_the_previous_runs_document_does_not_satisfy_this_run():
     assert "PREVIOUS" in message, (
         "the consequence — the consumer goes on serving the previous delivery — is the "
         "part that distinguishes this from an empty bucket"
+    )
+
+
+# ── #312: every artefact, by name ────────────────────────────────────────────
+
+
+def _resolver(store: dict):
+    """A store that answers by whatever filter key it is given, as Appwrite does."""
+    def resolve(filters):
+        if "filename" in filters:
+            return store.get(filters["filename"])
+        return store.get(("category", filters.get("category")))
+    return resolve
+
+
+def test_the_2026_09_29_incident_is_caught():
+    """The regression case: 109 of 110 uploaded, every call reported success.
+
+    The sidecar's bytes matched the previous run's, the store declined a second copy,
+    `update_document` ran against the OLD file, and the port returned a real file id
+    for the wrong document. The consumer resolves by filename, found nothing, refused.
+    """
+    objects = {f"run2__shard{i}.parquet": f"id{i}" for i in range(3)}
+    objects["run2__sidecar.parquet"] = "id-sidecar"
+    objects["run2__manifest.json"] = "id-manifest"
+
+    store = {name: fid for name, fid in objects.items() if "sidecar" not in name}
+    store[("category", "forecast")] = "id-manifest"
+
+    with pytest.raises(findability.DeliveryNotFindableError) as caught:
+        findability.verify(
+            consumer_name="un_fao",
+            legs={"forecast": "id-manifest"},
+            objects=objects,
+            resolve=_resolver(store),
+        )
+    message = str(caught.value)
+    assert "run2__sidecar.parquet" in message, "the refusal must name the missing object"
+    assert "1 of 5" in message
+    assert "NOTHING in this run is servable" not in message, (
+        "one missing object is not a total failure; the message must not overstate"
+    )
+
+
+def test_the_category_check_alone_would_have_passed_the_incident():
+    """Why the by-name half had to be added rather than the dict widened.
+
+    Shards, sidecar and manifest all carry `category="forecast"`, and the manifest is
+    uploaded last — so the newest forecast document is always the manifest. The
+    selection check is satisfied by the very run that is unservable.
+    """
+    findability.verify(
+        consumer_name="un_fao",
+        legs={"forecast": "id-manifest"},
+        objects={},
+        resolve=_resolver({("category", "forecast"): "id-manifest"}),
+    )
+
+
+def test_a_deterministic_rerun_losing_everything_says_so():
+    """The worst case, and the one our own remedy triggers.
+
+    Pooling is deterministic and `naming.py` embeds the run id in every filename, so a
+    re-run writes NEW names over IDENTICAL bytes and every object deduplicates at once.
+    The store creates the documents, the count is right, nothing is servable — and
+    re-running is what C-105 and C-22 tell an operator to do.
+    """
+    objects = {f"run2__shard{i}.parquet": f"id{i}" for i in range(4)}
+    with pytest.raises(findability.DeliveryNotFindableError) as caught:
+        findability.verify(
+            consumer_name="un_fao", legs={}, objects=objects, resolve=_resolver({})
+        )
+    message = str(caught.value)
+    assert "4 of 4" in message
+    assert "NOTHING in this run is servable" in message
+    assert "re-running unchanged reproduces this" in message, (
+        "the refusal must not send an operator at the remedy that reproduces the fault"
+    )
+
+
+def test_an_object_resolving_to_the_wrong_document_is_refused():
+    """A real id for the wrong file is the exact shape of the incident, and a check
+    that only asked 'did I get an id back' would pass it."""
+    with pytest.raises(findability.DeliveryNotFindableError) as caught:
+        findability.verify(
+            consumer_name="un_fao",
+            legs={},
+            objects={"run2__sidecar.parquet": "id-new"},
+            resolve=_resolver({"run2__sidecar.parquet": "id-from-run1"}),
+        )
+    message = str(caught.value)
+    assert "WRONG DOCUMENT" in message
+    assert "id-new" in message and "id-from-run1" in message
+
+
+def test_a_fully_landed_run_passes():
+    objects = {"run2__sidecar.parquet": "a", "run2__manifest.json": "b"}
+    store = dict(objects)
+    store[("category", "forecast")] = "b"
+    findability.verify(
+        consumer_name="un_fao",
+        legs={"forecast": "b"},
+        objects=objects,
+        resolve=_resolver(store),
+    )
+
+
+@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
+def test_the_manager_hands_the_preflight_every_uploaded_object(partner):
+    """The wiring half. The rule above is worth nothing if the call site passes two ids.
+
+    That is exactly what shipped: `{"forecast": ..., "historical": ...}` — the commit
+    marker and the historical leg, while 108 shards and the sidecar went unasked (#312).
+    """
+    source = (_REPO / "views_postprocessing" / partner / "managers" / f"{partner}.py").read_text()
+    call = next(
+        n for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "_assert_delivery_is_findable"
+    )
+    assert len(call.args) == 4, (
+        f"{partner} calls the preflight with {len(call.args)} arguments; it needs the "
+        "per-object map as well as the per-leg one, or the sidecar goes unasked again"
+    )
+    passed = ast.unparse(call.args[3])
+    assert "uploaded_objects" in passed, (
+        f"{partner}'s object map is {passed!r} — it must come from the sink's upload "
+        "ledger, which is the only record of what this run actually put in the bucket"
+    )
+    assert "hist" in passed, (
+        f"{partner} omits the historical artefact from the per-object check; it is "
+        "uploaded by the manager, so the sink's ledger does not contain it"
+    )
+
+
+def test_the_sink_carries_its_upload_ledger_out():
+    """The ledger already existed for the torn-run refusal (C-105) and stayed local.
+    The manager cannot verify what it is not told."""
+    source = (_REPO / "views_postprocessing" / "contract" / "wire" / "sink.py").read_text()
+    deliver = _function_source(source, "deliver_run")
+    assert 'summary["uploaded_objects"]' in deliver, (
+        "deliver_run no longer exports the upload ledger, so the #312 per-object "
+        "preflight has nothing to check against"
     )

@@ -251,5 +251,10 @@ def deliver_run(
     # in the store — which is exactly what the consumer's query returns. Carried out so
     # the C-94 read-back can assert the consumer would find THIS run (register C-94).
     summary["manifest_file_id"] = _upload(manifest_file, MANIFEST_DOC_TYPE, list(per_target))
+    # The ledger leaves with the summary so the manager can verify EVERY object by
+    # filename, not just the commit marker (C-94, #312). It already exists for the
+    # torn-run refusal; carrying it out costs nothing and is the only record of what
+    # this run actually put in the bucket.
+    summary["uploaded_objects"] = {u["name"]: u["file_id"] for u in uploaded}
     summary["uploaded"] = True
     return summary
