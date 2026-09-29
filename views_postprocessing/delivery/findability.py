@@ -2,8 +2,11 @@
 consumer actually queries (register C-94).
 
 Representation-free — a lookup result and the declared identity it was looked up by.
-No store types, no pandas, no frames. The caller performs the query (it owns the port);
-the rule about what the answer means lives here.
+No store *types*, no pandas, no frames; the caller owns the port and performs the query,
+and the rule about what the answer means lives here. `verify` does read two document
+**keys** (``filename``, ``fileId``) when recovering what landed, which is store
+vocabulary rather than a store type — the honest boundary, stated because the sentence
+above used to claim more than it delivered (#312 review).
 
 **The failure this exists for is invisible by construction.** Every upload reports
 success, storage is billed, and the consumer's endpoint returns empty. ADR-013 §4.1a
@@ -40,7 +43,7 @@ class FindabilityUnverifiedError(RuntimeError):
     """The read-back could not be performed, so findability is unknown."""
 
 
-def unverified(category: str, exc: BaseException) -> FindabilityUnverifiedError:
+def unverified(what: str, exc: BaseException) -> FindabilityUnverifiedError:
     """The refusal for *could not ask*, which is not *asked and got nothing*.
 
     Distinguished for the same reason ``source_metadata`` distinguishes a missing
@@ -52,7 +55,7 @@ def unverified(category: str, exc: BaseException) -> FindabilityUnverifiedError:
     would be an outage manufactured by the guard.
     """
     return FindabilityUnverifiedError(
-        f"the {category!r} leg uploaded, but the C-94 read-back could not be performed: "
+        f"{what} uploaded, but the C-94 read-back could not be performed: "
         f"{type(exc).__name__}: {exc}. The delivery is UNVERIFIED, not known invisible — "
         "re-run the check before quarantining anything."
     )
@@ -230,7 +233,7 @@ def verify(
         try:
             found = resolve_latest({"name": consumer_name, "category": category})
         except Exception as exc:  # could not ask != asked and got nothing (C-99, C-103)
-            raise unverified(category, exc) from exc
+            raise unverified(f"the {category!r} leg", exc) from exc
         assert_findable(
             found, expected_file_id=expected, consumer_name=consumer_name, category=category
         )
@@ -240,13 +243,17 @@ def verify(
     for category, doc_type in sorted(scopes):
         filters = {"name": consumer_name, "category": category, "type": doc_type}
         try:
-            docs = list_documents(filters)
+            for doc in list_documents(filters) or ():
+                filename, file_id = doc.get("filename"), doc.get("fileId")
+                if filename and file_id and filename not in seen:
+                    seen[filename] = file_id
         except Exception as exc:
-            raise unverified(f"{category}/{doc_type} objects", exc) from exc
-        for doc in docs or ():
-            filename, file_id = doc.get("filename"), doc.get("fileId")
-            if filename and file_id and filename not in seen:
-                seen[filename] = file_id
+            # The PARSE is inside the try deliberately. If the store ever returns
+            # objects rather than dicts, or renames these keys, `doc.get` raises and
+            # `seen` is left empty — which would report EVERY object as missing and
+            # fire the "NOTHING is servable" refusal on a healthy delivery. A failure
+            # of the check must never quarantine the delivery (C-99, C-103).
+            raise unverified(f"{category}/{doc_type} artefacts", exc) from exc
 
     resolved = {o["name"]: (o["file_id"], seen.get(o["name"])) for o in objects}
     assert_all_findable(resolved, consumer_name=consumer_name)

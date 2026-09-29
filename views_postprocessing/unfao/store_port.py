@@ -1,8 +1,8 @@
-"""The prediction store behind a four-method port — the DIP seam of ADR-013 epic #105.
+"""The prediction store behind a five-method port — the DIP seam of ADR-013 epic #105.
 
 ``wire/source_selection`` and ``wire/sink`` drive the store through this object and
 never see the client's types. That is the whole point of the seam, so the constructor
-takes **any** object carrying the four methods below rather than naming a concrete
+takes **any** object carrying the five methods below rather than naming a concrete
 client class — the contract is the methods, not the type.
 
 Both refusals here are the same rule applied twice: *an unrecognised result should be

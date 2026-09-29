@@ -419,3 +419,44 @@ def test_the_sink_carries_its_upload_ledger_out():
         "deliver_run no longer exports the upload ledger, so the #312 per-object "
         "preflight has nothing to check against"
     )
+
+
+def test_an_unreadable_store_answer_is_unverified_not_an_invisible_delivery():
+    """#312 review, finding 1 — a polarity bug, and the worst kind.
+
+    The parse used to sit OUTSIDE the try. If the store returned objects rather than
+    dicts, or renamed its keys, `doc.get` raised, `seen` stayed empty, and every object
+    was reported NOT FOUND — firing the full "NOTHING in this run is servable" refusal
+    on a perfectly healthy delivery. A failure of the CHECK must never quarantine the
+    DELIVERY; that is the whole of C-99 and C-103 and this module says so twice.
+    """
+    class NotADict:
+        pass
+
+    objects = _objects([f"s{i}.parquet" for i in range(3)])
+    with pytest.raises(findability.FindabilityUnverifiedError) as caught:
+        findability.verify(
+            consumer_name="un_fao", legs={}, objects=objects,
+            resolve_latest=_never, list_documents=lambda _f: [NotADict()],
+        )
+    message = str(caught.value)
+    assert "UNVERIFIED, not known invisible" in message
+    assert "sampled_forecast_shard" in message, "and name the scope that could not be read"
+
+
+def test_a_missing_upload_ledger_fails_loudly_rather_than_shrinking_the_check():
+    """#312 review, finding 2 — the silent fallback.
+
+    `summary.get("uploaded_objects", [])` would have let the per-object guard quietly
+    shrink to the single historical object and log "preflight passed", leaving the 108
+    shards, the sidecar and the manifest unasked — the precise shape of the bug being
+    fixed. Declared access instead: the key is guaranteed on every path that reaches
+    the guard, so its absence is a defect and must read as one (ADR-003).
+    """
+    for partner in PARTNER_PACKAGES:
+        source = (_REPO / "views_postprocessing" / partner / "managers" / f"{partner}.py").read_text()
+        assert 'summary.get("uploaded_objects"' not in source, (
+            f"{partner} defaults the upload ledger; a sink that stopped exporting it "
+            "would silently reduce the guard to one object instead of failing"
+        )
+        assert 'summary["uploaded_objects"]' in source

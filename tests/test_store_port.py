@@ -63,6 +63,8 @@ class _FakeStore:
         self.downloaded = downloaded
         self.calls = []
         self.downloads = []
+        self.metadata_queries = []
+        self.documents_result = [{"filename": "a.parquet", "fileId": "id-a"}]
 
     def upload_data(self, **kwargs):
         self.calls.append(kwargs)
@@ -71,6 +73,10 @@ class _FakeStore:
     def download_prediction(self, file_id):
         self.downloads.append(file_id)
         return self.downloaded
+
+    def get_predictions_by_metadata(self, filters=None):
+        self.metadata_queries.append(filters)
+        return self.documents_result
 
 
 def _port(partner: str, result, downloaded=None):
@@ -293,3 +299,24 @@ def test_the_two_partners_ports_have_not_drifted():
             "twice. Apply it to both, or if the divergence is deliberate, say so in "
             "C-33 and replace this check with one that allows it."
         )
+
+
+@pytest.mark.parametrize("partner", PARTNER_PACKAGES)
+def test_documents_forwards_the_filters_to_the_store_unchanged(partner):
+    """#312 review, finding 3: `documents()` had no test anywhere.
+
+    It is the fifth method on the port and the only one the per-object findability
+    check depends on. The findability tests inject plain callables, so a rename or
+    signature change in pipeline-core's `get_predictions_by_metadata` would have
+    surfaced during a live delivery — after the upload had already happened. Absorbing
+    exactly that change is the port's job, so the port is where it must be asserted.
+    """
+    port, store = _port(partner, None)
+    filters = {"name": "un_fao", "category": "forecast", "type": "sampled_forecast_shard"}
+    got = port.documents(filters)
+
+    assert store.metadata_queries == [filters], (
+        "documents() must forward the filters verbatim — the guard's whole premise is "
+        "that it asks the store the same question views-faoapi asks"
+    )
+    assert got == store.documents_result

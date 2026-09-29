@@ -387,7 +387,7 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 self._model_path,
                 product.CONSUMER_DOCUMENT_NAME,
                 {"forecast": summary["manifest_file_id"], "historical": hist_file_id},
-                [*summary.get("uploaded_objects", []), {"name": hist_path.name,
+                [*summary["uploaded_objects"], {"name": hist_path.name,
                  "file_id": hist_file_id, "doc_type": "model", "category": "historical"}],
             )
         else:
