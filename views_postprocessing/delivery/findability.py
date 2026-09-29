@@ -118,11 +118,14 @@ def assert_all_findable(resolved: dict, *, consumer_name: str) -> None:
     """Raise unless EVERY artefact this run uploaded resolves under its own filename.
 
     Args:
-        resolved: ``{filename: (expected_file_id, found_file_id)}`` — one entry per
-            object the run uploaded. ``found_file_id`` is the id carried by the store
-            document whose ``filename`` field matches, as recovered by `verify` from a
-            type-scoped query (**not** a query on ``filename`` — see `verify`). ``None``
-            means no document carried that filename.
+        resolved: ``{filename: (expected_file_id, found_file_ids)}`` — one entry per
+            object the run uploaded. ``found_file_ids`` is the **set** of ids carried by
+            store documents whose ``filename`` matches, as recovered by `verify` from a
+            type-scoped query (**not** a query on ``filename`` — see `verify`). A set
+            rather than one id because document order is unspecified, so "the first
+            match" is not a defined thing; an empty set means no document carried that
+            filename. The delivery is findable when the id THIS run uploaded is among
+            them, which needs no ordering guarantee.
         consumer_name: the DECLARED store-document ``name`` (C-77).
 
     Raises:
@@ -153,9 +156,9 @@ def assert_all_findable(resolved: dict, *, consumer_name: str) -> None:
     """
     missing = sorted(name for name, (_, found) in resolved.items() if not found)
     wrong = sorted(
-        f"{name} (expected {exp!r}, store has {found!r})"
+        f"{name} (expected {exp!r}, store has {sorted(found)})"
         for name, (exp, found) in resolved.items()
-        if found and found != exp
+        if found and exp not in found
     )
     if not missing and not wrong:
         return
@@ -239,14 +242,21 @@ def verify(
         )
 
     scopes = {(o["category"], o["doc_type"]) for o in objects}
-    seen: dict[str, str] = {}
+    # filename -> EVERY id carried under it, because document order is unspecified.
+    # `search_files_by_metadata` appends only `Query.equal` per filter and never an
+    # `order_desc`/`order_asc` (pipeline-core `modules/appwrite/file.py:1045-1050`);
+    # the only ordering calls in that module are inside the storage `list_files`.
+    # So "first wins" would have been a coin flip dressed as a tie-break. Asking
+    # whether the id THIS run uploaded is present under the name needs no order at
+    # all, and is the question we actually have (#312 review, views-models seat).
+    seen: dict[str, set] = {}
     for category, doc_type in sorted(scopes):
         filters = {"name": consumer_name, "category": category, "type": doc_type}
         try:
             for doc in list_documents(filters) or ():
                 filename, file_id = doc.get("filename"), doc.get("fileId")
-                if filename and file_id and filename not in seen:
-                    seen[filename] = file_id
+                if filename and file_id:
+                    seen.setdefault(filename, set()).add(file_id)
         except Exception as exc:
             # The PARSE is inside the try deliberately. If the store ever returns
             # objects rather than dicts, or renames these keys, `doc.get` raises and
@@ -255,7 +265,7 @@ def verify(
             # of the check must never quarantine the delivery (C-99, C-103).
             raise unverified(f"{category}/{doc_type} artefacts", exc) from exc
 
-    resolved = {o["name"]: (o["file_id"], seen.get(o["name"])) for o in objects}
+    resolved = {o["name"]: (o["file_id"], seen.get(o["name"], set())) for o in objects}
     assert_all_findable(resolved, consumer_name=consumer_name)
     logger.info(
         "Findability preflight passed: %d leg(s) and %d object(s) resolvable under %r.",

@@ -460,3 +460,44 @@ def test_a_missing_upload_ledger_fails_loudly_rather_than_shrinking_the_check():
             "would silently reduce the guard to one object instead of failing"
         )
         assert 'summary["uploaded_objects"]' in source
+
+
+def test_a_correct_delivery_passes_whatever_order_the_store_returns():
+    """#312 re-review: document order is unspecified, so the check must not depend on it.
+
+    `search_files_by_metadata` appends only `Query.equal` per filter and never an
+    `order_desc`/`order_asc` (pipeline-core `modules/appwrite/file.py:1045-1050`). A
+    "first match wins" rule would have been a coin flip presented as a tie-break. The
+    question we actually have — is the id THIS run uploaded present under the name —
+    needs no ordering at all, so the same delivery must pass in any permutation.
+    """
+    objects = _objects(["a.parquet", "b.parquet"])
+    docs = [{"filename": o["name"], "fileId": o["file_id"]} for o in objects]
+    # a stale document from a previous run, sharing a filename, returned FIRST
+    stale = [{"filename": "a.parquet", "fileId": "id-from-run1"}]
+
+    for order in ([*stale, *docs], [*docs, *stale], [docs[1], stale[0], docs[0]]):
+        findability.verify(
+            consumer_name="un_fao", legs={}, objects=objects,
+            resolve_latest=_never, list_documents=lambda _f, o=order: o,
+        )
+
+
+def test_a_name_carrying_only_another_runs_id_is_still_refused():
+    """Order-independence must not become permissiveness. If the only documents under
+    a filename belong to some other run, this run's object did not land."""
+    objects = _objects(["a.parquet"])
+    with pytest.raises(findability.DeliveryNotFindableError) as caught:
+        findability.verify(
+            consumer_name="un_fao", legs={}, objects=objects,
+            resolve_latest=_never,
+            list_documents=lambda _f: [
+                {"filename": "a.parquet", "fileId": "id-run1"},
+                {"filename": "a.parquet", "fileId": "id-run0"},
+            ],
+        )
+    message = str(caught.value)
+    assert "WRONG DOCUMENT" in message
+    assert "id-run0" in message and "id-run1" in message, (
+        "the refusal must show every id the store holds under that name, not one"
+    )
