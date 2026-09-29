@@ -124,21 +124,13 @@ def _build_partner_read_store(model_path) -> DatastoreModule:
     return store
 
 
-def _assert_delivery_is_findable(model_path, consumer_name: str, legs: dict, objects: dict) -> None:
-    """C-94: ask the store the questions the consumer asks, and refuse silence.
-
-    A function, not a method (C-40 (a)) — its refusal is observable without a manager
-    or an Appwrite environment. The rule lives in `delivery/findability.py`; this owns
-    only the port. ``legs`` scopes the consumer's SELECTION to this run; ``objects``
-    asks whether each uploaded artefact resolves by filename at all (#312).
-    """
+def _assert_delivery_is_findable(model_path, consumer_name: str, legs: dict, objects) -> None:
+    """C-94/#312: ask the store the questions the consumer asks. The rule and its
+    refusals live in `delivery/findability.verify`; this owns only the port."""
     port = _ContractStorePort(_build_partner_read_store(model_path))
     findability.verify(
-        consumer_name=consumer_name, legs=legs, objects=objects, resolve=port.latest_file_id
-    )
-    logger.info(
-        "Findability preflight passed: %d leg(s) and %d object(s) under %r.",
-        len(legs), len(objects), consumer_name,
+        consumer_name=consumer_name, legs=legs, objects=objects,
+        resolve_latest=port.latest_file_id, list_documents=port.documents,
     )
 
 
@@ -393,7 +385,8 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 self._model_path,
                 product.CONSUMER_DOCUMENT_NAME,
                 {"forecast": summary["manifest_file_id"], "historical": hist_file_id},
-                {**summary.get("uploaded_objects", {}), hist_path.name: hist_file_id},
+                [*summary.get("uploaded_objects", []), {"name": hist_path.name,
+                 "file_id": hist_file_id, "doc_type": "model", "category": "historical"}],
             )
         else:
             logger.info(

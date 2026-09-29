@@ -27,6 +27,10 @@ Both are recorded as gaps in C-94 rather than dressed as things this covers.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class DeliveryNotFindableError(RuntimeError):
     """An upload succeeded, and the consumer's own query cannot find it."""
@@ -179,7 +183,7 @@ def assert_all_findable(resolved: dict, *, consumer_name: str) -> None:
     raise DeliveryNotFindableError(" ".join(parts))
 
 
-def verify(*, consumer_name: str, legs: dict, objects: dict, resolve) -> None:
+def verify(*, consumer_name: str, legs: dict, objects, resolve_latest, list_documents) -> None:
     """Run both findability questions against a partner store. The caller owns the port.
 
     Args:
@@ -187,36 +191,62 @@ def verify(*, consumer_name: str, legs: dict, objects: dict, resolve) -> None:
         legs: ``{category: expected_file_id}`` — does the consumer's own *selection*
             land on this run? Answered per category because a run whose forecast
             landed and whose historical did not is invisible in exactly one half.
-        objects: ``{filename: expected_file_id}`` — is each artefact *there at all*?
-        resolve: ``callable(filters: dict) -> file_id | None``, normally the port's
-            ``latest_file_id``. A callable rather than a store keeps this module free
-            of store types, which is what lets its refusals be tested without Appwrite.
+        objects: records of every artefact uploaded — ``name``, ``file_id``,
+            ``doc_type``, ``category``. Is each one *there at all*?
+        resolve_latest: ``callable(filters) -> file_id | None`` (the port's
+            ``latest_file_id``), for the selection question.
+        list_documents: ``callable(filters) -> list[dict]`` (the port's ``documents``),
+            for the per-object question.
 
     Raises:
         DeliveryNotFindableError: the delivery, or part of it, is invisible.
-        FindabilityUnverifiedError: a query failed, so findability is UNKNOWN. This is
-            the deliberate soft edge (ADR-014 §3): ``filename`` is a declared collection
-            attribute, but if a store cannot be queried on it the honest answer is "could
-            not ask", not a manufactured outage on every delivery.
+        FindabilityUnverifiedError: a query failed, so findability is UNKNOWN.
+
+    **Why a type-scoped query and Python matching, not a filename query (#312 review).**
+    The obvious implementation asks the store for ``filename == X``. It would be the
+    first code on this platform to do so: ``filename`` is declared in pipeline-core's
+    collection schema (`provisioning.py:101`) but **no index is declared for it
+    anywhere**, and this deployment enforces index requirements on attribute lookups.
+    An unsupported query would make every delivery report UNVERIFIED — a guard that
+    logs "could not ask" forever while its mere presence reads as coverage. That is the
+    guard-that-cannot-fire shape (**C-155**), and it is worse than the bug it replaces.
+
+    So this uses the shape views-faoapi already proves against this store
+    (`prediction/manager.py::resolve_artifact_file_ids`): query scoped to
+    ``{category, type}``, match ``filename`` in Python. It also means the check asks
+    the question **the consumer actually asks**, which is C-94's thesis rather than an
+    approximation of it — and it costs one query per artefact type, not one per object.
 
     Lives here rather than in the partner managers because the logic is identical in
-    both and the partner packages are under a ratcheting line budget whose stated
-    response to binding is to move code **out of the package**. It also means one copy
-    of the rule instead of two that can disagree — the C-75 shape.
+    both and must not diverge (the C-75 shape), and because the partner packages are
+    under a ratcheting line budget whose stated response to binding is to move code
+    **out of the package**.
     """
     for category, expected in legs.items():
         try:
-            found = resolve({"name": consumer_name, "category": category})
+            found = resolve_latest({"name": consumer_name, "category": category})
         except Exception as exc:  # could not ask != asked and got nothing (C-99, C-103)
             raise unverified(category, exc) from exc
         assert_findable(
             found, expected_file_id=expected, consumer_name=consumer_name, category=category
         )
 
-    resolved = {}
-    for filename, expected in objects.items():
+    scopes = {(o["category"], o["doc_type"]) for o in objects}
+    seen: dict[str, str] = {}
+    for category, doc_type in sorted(scopes):
+        filters = {"name": consumer_name, "category": category, "type": doc_type}
         try:
-            resolved[filename] = (expected, resolve({"name": consumer_name, "filename": filename}))
+            docs = list_documents(filters)
         except Exception as exc:
-            raise unverified(f"object {filename!r}", exc) from exc
+            raise unverified(f"{category}/{doc_type} objects", exc) from exc
+        for doc in docs or ():
+            filename, file_id = doc.get("filename"), doc.get("fileId")
+            if filename and file_id and filename not in seen:
+                seen[filename] = file_id
+
+    resolved = {o["name"]: (o["file_id"], seen.get(o["name"])) for o in objects}
     assert_all_findable(resolved, consumer_name=consumer_name)
+    logger.info(
+        "Findability preflight passed: %d leg(s) and %d object(s) resolvable under %r.",
+        len(legs), len(objects), consumer_name,
+    )

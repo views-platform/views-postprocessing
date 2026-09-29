@@ -238,7 +238,7 @@ def deliver_run(
             )
         except Exception as exc:
             raise _torn_run_error(run_id, file_name, uploaded, total, exc) from exc
-        uploaded.append({"name": file_name, "file_id": file_id})
+        uploaded.append({"name": file_name, "file_id": file_id, "doc_type": doc_type})
         logger.info(  # the ledger — file_id included, it is the only persistent record
             "uploaded %s (type=%s, run=%s, file_id=%s)", file_name, doc_type, run_id, file_id
         )
@@ -255,6 +255,8 @@ def deliver_run(
     # filename, not just the commit marker (C-94, #312). It already exists for the
     # torn-run refusal; carrying it out costs nothing and is the only record of what
     # this run actually put in the bucket.
-    summary["uploaded_objects"] = {u["name"]: u["file_id"] for u in uploaded}
+    summary["uploaded_objects"] = [
+        {**u, "category": common["category"]} for u in uploaded
+    ]
     summary["uploaded"] = True
     return summary

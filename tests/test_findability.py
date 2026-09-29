@@ -203,19 +203,20 @@ def test_the_preflight_does_not_report_a_failed_query_as_an_invisible_delivery()
 
     with pytest.raises(findability.FindabilityUnverifiedError):
         findability.verify(
-            consumer_name="un_fao", legs={"forecast": "a"}, objects={}, resolve=explodes
+            consumer_name="un_fao", legs={"forecast": "a"}, objects=[],
+            resolve_latest=explodes, list_documents=explodes,
         )
 
-    # and the same for the by-name half, which #312 added
+    # and the same for the per-object half, which #312 added
     with pytest.raises(findability.FindabilityUnverifiedError) as caught:
         findability.verify(
-            consumer_name="un_fao",
-            legs={},
-            objects={"run__sidecar.parquet": "a"},
-            resolve=explodes,
+            consumer_name="un_fao", legs={},
+            objects=[{"name": "run__sidecar.parquet", "file_id": "a",
+                      "doc_type": "sampled_forecast_sidecar", "category": "forecast"}],
+            resolve_latest=explodes, list_documents=explodes,
         )
-    assert "run__sidecar.parquet" in str(caught.value), (
-        "an unverified object must name which object could not be checked"
+    assert "sampled_forecast_sidecar" in str(caught.value), (
+        "an unverified scope must name which artefact type could not be checked"
     )
 
 
@@ -245,16 +246,26 @@ def test_the_previous_runs_document_does_not_satisfy_this_run():
     )
 
 
-# ── #312: every artefact, by name ────────────────────────────────────────────
+# ── #312: every artefact, by the consumer's own resolution shape ─────────────
 
 
-def _resolver(store: dict):
-    """A store that answers by whatever filter key it is given, as Appwrite does."""
-    def resolve(filters):
-        if "filename" in filters:
-            return store.get(filters["filename"])
-        return store.get(("category", filters.get("category")))
-    return resolve
+def _objects(names, doc_type="sampled_forecast_shard", category="forecast"):
+    return [
+        {"name": n, "file_id": f"id-{n}", "doc_type": doc_type, "category": category}
+        for n in names
+    ]
+
+
+def _store(landed: dict):
+    """A store answering the way views-faoapi queries it: type-scoped, filename in
+    the document. `landed` maps filename -> fileId for what is actually retrievable."""
+    def list_documents(_filters):
+        return [{"filename": n, "fileId": fid} for n, fid in landed.items()]
+    return list_documents
+
+
+def _never(_filters):
+    raise AssertionError("the selection query must not run when legs is empty")
 
 
 def test_the_2026_09_29_incident_is_caught():
@@ -264,55 +275,49 @@ def test_the_2026_09_29_incident_is_caught():
     `update_document` ran against the OLD file, and the port returned a real file id
     for the wrong document. The consumer resolves by filename, found nothing, refused.
     """
-    objects = {f"run2__shard{i}.parquet": f"id{i}" for i in range(3)}
-    objects["run2__sidecar.parquet"] = "id-sidecar"
-    objects["run2__manifest.json"] = "id-manifest"
-
-    store = {name: fid for name, fid in objects.items() if "sidecar" not in name}
-    store[("category", "forecast")] = "id-manifest"
+    objects = _objects(["run2__shard0.parquet", "run2__shard1.parquet"])
+    objects += _objects(["run2__sidecar.parquet"], "sampled_forecast_sidecar")
+    landed = {o["name"]: o["file_id"] for o in objects if "sidecar" not in o["name"]}
 
     with pytest.raises(findability.DeliveryNotFindableError) as caught:
         findability.verify(
-            consumer_name="un_fao",
-            legs={"forecast": "id-manifest"},
-            objects=objects,
-            resolve=_resolver(store),
+            consumer_name="un_fao", legs={}, objects=objects,
+            resolve_latest=_never, list_documents=_store(landed),
         )
     message = str(caught.value)
     assert "run2__sidecar.parquet" in message, "the refusal must name the missing object"
-    assert "1 of 5" in message
+    assert "1 of 3" in message
     assert "NOTHING in this run is servable" not in message, (
         "one missing object is not a total failure; the message must not overstate"
     )
 
 
-def test_the_category_check_alone_would_have_passed_the_incident():
-    """Why the by-name half had to be added rather than the dict widened.
+def test_the_selection_check_alone_would_have_passed_the_incident():
+    """Why the per-object half had to be added rather than the dict widened.
 
-    Shards, sidecar and manifest all carry `category="forecast"`, and the manifest is
-    uploaded last — so the newest forecast document is always the manifest. The
+    Shards, sidecar and manifest all carry category="forecast" and the manifest is
+    uploaded last, so the newest forecast document is always the manifest. The
     selection check is satisfied by the very run that is unservable.
     """
     findability.verify(
-        consumer_name="un_fao",
-        legs={"forecast": "id-manifest"},
-        objects={},
-        resolve=_resolver({("category", "forecast"): "id-manifest"}),
+        consumer_name="un_fao", legs={"forecast": "id-manifest"}, objects=[],
+        resolve_latest=lambda _f: "id-manifest", list_documents=_never,
     )
 
 
 def test_a_deterministic_rerun_losing_everything_says_so():
     """The worst case, and the one our own remedy triggers.
 
-    Pooling is deterministic and `naming.py` embeds the run id in every filename, so a
+    Pooling is deterministic and naming.py embeds the run id in every filename, so a
     re-run writes NEW names over IDENTICAL bytes and every object deduplicates at once.
     The store creates the documents, the count is right, nothing is servable — and
     re-running is what C-105 and C-22 tell an operator to do.
     """
-    objects = {f"run2__shard{i}.parquet": f"id{i}" for i in range(4)}
+    objects = _objects([f"run2__shard{i}.parquet" for i in range(4)])
     with pytest.raises(findability.DeliveryNotFindableError) as caught:
         findability.verify(
-            consumer_name="un_fao", legs={}, objects=objects, resolve=_resolver({})
+            consumer_name="un_fao", legs={}, objects=objects,
+            resolve_latest=_never, list_documents=_store({}),
         )
     message = str(caught.value)
     assert "4 of 4" in message
@@ -323,29 +328,56 @@ def test_a_deterministic_rerun_losing_everything_says_so():
 
 
 def test_an_object_resolving_to_the_wrong_document_is_refused():
-    """A real id for the wrong file is the exact shape of the incident, and a check
-    that only asked 'did I get an id back' would pass it."""
+    """Content-hash dedup returns a REAL id for the WRONG document, so a check that
+    only asked "did I get an id back" passes the incident. This one does not."""
+    objects = _objects(["run2__sidecar.parquet"], "sampled_forecast_sidecar")
     with pytest.raises(findability.DeliveryNotFindableError) as caught:
         findability.verify(
-            consumer_name="un_fao",
-            legs={},
-            objects={"run2__sidecar.parquet": "id-new"},
-            resolve=_resolver({"run2__sidecar.parquet": "id-from-run1"}),
+            consumer_name="un_fao", legs={}, objects=objects,
+            resolve_latest=_never,
+            list_documents=_store({"run2__sidecar.parquet": "id-from-run1"}),
         )
     message = str(caught.value)
     assert "WRONG DOCUMENT" in message
-    assert "id-new" in message and "id-from-run1" in message
+    assert "id-from-run1" in message
+
+
+def test_the_query_is_type_scoped_and_costs_one_per_type_not_one_per_object():
+    """The #312 review finding: `filename` is declared but NOT indexed, and nothing on
+    the platform queries it. This uses views-faoapi's proven shape instead — scope by
+    {category, type}, match filename in Python — which also collapses 110 lookups to
+    one per artefact type."""
+    objects = _objects([f"s{i}.parquet" for i in range(50)])
+    objects += _objects(["sidecar.parquet"], "sampled_forecast_sidecar")
+    objects += _objects(["hist.parquet"], "model", "historical")
+    seen = []
+
+    def list_documents(filters):
+        seen.append(filters)
+        assert "filename" not in filters, (
+            "queried by filename — that attribute has no index and this deployment "
+            "enforces index requirements, so the guard would return UNVERIFIED forever"
+        )
+        return [{"filename": o["name"], "fileId": o["file_id"]} for o in objects]
+
+    findability.verify(
+        consumer_name="un_fao", legs={}, objects=objects,
+        resolve_latest=_never, list_documents=list_documents,
+    )
+    assert len(seen) == 3, f"expected one query per (category, type), got {len(seen)}"
+    assert {tuple(sorted(f.items())) for f in seen} == {
+        (("category", "forecast"), ("name", "un_fao"), ("type", "sampled_forecast_shard")),
+        (("category", "forecast"), ("name", "un_fao"), ("type", "sampled_forecast_sidecar")),
+        (("category", "historical"), ("name", "un_fao"), ("type", "model")),
+    }
 
 
 def test_a_fully_landed_run_passes():
-    objects = {"run2__sidecar.parquet": "a", "run2__manifest.json": "b"}
-    store = dict(objects)
-    store[("category", "forecast")] = "b"
+    objects = _objects(["a.parquet"]) + _objects(["m.json"], "sampled_forecast_manifest")
+    landed = {o["name"]: o["file_id"] for o in objects}
     findability.verify(
-        consumer_name="un_fao",
-        legs={"forecast": "b"},
-        objects=objects,
-        resolve=_resolver(store),
+        consumer_name="un_fao", legs={"forecast": "id-m.json"}, objects=objects,
+        resolve_latest=lambda _f: "id-m.json", list_documents=_store(landed),
     )
 
 

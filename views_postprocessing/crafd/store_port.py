@@ -27,6 +27,11 @@ class _ContractStorePort:
     def latest_file_id(self, filters: dict):
         return self._dsm.get_latest_file_id(filters=filters)
 
+    def documents(self, filters: dict) -> list:
+        """Documents matching ``filters`` — views-faoapi's own resolution shape;
+        `delivery/findability.verify` carries why it is not a filename query."""
+        return self._dsm.get_predictions_by_metadata(filters=filters)
+
     def file_metadata(self, file_id: str) -> dict:
         return store_metadata.file_metadata(self._dsm.get_file_metadata(file_id))
 
