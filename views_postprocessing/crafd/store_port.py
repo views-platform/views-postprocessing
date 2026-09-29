@@ -18,7 +18,7 @@ class _ContractStorePort:
     """Adapts a prediction-store client to the wire ports.
 
     ``datastore`` is any object exposing ``get_latest_file_id``, ``get_file_metadata``,
-    ``download_prediction`` and ``upload_data``.
+    ``download_prediction``, ``upload_data`` and ``get_predictions_by_metadata``.
     """
 
     def __init__(self, datastore) -> None:
