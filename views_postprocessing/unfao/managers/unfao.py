@@ -124,7 +124,9 @@ def _build_partner_read_store(model_path) -> DatastoreModule:
     return store
 
 
-def _assert_delivery_is_findable(model_path, consumer_name: str, legs: dict, objects) -> None:
+def _assert_delivery_is_findable(
+    model_path, consumer_name: str, legs: dict, objects: list
+) -> None:
     """C-94/#312: ask the store the questions the consumer asks. The rule and its
     refusals live in `delivery/findability.verify`; this owns only the port."""
     port = _ContractStorePort(_build_partner_read_store(model_path))

@@ -116,9 +116,10 @@ def assert_all_findable(resolved: dict, *, consumer_name: str) -> None:
 
     Args:
         resolved: ``{filename: (expected_file_id, found_file_id)}`` — one entry per
-            object the run uploaded, ``found_file_id`` being what the store returns
-            when asked for that exact filename under the consumer's name. ``None``
-            means the query found nothing.
+            object the run uploaded. ``found_file_id`` is the id carried by the store
+            document whose ``filename`` field matches, as recovered by `verify` from a
+            type-scoped query (**not** a query on ``filename`` — see `verify`). ``None``
+            means no document carried that filename.
         consumer_name: the DECLARED store-document ``name`` (C-77).
 
     Raises:
@@ -127,7 +128,7 @@ def assert_all_findable(resolved: dict, *, consumer_name: str) -> None:
             the whole list is the difference between "one file is missing" and
             "nothing in this run is servable".
 
-    **Why by filename and not by id (register C-94, #312).** The first live UN-FAO
+    **Why matched on filename rather than trusted by id (register C-94, #312).** The first live UN-FAO
     delivery, 2026-09-29, uploaded 109 of 110 objects and reported success. The GAUL
     sidecar's bytes were identical to the previous run's, the content-addressed store
     correctly declined a second copy, ``update_document`` ran against the OLD file, and
@@ -163,8 +164,9 @@ def assert_all_findable(resolved: dict, *, consumer_name: str) -> None:
     ]
     if missing:
         parts.append(
-            f"NOT FOUND by filename ({len(missing)}): {', '.join(missing)}. Every upload "
-            "reported success, so these exist as ids pointing at some other document — "
+            f"NO DOCUMENT CARRIES THIS FILENAME ({len(missing)}): {', '.join(missing)}. "
+            "Every upload reported success, so these exist as ids pointing at some "
+            "other document — "
             "the shape that stranded the 2026-09-29 sidecar when the store deduplicated "
             "identical bytes and updated the PREVIOUS run's file instead."
         )
@@ -183,7 +185,9 @@ def assert_all_findable(resolved: dict, *, consumer_name: str) -> None:
     raise DeliveryNotFindableError(" ".join(parts))
 
 
-def verify(*, consumer_name: str, legs: dict, objects, resolve_latest, list_documents) -> None:
+def verify(
+    *, consumer_name: str, legs: dict, objects: list, resolve_latest, list_documents
+) -> None:
     """Run both findability questions against a partner store. The caller owns the port.
 
     Args:
