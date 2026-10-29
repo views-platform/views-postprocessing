@@ -30,6 +30,7 @@ on the one person who could not route around it.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -47,8 +48,20 @@ import pytest
 #:   - `faoapi-server` — the views-faoapi server-side key, for its daily monitor and
 #:     the Hetzner box. Four, all reads.
 #:
-#: Both verified live before the old keys were stood down: `appwrite_store` STORE_ACTIVE,
-#: `unfao_delivery` DELIVERING, and faoapi's own smoke test ALL PASS with `appwrite=True`.
+#: Both verified live before the old keys were taken out of service: `appwrite_store`
+#: STORE_ACTIVE, `unfao_delivery` DELIVERING, and faoapi's own smoke test ALL PASS with
+#: `appwrite=True`.
+#:
+#: **The predecessors still EXIST and are deliberately not listed here.** Nothing
+#: authenticates with them any more — that is why they are gone from this dict, which
+#: tracks what this repository's deliveries actually use. They were kept rather than
+#: deleted because `files.write` and `documents.write` on `pipeline-core-writer` are
+#: still unproven: verifying them means writing to the production store, so the proof
+#: waits for a real producer run. **That retained fallback dies on 2026-11-17** with the
+#: keys themselves, and this tripwire will not tell you — by design, since a date on a
+#: key nothing uses is not this guard's subject. If a write scope turns out to be
+#: missing after that date the remedy is a console edit adding it, not a revert; the old
+#: key is a convenience with a deadline, not a dependency.
 #:
 #: Dates, honestly sourced: each key was created on 2026-10-29 with a **one-year**
 #: expiry, so the DATE is declared rather than read back from the console. The TIMES are
@@ -164,17 +177,34 @@ def test_the_tripwire_actually_fires_inside_the_lead_window():
     The probe date is DERIVED from `KEY_EXPIRY`, so this keeps proving something after a
     rotation. Hardcoding it — as the first draft did — meant the proof quietly expired
     the moment the constant was legitimately updated.
+
+    **Nothing here pins WHICH key is earliest, and that is the same lesson a second
+    time.** Until 2026-10-29 this asserted `name == "VIEWS Pipeline Core"`, which was a
+    console fact: the two expiries were 12:35 and 16:10 and the earlier one was the key
+    both delivery paths used. After the rotation the ordering is an artefact — the times
+    above are approximate, an hour apart by creation order — so asserting an identity
+    derived from `min()` over them would pin an invention, and would fail the day someone
+    reads the real values from the console and finds the other key came first. A guard
+    that refuses its own documented fix is worse than no guard.
     """
     earliest = min(KEY_EXPIRY.values()).date()
     probe = earliest - timedelta(days=LEAD_DAYS - 7)
     name, days_left = days_until_earliest_expiry(probe)
 
-    assert name == "pipeline-core-writer", "the earlier key is the one both paths use"
+    # No assertion on WHICH key `name` is: see the docstring. `name in KEY_EXPIRY` stood
+    # here briefly and was removed as decoration — `days_until_earliest_expiry` returns
+    # `min(KEY_EXPIRY, ...)`, so it cannot fail (C-102's family). An assertion that
+    # cannot fire is worse than none: it reads as cover.
     assert 0 < days_left <= LEAD_DAYS, "the probe must sit inside the window it tests"
 
     message = expiry_warning(name, days_left)
     assert f"expire in {days_left} days" in message
-    assert "1h00m apart" in message, "the gap is derived from the dates, not restated"
+    # The FORMAT, not the value. Under the old constants the gap was 3h35m and that was
+    # C-84's actual finding — a console fact worth pinning. It is now an artefact of two
+    # approximate creation times, so asserting the literal would pin a number this file
+    # openly says it invented, and would fail the day someone legitimately corrects the
+    # times from the console. That is the shape the removed literal pin had.
+    assert re.search(r"\d+h\d{2}m apart", message), "the gap must still render"
     assert "Rotate them separately" in message, (
         "the 2026-10-29 split's whole benefit is that the keys are now independent, and "
         "the operator must be told that rather than left with the old all-at-once warning"

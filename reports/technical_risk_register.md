@@ -1407,7 +1407,7 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 
 **RESOLVED 2026-10-29 — both keys rotated, 19 days before the date.** The tripwire fired on 2026-10-18 exactly as predicted and held `main` closed for eleven days, which is the mechanism working rather than failing: nobody had to remember.
 
-Both 36-scope keys were replaced with least-privilege successors, each verified live **before** its predecessor was stood down:
+Both 36-scope keys were replaced with least-privilege successors, each verified live **before** its predecessor was taken out of service:
 
 | was | now | scopes | verified |
 |---|---|---|---|
@@ -1427,7 +1427,9 @@ views-faoapi's own guard had already written the rule this cost us a round trip 
 
 ADRs requested at **views-pipeline-core#572** and **views-faoapi#543**, because a scope table that records the names without recording *why source analysis cannot produce them* will be wrong again.
 
-*Residual, deliberately not chased here:* `files.write` and `documents.write` on `pipeline-core-writer` are unproven — verifying them means writing to the production store. The old key remains available until a real producer run exercises them. Whether the FAO have adopted `faoapi-caller-fao`, or still hold only the retired shared key, is unconfirmed and is tracked at views-faoapi#543; the operator held a meeting and sent the key, and adoption is the partner's to complete.
+*Residual, deliberately not chased here:* `files.write` and `documents.write` on `pipeline-core-writer` are unproven — verifying them means writing to the production store, so the proof waits for a real producer run.
+
+**The predecessors still exist, unused, and that retained fallback has its own deadline: 2026-11-17.** They were kept rather than deleted so the unproven write scopes had something to fall back to. They are deliberately **not** in `KEY_EXPIRY` — that dict tracks what this repository's deliveries actually authenticate with, and nothing authenticates with them any more — so the tripwire will not warn when they die. That is a date this entry is choosing not to guard, stated rather than left implicit. It is acceptable because the fallback is a convenience, not a dependency: if a write scope proves missing, the remedy is a console edit adding it, which is what fixed the two read scopes on the day. Reverting to a 36-scope key was never the plan. Whether the FAO have adopted `faoapi-caller-fao`, or still hold only the retired shared key, is unconfirmed and is tracked at views-faoapi#543; the operator held a meeting and sent the key, and adoption is the partner's to complete.
 
 Cross-refs: **C-110** (the self-inflicted release block this resolves), **C-86** (no way past a red build), views-pipeline-core#572, views-faoapi#543, views-faoapi C-282.
 
