@@ -35,16 +35,34 @@ from datetime import date, datetime, timedelta
 import pytest
 
 #: The platform keys this repository's deliveries authenticate with, and when they die.
-#: Read from the operator console 2026-08-05 (þing-02 A3(i)); recorded in views-appwrite
-#: coordinate registry v1.4.4 and in register C-84. Both of this repo's paths — the FAO
-#: delivery and the CRAF'd delivery — run under `VIEWS Pipeline Core`, the earlier one.
 #:
-#: Naive datetimes, deliberately: the console reports local time and the window below is
-#: 30 days, so an hour either way changes nothing. Adding tzinfo would imply a precision
-#: the source does not have.
+#: **2026-10-29 — both keys rotated; this is remediation 1, the one the message below
+#: prefers.** The pair this entry used to name, `VIEWS Pipeline Core` and the key then
+#: called `UN FAO` (latterly `faoapi-legacy-shared-RETIRING`), were 36-scope keys dying
+#: within 3h35m of each other on 2026-11-17 — C-84's finding, and the reason this file
+#: exists. Both have been replaced by least-privilege successors:
+#:
+#:   - `pipeline-core-writer` — the producer key, held by views-models,
+#:     views-pipeline-core and this repository. Six load-bearing scopes.
+#:   - `faoapi-server` — the views-faoapi server-side key, for its daily monitor and
+#:     the Hetzner box. Four, all reads.
+#:
+#: Both verified live before the old keys were stood down: `appwrite_store` STORE_ACTIVE,
+#: `unfao_delivery` DELIVERING, and faoapi's own smoke test ALL PASS with `appwrite=True`.
+#:
+#: Dates, honestly sourced: each key was created on 2026-10-29 with a **one-year**
+#: expiry, so the DATE is declared rather than read back from the console. The TIMES are
+#: approximate — creation order, an hour apart — and are not a console reading. That is
+#: fine here and would not be fine elsewhere: the window below is 30 days, so an hour
+#: either way changes nothing, and inventing a precision the source does not have is the
+#: failure this comment exists to avoid. Naive datetimes for the same reason; adding
+#: tzinfo would imply more than is known.
+#:
+#: The successor keys are documented at views-pipeline-core#572 and views-faoapi#543,
+#: which ask for the ADRs that should outlive this comment.
 KEY_EXPIRY: dict[str, datetime] = {
-    "VIEWS Pipeline Core": datetime(2026, 11, 17, 12, 35),
-    "UN FAO": datetime(2026, 11, 17, 16, 10),
+    "pipeline-core-writer": datetime(2027, 10, 29, 22, 0),
+    "faoapi-server": datetime(2027, 10, 29, 23, 0),
 }
 
 #: How long before the earliest expiry this starts failing. C-84's own window, and the
@@ -85,14 +103,24 @@ def expiry_warning(name: str, days_left: int) -> str:
     return (
         f"the platform Appwrite keys expire {when}:\n{listing}\n\n"
         f"Both of this repository's delivery paths — un_fao and crafd — authenticate with "
-        f"{name!r}, the earlier one. The two keys are {gap} apart, which is not a stagger: "
-        "neither can carry traffic while the other is replaced, so a rotation that assumes "
-        "a window has none. After the later time every identity on the seam is dead at "
-        "once — model and ensemble writes, both partner deliveries, and FAO's own read "
-        "access.\n\n"
+        f"{name!r}, the earlier one.\n\n"
+        f"These two keys are {gap} apart, and unlike their predecessors that is now "
+        "merely a coincidence of when they were issued rather than a trap. The pair this "
+        "file used to name were 36-scope keys SHARED across every identity on the seam, "
+        "so neither could carry traffic while the other was replaced and the later death "
+        "took model writes, both partner deliveries and FAO's read access at once. The "
+        "2026-10-29 split ended that: these two serve different consumers, hold different "
+        "scopes, and can be rotated one at a time without the other noticing. Rotate them "
+        "separately — the whole point of the split was that you no longer have to do both "
+        "at once.\n\n"
         "This repository cannot rotate anything and must not hold credentials "
         "(þing-01 D3). Issuing and installing keys is an operator console action "
-        "(views-appwrite#12); the key split is views-faoapi#338.\n\n"
+        "(views-appwrite#12). The procedure that worked, and is worth repeating: create "
+        "the new key BEFORE deleting the old, install it, probe it live, and only then "
+        "stand the old one down — the old key is the fallback for as long as it exists. "
+        "No local analysis establishes Appwrite's scope contract; only a live round trip "
+        "does, and both predictions made from source on 2026-10-29 were wrong "
+        "(views-pipeline-core#572, views-faoapi#543).\n\n"
         "THREE ways to make this pass, in order of preference:\n"
         "  1. rotate the keys, then update KEY_EXPIRY to the new expiries;\n"
         "  2. if a key was replaced early, update KEY_EXPIRY to match;\n"
@@ -141,13 +169,16 @@ def test_the_tripwire_actually_fires_inside_the_lead_window():
     probe = earliest - timedelta(days=LEAD_DAYS - 7)
     name, days_left = days_until_earliest_expiry(probe)
 
-    assert name == "VIEWS Pipeline Core", "the earlier key is the one both paths use"
+    assert name == "pipeline-core-writer", "the earlier key is the one both paths use"
     assert 0 < days_left <= LEAD_DAYS, "the probe must sit inside the window it tests"
 
     message = expiry_warning(name, days_left)
     assert f"expire in {days_left} days" in message
-    assert "3h35m apart" in message, "the gap is C-84's finding, not the dates"
-    assert "not a stagger" in message
+    assert "1h00m apart" in message, "the gap is derived from the dates, not restated"
+    assert "Rotate them separately" in message, (
+        "the 2026-10-29 split's whole benefit is that the keys are now independent, and "
+        "the operator must be told that rather than left with the old all-at-once warning"
+    )
     assert "views-appwrite#12" in message, "the reader must be told who can act"
     assert "ACKNOWLEDGED_UNTIL" in message, "and how to clear it without deleting it"
     assert "Deleting this test" in message, (
