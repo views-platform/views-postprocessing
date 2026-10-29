@@ -1451,8 +1451,6 @@ Cross-refs: **C-81** (the same operator session's other half — branch protecti
 
 ---
 
----
-
 ### C-110: The release path will block itself from 2026-10-18, and nothing tells the person it blocks — RESOLVED
 
 | Field | Value |
@@ -1481,8 +1479,6 @@ It was cleared by **remediation 1, not the escape hatch**. `ACKNOWLEDGED_UNTIL` 
 **Closing this is documentation, not code.** Either a release runbook that names the interaction, or a cross-reference in C-84 and C-86 so that whoever reads one meets the other.
 
 Cross-refs: **C-84** (the expiry and the tripwire), **C-86** (no way past a red build; zero bypass actors), **C-81** (what actually gates `main`).
-
----
 
 ---
 
