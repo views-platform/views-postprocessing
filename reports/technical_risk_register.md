@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-09-14                           |
+| Last Updated      | 2026-10-30                           |
 | Total Concerns          | 113                                   |
-| Open Concerns           | 32                                    |
-| Resolved Concerns       | 81                                   |
+| Open Concerns           | 30                                    |
+| Resolved Concerns       | 83                                   |
 
 ---
 
@@ -710,37 +710,6 @@ It is a worked example wearing a risk's clothes. **Give it a real trigger or mov
 
 ---
 
-### C-84: Every identity this repo delivers under dies on 2026-11-17, within 3h35m of the other
-
-| Field | Value |
-|-------|-------|
-| ID | C-84 |
-| Tier | 2 — not silent. The delivery fails loudly and completely, which is the correct behaviour and also the whole problem: there is no degraded mode, no fallback identity, and the date is known in advance. A foreseeable total outage that nobody has scheduled work against is a structural risk, not an operational surprise. |
-| Source | views-appwrite coordinate registry v1.4.3/v1.4.4 — operator console read, 2026-08-05 (þing-02 A3(i)) |
-| Trigger | **A date, unusually — 2026-11-17.** The registry records `VIEWS Pipeline Core` expiring 12:35 and `UN FAO` 16:10 that afternoon. Act when the un_fao delivery is next scheduled within a month of it, or when anyone plans a rotation, whichever is first. **Since 2026-08-19 the first arm fires by itself**: `tests/test_credential_expiry.py` goes red from 2026-10-18, so the date no longer depends on anyone remembering it. |
-| Owner | Simon, and only Simon — issuing and installing keys is a console action. This entry exists so the date is visible from *this* repo's planning surface rather than only from the platform's. |
-| Location | `views_postprocessing/{unfao,crafd}/appwrite_env.py` — the declared coordinates; the values live in the environment and the registry, never here. |
-
-The FAO delivery authenticates with the `UN FAO` key. That key expires **2026-11-17 16:10**, and the platform's other key three and a half hours earlier. Read from the console rather than inferred, and recorded in the registry this repo pins.
-
-**Why the gap is the finding and not the dates.** Three and a half hours is not a stagger — it is close enough that the two keys cannot cover for one another under any realistic response, and both are on the same seam. After 16:10 that afternoon every identity on it is dead at once: model and ensemble writes, the un_fao delivery, the CRAF'd delivery, all preflights, and FAO's own read access. A rotation that assumes one key can carry traffic while the other is replaced has no such window.
-
-**What this repo can and cannot do.** It cannot rotate anything; it holds no credentials and must not (þing-01 D3). What it can do is fail early and legibly rather than mid-delivery — and it does not currently. `appwrite_env.py` validates that the declared variables are *present*, which an expired key still is. An expired key is indistinguishable from a valid one until the first request comes back unauthorised, by which point a delivery is part-way through.
-
-**Deliberately not fixed here, and the reason is C-84's own shape.** A preflight that checks key validity means an authenticated call at startup, and the only project to make it against is production — which **þing-01 D2** forbids for tests and this would not quite be — and which that verdict explicitly permits as *read-only preflight validation*, so the obstacle here is the authenticated call, not the prohibition (see C-95). The honest position is that this is a *date to act on*, not a mechanism to build, and inventing a mechanism would be building the wrong thing to feel busy. Registered so the date is not discovered by an outage.
-
-**The trigger now fires on its own (2026-08-19), and this is not the mechanism above.** The first arm of the trigger — *"act when the un_fao delivery is next scheduled within a month of it"* — was a trigger nobody could notice: it fired in someone's memory or not at all, which is the same defect that withdrew the third arm of C-94's trigger and which ADR-014 §4 exists to forbid. `tests/test_credential_expiry.py` declares the two expiries and fails from 30 days out, naming the dates, the 3h35m gap, who owns the rotation (operator; views-appwrite#12, key split views-faoapi#338), and the three ways to make it pass — rotate and update the constant, update the constant if a key was replaced early, or set `ACKNOWLEDGED_UNTIL`. **The third is the only one available to someone without console access**, which is most people who will meet this gate; omitting it here would reproduce the merge-queue-hostage outcome the acknowledgement exists to prevent.
-
-**It is emphatically not the key-validity preflight this entry rejected.** No authenticated call, no credential, no network — a calendar and two declared datetimes. The rejection above stands and is unaffected: what was wrong was building a mechanism to *discover* a fact already known; what was missing was making the known fact impossible to forget. **The acknowledgement is the load-bearing part, and the first draft did not have it.** `/code-review high` found two design faults that would each have ended with the test deleted. (a) A literal pin on the two datetimes made the tripwire's own prescribed remediation — *rotate, then update `KEY_EXPIRY`* — fail a second test whose message said not to adjust the constant. A guard that refuses its own documented fix is worse than no guard, and it would have landed on the one person who could not route around it. The pin is gone. (b) From 2026-10-18 the gate would have been red for **every unrelated pull request**, clearable only by an operator console action the repository cannot perform — which is precisely what `pyproject.toml` says about ruff, citing ADR-014 §3: *a gate that starts red gets switched off*. `ACKNOWLEDGED_UNTIL` is the in-repo escape: a declared, reviewed, dated edit meaning *seen, and being acted on*, which **cannot be set on or after the expiry** — so it postpones attention and can never replace it.
-
-Four companion tests keep it honest rather than decorative: the firing branch is exercised against a probe **derived from** `KEY_EXPIRY` (**C-102** — a guard that has never run is unproven; deriving it rather than hardcoding means the proof survives a rotation instead of quietly expiring with it); an acknowledgement past the expiry is refused; `LEAD_DAYS` is floored, because shaving a week off the warning neuters the guard while leaving it looking present; and the outage-day text is checked, since the first draft would have told an operator the keys expired *"in -3 days"* while the seam was down. All verified by mutation.
-
-Cross-refs: **C-81** (the same operator session's other half — branch protection and the CI token), **C-27** (no rotation mechanism for a secret value upstream), **C-57** (the pinned-registry detector, which is how this arrived here at all — it demanded the v1.4.4 bump and the bump is what surfaced the expiry), þing-02 A3(i), views-appwrite C-65 and C-66.
-
-**The tripwire gates the release path, which this entry did not say when it was added — see C-110.** From 2026-10-18 it reddens `test`, which `protect_main` makes a required check with zero bypass actors, so no release can be tagged until the keys rotate or `ACKNOWLEDGED_UNTIL` is set.
-
----
-
 ### C-15: Upload metadata lacks enrichment provenance and carries test description
 
 | Field | Value |
@@ -1295,29 +1264,6 @@ Cross-refs: **C-103** (twice stale in four days — the case that made this visi
 
 ---
 
-### C-110: The release path will block itself from 2026-10-18, and nothing tells the person it blocks
-
-| Field | Value |
-|-------|-------|
-| ID | C-110 |
-| Tier | 3 — the ability to ship is interrupted on a known date, but the escape is in-repo and reachable. That is what separates it from **C-86**'s Tier 2, where the only responses are console actions by one person. If the acknowledgement were ever removed, or the tripwire made unconditional, this becomes C-86's tier. |
-| Source | `/falsify` release-readiness audit, 2026-08-21 (probe P5) |
-| Trigger | A release is cut on or after **2026-10-18**, or anyone reports a red `test` check on `main` they cannot explain — read `tests/test_credential_expiry.py` before diagnosing anything else. |
-| Owner | This repository for the documentation; the operator for the rotation that removes the cause. |
-| Location | `tests/test_credential_expiry.py::test_the_platform_keys_are_not_about_to_expire`; the `protect_main` ruleset; `docs/operations/` (where the runbook that would say this does not exist). |
-
-Measured 2026-08-21 against the live ruleset: `protect_main` is **active**, the `test` job is a **required status check**, and `bypass_actors` is **empty** — C-86's finding, re-confirmed. `test_credential_expiry` fails from 30 days before the 2026-11-17 expiry, i.e. **2026-10-18**. From that date the required check is red, so no pull request merges to `main` and no release can be tagged.
-
-**This entry exists because it falls between two records and is in neither.** C-84 registers the expiry and the tripwire and does not mention the release path or required checks. C-86 registers that a red build cannot be bypassed and does not mention the tripwire. The interaction — *the guard we added will redden the check that cannot be bypassed, on a date we chose* — is the product of the two, and was not noticed when the tripwire was added four days earlier. The ruleset was never queried at the time; the audit queried it.
-
-**The escape is real and was verified, which is why this is Tier 3.** A pull request that sets `ACKNOWLEDGED_UNTIL` is green on its own branch (measured: `1 failed` → `6 passed`), so the block is not a trap and the fix is not gated behind the thing it fixes. What is missing is that **nothing tells a releaser any of this**. There is no release runbook in `docs/operations/`, and the failure message names `ACKNOWLEDGED_UNTIL` without saying that a release is what it is blocking.
-
-**Closing this is documentation, not code.** Either a release runbook that names the interaction, or a cross-reference in C-84 and C-86 so that whoever reads one meets the other.
-
-Cross-refs: **C-84** (the expiry and the tripwire), **C-86** (no way past a red build; zero bypass actors), **C-81** (what actually gates `main`).
-
----
-
 ### C-112: Nothing here can see what production actually runs, and it ran a defect we had already fixed for eight days
 
 | Field | Value |
@@ -1447,6 +1393,96 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-84: Every identity this repo delivers under dies on 2026-11-17, within 3h35m of the other — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-84 |
+| Tier | 2 — not silent. The delivery fails loudly and completely, which is the correct behaviour and also the whole problem: there is no degraded mode, no fallback identity, and the date is known in advance. A foreseeable total outage that nobody has scheduled work against is a structural risk, not an operational surprise. |
+| Source | views-appwrite coordinate registry v1.4.3/v1.4.4 — operator console read, 2026-08-05 (þing-02 A3(i)) |
+| Trigger | **A date, unusually — 2026-11-17.** The registry records `VIEWS Pipeline Core` expiring 12:35 and `UN FAO` 16:10 that afternoon. Act when the un_fao delivery is next scheduled within a month of it, or when anyone plans a rotation, whichever is first. **Since 2026-08-19 the first arm fires by itself**: `tests/test_credential_expiry.py` goes red from 2026-10-18, so the date no longer depends on anyone remembering it. |
+| Owner | Simon, and only Simon — issuing and installing keys is a console action. This entry exists so the date is visible from *this* repo's planning surface rather than only from the platform's. |
+| Location | `views_postprocessing/{unfao,crafd}/appwrite_env.py` — the declared coordinates; the values live in the environment and the registry, never here. |
+
+**RESOLVED 2026-10-29 — both keys rotated, 19 days before the date.** The tripwire fired on 2026-10-18 exactly as predicted and held `main` closed for eleven days, which is the mechanism working rather than failing: nobody had to remember.
+
+Both 36-scope keys were replaced with least-privilege successors, each verified live **before** its predecessor was taken out of service:
+
+| was | now | scopes | verified |
+|---|---|---|---|
+| `VIEWS Pipeline Core` | `pipeline-core-writer` | 6 load-bearing | `appwrite_store` STORE_ACTIVE (1007 files); `unfao_delivery` DELIVERING; 3 collections, 1006 documents |
+| `UN FAO` / `faoapi-legacy-shared-RETIRING` | `faoapi-server` | 4, all reads | faoapi smoke test ALL PASS, `appwrite=True`, both legs serving 1,030 cells |
+
+**What this closes that the date alone would not.** The entry's framing — *"no degraded mode, no fallback identity"* — was a property of the keys being **shared**, not of their expiry. Two 36-scope keys carrying every identity on the seam could not be rotated one at a time. The successors serve different consumers with different scopes, so the next rotation is two independent, routine operations. The structural risk is gone, not merely postponed; `tests/test_credential_expiry.py` now carries 2027-10-29 and its warning text was rewritten to say so.
+
+**The finding worth keeping, because it will recur at the next SDK bump.** Scope sets derived from source were **wrong twice** — once by the pipeline-core seat tracing every call site, once independently here. Appwrite had split the vocabulary into `documentsdb.*` / `tables.*`/`rows.*` / `vectorsdb.*`, and what actually authorises `appwrite==19.2.0` is the three scopes the console tags **Deprecated**. The server named them itself:
+
+```
+401 general_unauthorized_scope  missing scopes (["collections.read"])
+401 general_unauthorized_scope  missing scopes (["documents.read"])
+```
+
+views-faoapi's own guard had already written the rule this cost us a round trip to rediscover: *"That is Appwrite's contract, not ours, and no local test can establish it — only a live round trip can."* Their **views-faoapi C-282** was the first instance. Create-before-delete is what made the rediscovery free: the old key carried production throughout.
+
+ADRs requested at **views-pipeline-core#572** and **views-faoapi#543**, because a scope table that records the names without recording *why source analysis cannot produce them* will be wrong again.
+
+*Residual, deliberately not chased here:* `files.write` and `documents.write` on `pipeline-core-writer` are unproven — verifying them means writing to the production store, so the proof waits for a real producer run.
+
+**The predecessors still exist, unused, and that retained fallback has its own deadline: 2026-11-17.** They were kept rather than deleted so the unproven write scopes had something to fall back to. They are deliberately **not** in `KEY_EXPIRY` — that dict tracks what this repository's deliveries actually authenticate with, and nothing authenticates with them any more — so the tripwire will not warn when they die. That is a date this entry is choosing not to guard, stated rather than left implicit. It is acceptable because the fallback is a convenience, not a dependency: if a write scope proves missing, the remedy is a console edit adding it, which is what fixed the two read scopes on the day. Reverting to a 36-scope key was never the plan. Whether the FAO have adopted `faoapi-caller-fao`, or still hold only the retired shared key, is unconfirmed and is tracked at views-faoapi#543; the operator held a meeting and sent the key, and adoption is the partner's to complete.
+
+Cross-refs: **C-110** (the self-inflicted release block this resolves), **C-86** (no way past a red build), views-pipeline-core#572, views-faoapi#543, views-faoapi C-282.
+
+The FAO delivery authenticates with the `UN FAO` key. That key expires **2026-11-17 16:10**, and the platform's other key three and a half hours earlier. Read from the console rather than inferred, and recorded in the registry this repo pins.
+
+**Why the gap is the finding and not the dates.** Three and a half hours is not a stagger — it is close enough that the two keys cannot cover for one another under any realistic response, and both are on the same seam. After 16:10 that afternoon every identity on it is dead at once: model and ensemble writes, the un_fao delivery, the CRAF'd delivery, all preflights, and FAO's own read access. A rotation that assumes one key can carry traffic while the other is replaced has no such window.
+
+**What this repo can and cannot do.** It cannot rotate anything; it holds no credentials and must not (þing-01 D3). What it can do is fail early and legibly rather than mid-delivery — and it does not currently. `appwrite_env.py` validates that the declared variables are *present*, which an expired key still is. An expired key is indistinguishable from a valid one until the first request comes back unauthorised, by which point a delivery is part-way through.
+
+**Deliberately not fixed here, and the reason is C-84's own shape.** A preflight that checks key validity means an authenticated call at startup, and the only project to make it against is production — which **þing-01 D2** forbids for tests and this would not quite be — and which that verdict explicitly permits as *read-only preflight validation*, so the obstacle here is the authenticated call, not the prohibition (see C-95). The honest position is that this is a *date to act on*, not a mechanism to build, and inventing a mechanism would be building the wrong thing to feel busy. Registered so the date is not discovered by an outage.
+
+**The trigger now fires on its own (2026-08-19), and this is not the mechanism above.** The first arm of the trigger — *"act when the un_fao delivery is next scheduled within a month of it"* — was a trigger nobody could notice: it fired in someone's memory or not at all, which is the same defect that withdrew the third arm of C-94's trigger and which ADR-014 §4 exists to forbid. `tests/test_credential_expiry.py` declares the two expiries and fails from 30 days out, naming the dates, the 3h35m gap, who owns the rotation (operator; views-appwrite#12, key split views-faoapi#338), and the three ways to make it pass — rotate and update the constant, update the constant if a key was replaced early, or set `ACKNOWLEDGED_UNTIL`. **The third is the only one available to someone without console access**, which is most people who will meet this gate; omitting it here would reproduce the merge-queue-hostage outcome the acknowledgement exists to prevent.
+
+**It is emphatically not the key-validity preflight this entry rejected.** No authenticated call, no credential, no network — a calendar and two declared datetimes. The rejection above stands and is unaffected: what was wrong was building a mechanism to *discover* a fact already known; what was missing was making the known fact impossible to forget. **The acknowledgement is the load-bearing part, and the first draft did not have it.** `/code-review high` found two design faults that would each have ended with the test deleted. (a) A literal pin on the two datetimes made the tripwire's own prescribed remediation — *rotate, then update `KEY_EXPIRY`* — fail a second test whose message said not to adjust the constant. A guard that refuses its own documented fix is worse than no guard, and it would have landed on the one person who could not route around it. The pin is gone. (b) From 2026-10-18 the gate would have been red for **every unrelated pull request**, clearable only by an operator console action the repository cannot perform — which is precisely what `pyproject.toml` says about ruff, citing ADR-014 §3: *a gate that starts red gets switched off*. `ACKNOWLEDGED_UNTIL` is the in-repo escape: a declared, reviewed, dated edit meaning *seen, and being acted on*, which **cannot be set on or after the expiry** — so it postpones attention and can never replace it.
+
+Four companion tests keep it honest rather than decorative: the firing branch is exercised against a probe **derived from** `KEY_EXPIRY` (**C-102** — a guard that has never run is unproven; deriving it rather than hardcoding means the proof survives a rotation instead of quietly expiring with it); an acknowledgement past the expiry is refused; `LEAD_DAYS` is floored, because shaving a week off the warning neuters the guard while leaving it looking present; and the outage-day text is checked, since the first draft would have told an operator the keys expired *"in -3 days"* while the seam was down. All verified by mutation.
+
+Cross-refs: **C-81** (the same operator session's other half — branch protection and the CI token), **C-27** (no rotation mechanism for a secret value upstream), **C-57** (the pinned-registry detector, which is how this arrived here at all — it demanded the v1.4.4 bump and the bump is what surfaced the expiry), þing-02 A3(i), views-appwrite C-65 and C-66.
+
+**The tripwire gates the release path, which this entry did not say when it was added — see C-110.** From 2026-10-18 it reddens `test`, which `protect_main` makes a required check with zero bypass actors, so no release can be tagged until the keys rotate or `ACKNOWLEDGED_UNTIL` is set.
+
+---
+
+### C-110: The release path will block itself from 2026-10-18, and nothing tells the person it blocks — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-110 |
+| Tier | 3 — the ability to ship is interrupted on a known date, but the escape is in-repo and reachable. That is what separates it from **C-86**'s Tier 2, where the only responses are console actions by one person. If the acknowledgement were ever removed, or the tripwire made unconditional, this becomes C-86's tier. |
+| Source | `/falsify` release-readiness audit, 2026-08-21 (probe P5) |
+| Trigger | A release is cut on or after **2026-10-18**, or anyone reports a red `test` check on `main` they cannot explain — read `tests/test_credential_expiry.py` before diagnosing anything else. |
+| Owner | This repository for the documentation; the operator for the rotation that removes the cause. |
+| Location | `tests/test_credential_expiry.py::test_the_platform_keys_are_not_about_to_expire`; the `protect_main` ruleset; `docs/operations/` (where the runbook that would say this does not exist). |
+
+Measured 2026-08-21 against the live ruleset: `protect_main` is **active**, the `test` job is a **required status check**, and `bypass_actors` is **empty** — C-86's finding, re-confirmed. `test_credential_expiry` fails from 30 days before the 2026-11-17 expiry, i.e. **2026-10-18**. From that date the required check is red, so no pull request merges to `main` and no release can be tagged.
+
+**RESOLVED 2026-10-29 — it happened exactly as written, and the prediction is the reason it cost little.** The check went red on 2026-10-18 and `main` was closed for eleven days. Nothing was queued behind it, so the only cost was the operator's confusion on discovering it — which is precisely the gap this entry named: *"nothing tells the person it blocks"*.
+
+It was cleared by **remediation 1, not the escape hatch**. `ACKNOWLEDGED_UNTIL` was never set. Both keys were rotated (**C-84**) and `KEY_EXPIRY` updated to 2027-10-29, so the check passes on the underlying fact rather than on an acknowledgement. That matters for this entry specifically: the tier rested on the escape being *reachable*, and the escape turned out not to be needed.
+
+**One correction to this entry's own reasoning, recorded because it nearly caused harm.** During the incident an attempt was made to shorten `LEAD_DAYS` from 30 to 7 to quiet the alarm. Measured, that does not clear the check — it reddens `test_the_lead_window_is_not_quietly_shrunk` and the firing-path probe instead, so buying a shorter window costs deleting the two guards that keep the tripwire honest for the next rotation. The guard did exactly the job its message describes (*"shortening the warning is how a dated guard gets neutered while still looking present"*), and the attempt was abandoned. Worth knowing that the obvious shortcut is closed, and closed deliberately.
+
+**What is left undone, honestly.** The Location field named `docs/operations/` as *"where the runbook that would say this does not exist"*, and it still does not exist. What exists now instead is the rewritten failure message in `tests/test_credential_expiry.py`, which carries the create-before-delete procedure, the independence of the two keys, and the live-round-trip rule. That is arguably the better home — the person who meets this meets it as a red check, not by opening a runbook — but it is a different remedy than the one this entry proposed, and saying it was "documented as planned" would be false.
+
+**This entry exists because it falls between two records and is in neither.** C-84 registers the expiry and the tripwire and does not mention the release path or required checks. C-86 registers that a red build cannot be bypassed and does not mention the tripwire. The interaction — *the guard we added will redden the check that cannot be bypassed, on a date we chose* — is the product of the two, and was not noticed when the tripwire was added four days earlier. The ruleset was never queried at the time; the audit queried it.
+
+**The escape is real and was verified, which is why this is Tier 3.** A pull request that sets `ACKNOWLEDGED_UNTIL` is green on its own branch (measured: `1 failed` → `6 passed`), so the block is not a trap and the fix is not gated behind the thing it fixes. What is missing is that **nothing tells a releaser any of this**. There is no release runbook in `docs/operations/`, and the failure message names `ACKNOWLEDGED_UNTIL` without saying that a release is what it is blocking.
+
+**Closing this is documentation, not code.** Either a release runbook that names the interaction, or a cross-reference in C-84 and C-86 so that whoever reads one meets the other.
+
+Cross-refs: **C-84** (the expiry and the tripwire), **C-86** (no way past a red build; zero bypass actors), **C-81** (what actually gates `main`).
+
+---
 
 ### C-102: A guard that has never run is unproven, however carefully it was written — RESOLVED
 
