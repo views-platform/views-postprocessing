@@ -3507,14 +3507,14 @@ frames = ["views-frames (>=1.10.2,<2)"]
 
 [[package]]
 name = "views-frames"
-version = "2.0.0"
+version = "3.0.0"
 description = "The VIEWS platform data-contract layer: immutable array+identifier frames (numpy only, root of the dependency DAG)."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "views_frames-2.0.0-py3-none-any.whl", hash = "sha256:389feb16d6bda995d9f2914de6f5619a38ff37025a0022216eb65d44e03f0b48"},
-    {file = "views_frames-2.0.0.tar.gz", hash = "sha256:de13c9713fdecbeb705d0698d285941ea1c614c37e80e8bc2ed7b68f83733ac5"},
+    {file = "views_frames-3.0.0-py3-none-any.whl", hash = "sha256:0dab8ff3c374ac987734a1afce952db6db4538b9ee96b0fbe02b9f83a92c37e3"},
+    {file = "views_frames-3.0.0.tar.gz", hash = "sha256:b9b6407d5eaf25ba5a49893e807548b1049d5e4eeb4127c4e288222b3ee415c2"},
 ]
 
 [package.dependencies]
@@ -3526,14 +3526,14 @@ docs = ["jupyterlab (>=4,<5)", "matplotlib (>=3.8,<4)", "nbmake (>=1.5,<2)", "py
 
 [[package]]
 name = "views-pipeline-core"
-version = "3.3.0"
+version = "3.4.0"
 description = "Core orchestration, data and model-management library for the VIEWS conflict forecasting platform."
 optional = false
 python-versions = "<3.15,>=3.11"
 groups = ["main"]
 files = [
-    {file = "views_pipeline_core-3.3.0-py3-none-any.whl", hash = "sha256:7c0c7535ee9de7a74528bb64393621e379d57556ee125785d4d149a745dab515"},
-    {file = "views_pipeline_core-3.3.0.tar.gz", hash = "sha256:8edf80123d35a626ce282aae8bac94c9b6a56cdf3b0163c0d98c9ddbfb5aa7d1"},
+    {file = "views_pipeline_core-3.4.0-py3-none-any.whl", hash = "sha256:c560396f1ff880ea76da7365e75bbb6a49d4fa58b4518ab57021240cb29e553e"},
+    {file = "views_pipeline_core-3.4.0.tar.gz", hash = "sha256:806c4410caab4562ca1542af604808eca4532c079c800fb3b7615171b1156599"},
 ]
 
 [package.dependencies]
@@ -3546,7 +3546,7 @@ pyarrow = ">=14.0.0,<17.0.0"
 pyprojroot = ">=0.3.0,<0.4.0"
 tqdm = ">=4.66,<5.0"
 views-evaluation = ">=2.0.0,<3.0.0"
-views-frames = ">=1.10.2,<3.0.0"
+views-frames = ">=3.0.0,<4.0.0"
 viewser = ">=6.6.4,<7.0.0"
 wandb = ">=0.18.7,<1.0"
 
@@ -3723,4 +3723,4 @@ test = ["pytest", "websockets"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "e305efbfd4f9ed430ac7051fca50378ec49692af59354a03c2072ebf5cfaade6"
+content-hash = "454f301b3fa62ea74ff8b906804cc6e02f758854d47d290f4fbe8ef3fb44ee46"

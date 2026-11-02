@@ -17,7 +17,29 @@ python = ">=3.11,<3.15"
 # import the SDK unguarded. Without the extra the FAO delivery fails **at import**, not
 # at runtime, and inside a dependency rather than in our own code. Register C-07.
 views-pipeline-core = {version = ">=3.0.0,<4.0.0", extras = ["appwrite"]}
-views-frames = ">=2.0.0,<3"
+# Widened from `<3` on 2026-11-02 (#324, filed from views-models). The cap was not
+# harmless: views-models' pod runners require views-frames >= 3.0.0, so `<3` meant this
+# repo could not be installed alongside the ensemble lane that produces its input.
+#
+# Safe because the 3.0.0 MAJOR is confined to `views_frames_reconcile` (donor fill for
+# empty-grid draws, views-frames ADR-030), which this repo does not import —
+# reconciliation left here in #62. `views_frames/io/arrow.py`, the only views_frames
+# module that produces bytes we publish (`contract/wire/shard.py:34`), is BYTE-IDENTICAL
+# across the boundary: `git diff v2.0.0..v3.0.0 -- views_frames/io/` is empty. Hop-A does
+# not read through views_frames at all (`contract/track_a_source.py:82-86` decodes the
+# archive with zipfile + np.load), so inbound shard bytes are a pipeline-core contract,
+# not a views-frames one.
+#
+# **views-frames 3.x is not reachable alone:** pipeline-core 3.3.0 caps
+# `views-frames <3.0.0`, so the lock moves pipeline-core 3.3.0 -> 3.4.0 with it. Both are
+# inside the ranges already declared here. The floor stays at 2.0.0 and pipeline-core's at
+# 3.0.0 deliberately — (frames 2.x + pipeline-core 3.3.x) is still a coherent resolution.
+#
+# Measured on Python 3.11 with the resulting locked set (views-frames 3.0.0,
+# views-pipeline-core 3.4.0, pandas 1.5.3, pyarrow 16.1.0): **527 passed, 3 skipped,
+# 41 xfailed, 0 failed**, including the ADR-013 §10 golden byte-parity fixture and the
+# manager tests. The lock moves so CI asserts this rather than leaving it a claim.
+views-frames = ">=2.0.0,<4.0.0"
 pyarrow = ">=16.1.0,<17.0.0"
 
 # pytest was never declared here; it arrived transitively through pipeline-core, which

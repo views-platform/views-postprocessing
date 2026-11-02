@@ -46,6 +46,18 @@ fixture — but it does require proving that, the same way.
 equal the committed fixture (`203650fd…12c54`) — measured in an isolated environment at the
 pinned toolchain (pyarrow 16.1.0, numpy 1.26.4), where all 61 frames-dependent tests also
 pass at 2.0.0. So the views-frames 2.0.0 adoption (#286) is **not** a fixture re-vendor. It
-is blocked only by views-pipeline-core, every published release of which (through 3.1.1)
-pins `views-frames <2.0.0`. Recorded so the byte question is not re-opened when that
-constraint widens.
+was blocked only by views-pipeline-core, every release published at the time (through
+3.1.1) pinning `views-frames <2.0.0`. Recorded so the byte question is not re-opened when
+that constraint widens.
+
+**That constraint has since widened, and the byte question was re-opened and answered the
+same way (2026-11-02, #324).** Regenerating with `scripts/build_wire_fixture.py` under
+**views-frames 3.0.0** at the pinned toolchain (pyarrow 16.1.0) reproduces **all five
+artifacts byte-identically** — `SHA256SUMS` is unchanged and the arrow shard still hashes
+`203650fd…12c54`. Expected, because `views_frames/io/arrow.py` is byte-identical between
+`v2.0.0` and `v3.0.0` (`git diff v2.0.0..v3.0.0 -- views_frames/io/` is empty): the whole
+3.0.0 MAJOR is in `views_frames_reconcile`, which this repo does not import. The full
+suite passes at that version on Python 3.11 — 527 passed, 3 skipped, 41 xfailed, 0 failed
+— with the lock also moving views-pipeline-core 3.3.0 -> 3.4.0, since 3.3.0 was the
+release that still capped `views-frames <3.0.0`. So 3.0.0 is not a fixture re-vendor
+either, and the pin is now `>=2.0.0,<4.0.0`.
