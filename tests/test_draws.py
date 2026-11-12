@@ -77,3 +77,30 @@ def test_nan_rows_count_as_varied_documented_behavior():
 def test_label_appears_in_message():
     with pytest.raises(DrawsCollapseError, match="second-store"):
         assert_draws_uncollapsed(np.zeros(3), 8, s_min=2, label="second-store")
+
+
+def test_an_empty_payload_is_refused_as_empty_and_not_as_collapsed():
+    """0 rows is not a collapse, and saying so sent readers to the wrong place.
+
+    `np.any(arr != arr[:, :1], axis=1).any()` over zero rows is False, so the
+    degeneracy branch fired and reported "every one of the 0 rows is
+    draw-degenerate (all 8 draws identical per row)" — vacuously true. It pointed
+    the reader at the summarizer and the ADR-013 §6 contract when the real fault was
+    a target that resolved to no rows, which would have delivered zero cells to a
+    partner. Found by `/code-review max`, 2026-11-12.
+    """
+    with pytest.raises(DrawsCollapseError, match="0 rows") as excinfo:
+        assert_draws_uncollapsed(np.zeros((0, 8), dtype="float32"), 8, s_min=2)
+    # The old message is the thing under test: it must not come back.
+    assert "degenerate" not in str(excinfo.value)
+
+
+def test_input_that_is_not_an_array_at_all_is_refused_as_malformed():
+    """Ragged input raised numpy's bare ValueError, which reads as a §6 verdict.
+
+    `DrawsCollapseError` subclasses `ValueError`, so a caller catching the narrow
+    type missed this entirely while a caller catching `ValueError` blamed the policy
+    gate for malformed input. Nothing about the draws has been checked at that point.
+    """
+    with pytest.raises(DrawsCollapseError, match="could not be read as an array"):
+        assert_draws_uncollapsed([[1, 2], [3]], 2, s_min=2)

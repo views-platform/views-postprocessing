@@ -7,12 +7,20 @@ contract values (the header's ``sample_count``, the configured ``s_min``); the r
 lives here. Declare-don't-guess: nothing is inferred from the payload — the caller
 states what the payload claims to be, and this invariant fails loud if it is not.
 
-Why this matters: the whole point of the sampled-forecast wire (ADR-013) is that FAO
-receives the full posterior mixture — ``(N, S≈1024)`` draws per cell — collapsed to a
-point exactly once, downstream, in the summarizer. Any hop that bakes out a mean/median
-or ships a mislabeled point payload silently flattens the mixture. This is the single
-**policy** gate (the per-hop emission/ingest asserts are mechanism guards); it runs
-before every FAO-facing forecast upload.
+Why this matters: the whole point of the sampled-forecast wire (ADR-013) is that a
+partner receives the full posterior mixture — ``(N, S)`` draws per cell — collapsed to
+a point exactly once, downstream, in the summarizer. Any hop that bakes out a
+mean/median or ships a mislabeled point payload silently flattens the mixture. This is
+the single **policy** gate (the per-hop emission/ingest asserts are mechanism guards);
+it runs before every partner-facing forecast upload — FAO's and CRAF'd's alike, since
+the sink is partner-neutral (#153).
+
+``S`` is deliberately not given a value here. The run's §2 header declares what the
+width is — pooled across the ensemble's members, so it differs per ensemble — and each
+product's ``S_MIN`` declares the least a delivery will accept. Those two declarations
+are the authority. The ``S≈1024`` that stood in this paragraph until 2026-11-12 was
+neither, and had gone stale: it stated a design target as though it were the delivered
+width.
 """
 
 from __future__ import annotations
@@ -38,13 +46,25 @@ def assert_draws_uncollapsed(
     1. ``values`` is 2-D ``(N, S)`` — a collapsed 1-D column or a stacked 3-D block is
        not a sampled forecast payload.
     2. payload ``S == sample_count`` — the header's declaration must match the bytes.
-    3. ``sample_count >= s_min`` — the consumer-facing floor (2 for the walking
-       skeleton; region-pinned for production). Declared by the caller from config,
-       never guessed here.
+    3. ``sample_count >= s_min`` — the consumer-facing floor, declared per product in
+       its own ``S_MIN`` (2 while the deliveries are walking skeletons). Declared by
+       the caller from config, never guessed here.
     4. **Global** non-degeneracy — at least one row carries more than one distinct
        draw value. Per-row zero variance is explicitly **legal** (zero-conflict cells
        dominate PGM); only a payload where *every* row is draw-degenerate fails — that
        is a collapsed forecast wearing a sampled header, not an edge case.
+
+    Two refusals sit **outside** those four rules, because in both cases there is no
+    payload for §6 to judge: input ``np.asarray`` cannot read at all (ragged input,
+    which used to surface as a bare ``ValueError`` appearing to blame this gate), and
+    a payload with zero rows (which check 4 reported as "every one of the 0 rows is
+    draw-degenerate" — vacuously true, and a diagnosis pointing at the summarizer
+    when the frame simply resolved empty). Both raise ``DrawsCollapseError`` naming
+    the real fault, so no *payload* can now reach a caller as a bare ``ValueError``.
+    The declared ints are a separate matter and are still unenforced: a non-int
+    ``s_min`` escapes as a ``TypeError`` from check 3. Unreachable from
+    ``wire/sink.py``, which passes a product constant, and measured rather than
+    assumed — but not a claim this docstring should make for every input.
 
     NaN note: a NaN draw compares unequal to everything (including another NaN), so a
     NaN-carrying row counts as non-degenerate here. That is deliberate — NaN payloads
@@ -60,7 +80,18 @@ def assert_draws_uncollapsed(
     Raises:
         DrawsCollapseError: naming the failed check, expected vs found.
     """
-    arr = np.asarray(values)
+    try:
+        arr = np.asarray(values)
+    except Exception as exc:
+        # `np.asarray` raises on ragged input, and the raw ValueError reads as though
+        # the §6 policy gate had rejected the draws. It had not — it never got a
+        # payload to look at. `DrawsCollapseError` subclasses ValueError, so a caller
+        # catching the narrow type used to miss this entirely.
+        raise DrawsCollapseError(
+            f"{label}: the payload could not be read as an array at all "
+            f"({type(exc).__name__}: {exc}) — this is malformed input, not a collapsed "
+            f"forecast. Nothing about the draws has been checked."
+        ) from exc
     if arr.ndim != 2:
         raise DrawsCollapseError(
             f"{label}: payload is {arr.ndim}-D, expected 2-D (N, S) draws — a collapsed "
@@ -76,6 +107,17 @@ def assert_draws_uncollapsed(
         raise DrawsCollapseError(
             f"{label}: sample_count={sample_count} is below the delivery floor "
             f"s_min={s_min} — a (near-)point payload must not ship as a sampled forecast."
+        )
+    if arr.shape[0] == 0:
+        # Check 4 below cannot speak for an empty payload: `np.any(...).any()` over
+        # zero rows is False, so the degeneracy branch fired and reported "every one
+        # of the 0 rows is draw-degenerate" — vacuously true, and a diagnosis that
+        # sends the reader to the summarizer and the §6 contract when the real fault
+        # is that this target resolved to no rows at all.
+        raise DrawsCollapseError(
+            f"{label}: payload has 0 rows — an empty frame is not a collapsed "
+            f"forecast, and shipping it would deliver zero cells. The fault is "
+            f"upstream of this gate, where the target's frame was resolved."
         )
     varied_rows = np.any(arr != arr[:, :1], axis=1)
     if not bool(varied_rows.any()):
