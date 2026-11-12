@@ -122,3 +122,46 @@ def test_the_manager_asserts_both_axes():
         "the manager still branches on wire_contract — S1 replaced that fork with a "
         "single refusal (C-63)."
     )
+
+
+# --- C-113: the region is a declaration, not something to omit ---------------------
+
+
+def test_a_missing_region_is_refused_naming_the_key():
+    """The omission that disabled both coverage gates while reading as supported.
+
+    `configs.get("region")` returned None, and None took the same path through
+    `delivery.coverage` as a region that is declared but not yet pinned — so a
+    delivery shipped with its cell curation and its completeness check both having
+    done nothing. Same shape as C-83: the absence of an answer given the shape of
+    an answer (ADR-003).
+    """
+    with pytest.raises(launch_config.LaunchConfigError, match="region"):
+        launch_config.assert_region_declared({"wire_contract": True})
+
+
+@pytest.mark.parametrize("region", [None, "", "   ", 0, False, ["land_gaul"], 7])
+def test_a_blank_or_non_string_region_is_refused_too(region):
+    # Declared-don't-infer applies to the TYPE as well: a region that is not a
+    # non-empty string cannot select a manifest, and must not reach the gates as
+    # though it had. (C-123 registers the general version of this gap elsewhere.)
+    with pytest.raises(launch_config.LaunchConfigError):
+        launch_config.assert_region_declared({"region": region})
+
+
+def test_the_refusal_distinguishes_itself_from_an_unpinned_region():
+    # The message must not send the reader to pin a region that is already declared:
+    # the unpinned case is supported and is a different fix.
+    with pytest.raises(launch_config.LaunchConfigError) as excinfo:
+        launch_config.assert_region_declared({})
+    message = str(excinfo.value)
+    assert "not yet" in message and "pinned" in message
+    assert "stays launchable" in message
+
+
+def test_a_declared_region_passes_whether_or_not_it_is_pinned():
+    # africa_me_legacy is deliberately unpinned and MUST stay launchable — the
+    # falsification stub that prescribed refusing it would have grounded it.
+    assert launch_config.assert_region_declared({"region": "land_gaul"}) is None
+    assert launch_config.assert_region_declared({"region": "africa_me_legacy"}) is None
+    assert launch_config.assert_region_declared({"region": "not_pinned_anywhere"}) is None

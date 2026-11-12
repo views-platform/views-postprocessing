@@ -2,29 +2,86 @@
 
 Representation-free — primitives only (a set of cell ids + an int). No pandas, no
 views_frames. The manager feeds it primitives via
-``views_postprocessing/unfao/extraction.py``; the rule lives here (S1 / register C-34).
+``views_postprocessing/contract/frame_extraction.py``; the rule lives here
+(S1 / register C-34). *(This pointed at ``unfao/extraction.py``, deleted in #151,
+until 2026-11-12 — one of the two stale docstring pointers register C-107 names.)*
+
+**A region must be DECLARED to reach either gate.** ``expected_for`` and
+``excluded_for`` refuse ``None``, because the gates are chosen by region and an
+absent one used to select "check nothing" while reading as a supported
+configuration (register C-113). A region that is declared but not yet *pinned* is
+supported and different: it returns ``None``/empty, and the caller reports a
+skipped gate. The launcher-facing refusal is
+``contract.launch_config.assert_region_declared``; these two are the same rule held
+at the invariant, for every other caller.
 """
 
 from __future__ import annotations
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CoverageError(ValueError):
     """A delivery did not cover exactly the expected set of cells."""
 
 
+class RegionNotDeclaredError(ValueError):
+    """No region was declared, so neither coverage gate can be chosen.
+
+    A sibling of ``CoverageError`` rather than a subclass, deliberately: nothing has
+    been delivered wrongly here. The *question* could not be asked, which is a
+    different fault with a different fix, and a caller catching ``CoverageError`` to
+    report a coverage failure must not catch this and mislabel it as one.
+    """
+
+
+def _declared(region: str | None) -> str:
+    """The region, or refuse. Chosen by region means absent-region checks nothing."""
+    if not isinstance(region, str) or not region.strip():
+        raise RegionNotDeclaredError(
+            f"no region declared (got {region!r}): the completeness target and the "
+            "cell-curation manifest are both selected BY the region, so there is "
+            "nothing to check and nothing to curate. This is not the same as a "
+            "region that is declared but unpinned — that is supported, returns no "
+            "target, and is reported as a skipped gate by the caller. Pinned "
+            f"regions: {sorted(EXPECTED_CELLS)}. Declared at launch; see "
+            "contract.launch_config.assert_region_declared (register C-113)."
+        )
+    return region
+
+
 def assert_complete_coverage(
-    received_gids: set[int], expected_count: int, *, label: str = "delivery"
+    received_gids: set[int], expected_count: int | None, *, label: str = "delivery"
 ) -> None:
     """Raise unless exactly ``expected_count`` distinct cells were delivered.
 
+    ``expected_count=None`` means the region is declared but **not pinned**, which is
+    supported: the gate cannot run, so it says so and returns. Reporting that here
+    rather than at the call site is what keeps the two managers from each carrying
+    their own copy of the rule — and it is the half of C-113 that was **silently**
+    skipped on the exclusion side while this side logged.
+
+    An *undeclared* region never reaches this function: ``expected_for`` refuses it.
+
     Args:
         received_gids: the distinct PRIO-GRID cell ids actually delivered.
-        expected_count: the number of cells the configured region must cover.
+        expected_count: the number of cells the configured region must cover, or
+            ``None`` for a declared-but-unpinned region.
         label: short tag for the message (e.g. ``"historical"`` / ``"forecast"``).
 
     Raises:
         CoverageError: on under- or over-coverage.
     """
+    if expected_count is None:
+        logger.warning(
+            "%s: coverage count-gate SKIPPED — the declared region pins no cell count "
+            "in delivery.coverage.EXPECTED_CELLS, so completeness was not enforced. "
+            "Verify and pin the count before relying on this delivery being complete.",
+            label,
+        )
+        return
     actual = len(received_gids)
     if actual != expected_count:
         kind = "under-coverage" if actual < expected_count else "over-coverage"
@@ -58,8 +115,18 @@ EXPECTED_CELLS: dict[str, int] = {
 
 
 def expected_for(region: str | None) -> int | None:
-    """The pinned expected cell count for ``region``, or None if unpinned/unknown."""
-    return EXPECTED_CELLS.get(region) if region else None
+    """The pinned expected cell count for ``region``.
+
+    Returns:
+        The pinned count, or ``None`` for a region that is declared but not pinned
+        (``africa_me_legacy``) — a supported state the caller reports as a skipped
+        count-gate.
+
+    Raises:
+        RegionNotDeclaredError: no region was declared at all. Until 2026-11-12 this
+            returned ``None`` too, which made the two indistinguishable (C-113).
+    """
+    return EXPECTED_CELLS.get(_declared(region))
 
 
 # Region -> the GAUL-uncovered cells the curated region deliberately drops.
@@ -95,8 +162,19 @@ EXCLUDED_GIDS_BY_REGION: dict[str, frozenset[int]] = {
 
 
 def excluded_for(region: str | None) -> frozenset[int]:
-    """The GAUL-uncovered gids the region must exclude — empty for unpinned regions."""
-    return EXCLUDED_GIDS_BY_REGION.get(region, frozenset()) if region else frozenset()
+    """The GAUL-uncovered gids the region must exclude.
+
+    Returns:
+        The frozen manifest, or an empty set for a region that is declared but not
+        pinned (``africa_me_legacy`` keeps its ocean cells) — supported, and a no-op
+        at the call site.
+
+    Raises:
+        RegionNotDeclaredError: no region was declared at all. Until 2026-11-12 this
+            returned an empty set too, so an undeclared region curated nothing and
+            looked exactly like the region that is meant to curate nothing (C-113).
+    """
+    return EXCLUDED_GIDS_BY_REGION.get(_declared(region), frozenset())
 
 
 def assert_no_excluded_cells(
@@ -112,10 +190,26 @@ def assert_no_excluded_cells(
         excluded_gids: the cells the configured region must exclude (see ``excluded_for``).
         label: short tag for the message (e.g. ``"historical"`` / ``"forecast"``).
 
+    An empty ``excluded_gids`` means the declared region pins no curation manifest
+    (``africa_me_legacy`` keeps its ocean cells) — supported, and the skip is
+    **reported** rather than passed over in silence. That silence was half of C-113:
+    the count gate logged its skip and this one did not, so a delivery could be
+    uncurated with only half the evidence reaching the run log.
+
+    An *undeclared* region never reaches this function: ``excluded_for`` refuses it.
+
     Raises:
         CoverageError: naming the leaked cells (these have no GAUL assignment, so
             shipping them would attribute partner rows to a non-country).
     """
+    if not excluded_gids:
+        logger.warning(
+            "%s: coverage exclusion-gate SKIPPED — the declared region pins no "
+            "excluded-cell manifest in delivery.coverage.EXCLUDED_GIDS_BY_REGION, so "
+            "no cell curation was enforced.",
+            label,
+        )
+        return
     leaked = sorted(received_gids & excluded_gids)
     if leaked:
         shown = leaked[:10]
