@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-11-12                           |
-| Total Concerns          | 120                                   |
-| Open Concerns           | 37                                    |
+| Total Concerns          | 123                                   |
+| Open Concerns           | 40                                    |
 | Resolved Concerns       | 83                                   |
 
 ---
@@ -1476,6 +1476,67 @@ Measured false claims. The **open** Tier-2 entry C-86 says *"From 2026-10-18 `te
 This is this register's own **Expired triggers** convention unapplied: *"a trigger whose event has already occurred is worse than a vague one — it reads identically to a pending trigger and silently misreports state. On firing, rewrite the trigger and re-tier in the same pass."* Nothing mechanical will catch it — `test_register_integrity.py`'s content guards are scoped to Open Concerns by design.
 
 Cross-refs: **C-109** (Location line numbers decay, the same class of rot), **C-86** / **C-84** / **C-110** (the entries themselves), ADR-010.
+
+---
+
+### C-120: ADR-013 is now the stale copy of §6, and a docstring settled one of its open maintainer items by deleting the term
+
+| Field | Value |
+|-------|-------|
+| ID | C-120 |
+| Tier | 3 — no delivery depends on the ADR's text, but it is the document an auditor reads to decide whether the CRAF'd delivery is guarded, and it currently says it is not. |
+| Source | `/code-review max` Phase 3 sweep, 2026-11-12 (finding c), measured |
+| Trigger | When anyone audits §6 coverage, runs `tests/test_falsify_adr013_s6.py`, or proposes restoring the "region-pinned" wording to `delivery/draws.py`. |
+| Owner | The maintainer for item (2); this repository for the two stale statements. |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md:730`, `:1126`, `:1201` |
+
+Three statements, one open decision.
+
+`:1126`, in the ADR's own post-adoption record, carries an **open** maintainer item: *"(2) §6 \"region-pinned\" production S_min: the term was never defined"*. `delivery/draws.py` quoted that undefined term as fact — *"the consumer-facing floor (2 for the walking skeleton; region-pinned for production)"* — and commit `5d6262e` removed it, because measurement showed nothing region-pins a sample width: neither product module mentions `region`, and `delivery/coverage.py` pins cell counts. **Removing an undefined term is not the same as defining it.** The open item stands, and it should be closed by a maintainer decision rather than by the absence of a docstring phrase.
+
+`:730` still scopes the gate to *"in this contract's scope: the FAO delivery"* and promises the wiring *"lands with the #91 sink leg (not yet built as of 2026-07-19)"*. It is built, at `contract/wire/sink.py:150`, reached from both `crafd.py` and `unfao.py`. So an auditor reading the ADR can conclude the CRAF'd delivery ships unguarded, which is false.
+
+`:1201` still asserts *"The four rules … all match `delivery/draws.py` exactly"*. Two refusals now sit outside those four (C-121's neighbours, added on `docs/draws-docstring-stale-sample-width`), documented there as explicitly outside §6 for that reason — the four-rule numbering was left intact so as not to widen this drift further.
+
+Cross-refs: **C-107** (prose that rots outside the scanned corpus), **C-95** (a prohibition cited to the wrong verdict, same document family), ADR-014 §1.
+
+---
+
+### C-121: `test_an_acknowledgement_cannot_outlive_the_expiry` executes no assertion, and is credited in the register as mutation-verified
+
+| Field | Value |
+|-------|-------|
+| ID | C-121 |
+| Tier | 3 — it is one of the four companion tests the credential tripwire's integrity rests on, and it is the one that cannot fire. Tier 3 rather than 2 because C-116 already registers the loose bound it was meant to hold. |
+| Source | `/code-review max` Phase 3 sweep, 2026-11-12 (finding d), measured |
+| Trigger | When `ACKNOWLEDGED_UNTIL` is next set to a date, or when the four companion tests are next cited as evidence the escape is bounded. |
+| Owner | This repository. |
+| Location | `tests/test_credential_expiry.py:158`, and the escape it guards at `:88`, `:164-165` |
+
+`ACKNOWLEDGED_UNTIL` is `None` at line 88, and the test returns early at lines 164-165 on exactly that condition, so its assertion has never run. Measured: relaxing `<` to `<=`, dropping the comparison, or comparing against `max()` instead of the earliest expiry each break nothing in CI.
+
+What makes it registrable rather than cosmetic is the asymmetry. Its sibling was given a derived probe — the firing branch was extracted into `days_until_earliest_expiry` **precisely so C-102 could not apply** — and this one never received that treatment, while the register credits both among *"four companion tests [that] keep it honest … All verified by mutation"*. The claim is true of the sibling and false here.
+
+Cross-refs: **C-116** (the loose bound this test was supposed to hold), **C-102** (a guard that has never run is unproven), **C-108** (the same shape, measured the same way), **C-115**.
+
+---
+
+### C-122: The launch-axis guard the region stub models itself on covers one partner of two — the ninth entry in the #211 family
+
+| Field | Value |
+|-------|-------|
+| ID | C-122 |
+| Tier | 3 — the managers are near-clones, so the uncovered path is the one a reader would assume is covered. No current defect follows; the guard simply does not watch half of what it claims to. |
+| Source | `/code-review max` Phase 3 sweep, 2026-11-12 (finding e), measured |
+| Trigger | When any launch-axis assertion is added, moved or relied on — including the move the region stub proposes, which would place a two-partner scan beside this one-partner one. |
+| Owner | This repository. |
+| Location | `tests/test_launch_config.py:106`, hardcoding `views_postprocessing/unfao/managers/unfao.py` at `:115`; the uncovered twin is `views_postprocessing/crafd/managers/crafd.py` |
+
+`test_the_manager_asserts_both_axes` reads one manager by hardcoded path and never reads the other. The two managers are 437-line near-clones calling the same three asserts at identical line numbers, so the crafd path is unwatched — including the negative half at `:120`, `assert 'configs.get("wire_contract")' not in source`, which refuses C-63's inference by omission for `unfao` only.
+
+The repository already owns the fix and documents this exact failure mode: `tests/conftest.py:55-74` declares `PARTNER_PACKAGES` with the comment recording #211 — *"Eight separate guards named `unfao`, and when `crafd/` landed all eight went on passing over a package they did not cover"* — and `tests/test_env_declaration.py:59` provides `_manager_source(partner)`. This is the ninth.
+
+Cross-refs: **C-63** (the inference-by-omission rule the negative half enforces), **C-113** (the region axis, whose proposed guard would land beside this one), #211.
 
 ---
 

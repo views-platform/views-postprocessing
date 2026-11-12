@@ -44,7 +44,7 @@ pyarrow = ">=16.1.0,<17.0.0"
 # and it would fail as "pytest: command not found", which reads like a runner problem
 # rather than a dependency one.
 [tool.poetry.group.dev.dependencies]
-pytest = ">=8.0,<10.0"   # the suite runs on 9.x today; 8.x still works
+pytest = ">=8.0,<10.0"   # the lock pins 8.4.2; the <10 ceiling is headroom, not a version in use
 ruff = ">=0.6,<1.0"
 
 # Declared for the same reason the pytest comment above exists. `tests/test_ci_sibling_
