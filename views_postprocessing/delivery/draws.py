@@ -54,6 +54,14 @@ def assert_draws_uncollapsed(
        dominate PGM); only a payload where *every* row is draw-degenerate fails — that
        is a collapsed forecast wearing a sampled header, not an edge case.
 
+    Two refusals sit **outside** those four rules, because in both cases there is no
+    payload for §6 to judge: input ``np.asarray`` cannot read at all (ragged input,
+    which used to surface as a bare ``ValueError`` appearing to blame this gate), and
+    a payload with zero rows (which check 4 reported as "every one of the 0 rows is
+    draw-degenerate" — vacuously true, and a diagnosis pointing at the summarizer
+    when the frame simply resolved empty). Both raise ``DrawsCollapseError`` naming
+    the real fault, so the ``Raises`` contract below holds for every input.
+
     NaN note: a NaN draw compares unequal to everything (including another NaN), so a
     NaN-carrying row counts as non-degenerate here. That is deliberate — NaN payloads
     are not this invariant's job; they fail loud at the delivery null gates.
@@ -68,7 +76,18 @@ def assert_draws_uncollapsed(
     Raises:
         DrawsCollapseError: naming the failed check, expected vs found.
     """
-    arr = np.asarray(values)
+    try:
+        arr = np.asarray(values)
+    except Exception as exc:
+        # `np.asarray` raises on ragged input, and the raw ValueError reads as though
+        # the §6 policy gate had rejected the draws. It had not — it never got a
+        # payload to look at. `DrawsCollapseError` subclasses ValueError, so a caller
+        # catching the narrow type used to miss this entirely.
+        raise DrawsCollapseError(
+            f"{label}: the payload could not be read as an array at all "
+            f"({type(exc).__name__}: {exc}) — this is malformed input, not a collapsed "
+            f"forecast. Nothing about the draws has been checked."
+        ) from exc
     if arr.ndim != 2:
         raise DrawsCollapseError(
             f"{label}: payload is {arr.ndim}-D, expected 2-D (N, S) draws — a collapsed "
@@ -84,6 +103,17 @@ def assert_draws_uncollapsed(
         raise DrawsCollapseError(
             f"{label}: sample_count={sample_count} is below the delivery floor "
             f"s_min={s_min} — a (near-)point payload must not ship as a sampled forecast."
+        )
+    if arr.shape[0] == 0:
+        # Check 4 below cannot speak for an empty payload: `np.any(...).any()` over
+        # zero rows is False, so the degeneracy branch fired and reported "every one
+        # of the 0 rows is draw-degenerate" — vacuously true, and a diagnosis that
+        # sends the reader to the summarizer and the §6 contract when the real fault
+        # is that this target resolved to no rows at all.
+        raise DrawsCollapseError(
+            f"{label}: payload has 0 rows — an empty frame is not a collapsed "
+            f"forecast, and shipping it would deliver zero cells. The fault is "
+            f"upstream of this gate, where the target's frame was resolved."
         )
     varied_rows = np.any(arr != arr[:, :1], axis=1)
     if not bool(varied_rows.any()):
