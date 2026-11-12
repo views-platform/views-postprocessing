@@ -15,11 +15,12 @@ the single **policy** gate (the per-hop emission/ingest asserts are mechanism gu
 it runs before every partner-facing forecast upload — FAO's and CRAF'd's alike, since
 the sink is partner-neutral (#153).
 
-``S`` is deliberately not given a value here. It is whatever the run's §2 header
-declares — the width pooled across the ensemble's members, which differs per ensemble —
-and the floor a delivery will accept is its product's own ``S_MIN``. Those are its two
-homes. The ``S≈1024`` that stood in this paragraph until 2026-11-12 was a third copy
-and had gone stale: it stated a design target as though it were the delivered width.
+``S`` is deliberately not given a value here. The run's §2 header declares what the
+width is — pooled across the ensemble's members, so it differs per ensemble — and each
+product's ``S_MIN`` declares the least a delivery will accept. Those two declarations
+are the authority. The ``S≈1024`` that stood in this paragraph until 2026-11-12 was
+neither, and had gone stale: it stated a design target as though it were the delivered
+width.
 """
 
 from __future__ import annotations
@@ -45,9 +46,9 @@ def assert_draws_uncollapsed(
     1. ``values`` is 2-D ``(N, S)`` — a collapsed 1-D column or a stacked 3-D block is
        not a sampled forecast payload.
     2. payload ``S == sample_count`` — the header's declaration must match the bytes.
-    3. ``sample_count >= s_min`` — the consumer-facing floor (2 for the walking
-       skeleton; region-pinned for production). Declared by the caller from config,
-       never guessed here.
+    3. ``sample_count >= s_min`` — the consumer-facing floor, declared per product in
+       its own ``S_MIN`` (2 while the deliveries are walking skeletons). Declared by
+       the caller from config, never guessed here.
     4. **Global** non-degeneracy — at least one row carries more than one distinct
        draw value. Per-row zero variance is explicitly **legal** (zero-conflict cells
        dominate PGM); only a payload where *every* row is draw-degenerate fails — that
