@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-10-30                           |
-| Total Concerns          | 113                                   |
-| Open Concerns           | 30                                    |
+| Last Updated      | 2026-11-12                           |
+| Total Concerns          | 120                                   |
+| Open Concerns           | 37                                    |
 | Resolved Concerns       | 83                                   |
 
 ---
@@ -1215,6 +1215,8 @@ Cross-refs: **C-100** (the live sibling — a four-method port with three used m
 
 **This is not a proposal to scan docstrings.** C-97 measured what that costs for the no-copy scan and argued it down under ADR-014 §3 — a guard that fires on ordinary prose gets deleted, after which the real rule is unguarded. The two scans are not the same (a deleted symbol or a repo-relative module path is a far narrower pattern than a store name in a sentence), so the objection is not decisive here — but it is the reason this is registered as a measured gap rather than fixed on sight.
 
+**The gap is wider than broken pointers (measured 2026-11-12).** `/code-review max` found two stale *factual claims* in `views_postprocessing/delivery/draws.py`'s docstrings — `S≈1024` presented as the width FAO receives, and the floor described as "region-pinned for production" when nothing region-pins a sample width. Both were wrong about this package's own behaviour rather than about where a module lives, and both sat in the same docstring, one asserting that a fact had exactly two declared homes while the other was a third. Fixed in `docs/draws-docstring-stale-sample-width`. Recorded here because it widens what this entry is about: the unscanned corpus rots in two ways, and a stale claim is harder to spot than a stale path because nothing about it looks like a reference.
+
 Cross-refs: **C-80** (the same guard, the adjacent corpus gap, resolved by widening), **C-97** (why widening a scan into docstrings is not automatic).
 
 ---
@@ -1325,6 +1327,158 @@ The delivered historical artefact carries **`lr_ged_sb`, `lr_ged_ns`, `lr_ged_os
 **Two ways to close it**, and the choice is not this register's to make: rename at this write boundary, mirroring what faoapi does for the forecast (small, and makes RN 06's commitment true); or scope the release note's naming commitment to the forecast columns and leave the historical file on wire vocabulary. The first costs a rename at one boundary; the second costs a paragraph of explanation in every note that touches the schema.
 
 Cross-refs: **D-06** (RESOLVED — the general principle, and the finding that no renaming layer existed at all; this is the residual for one artefact), **C-24** (a consumer-facing contract divergence nobody surfaced), **ADR-013** adoption record above (the wire vocabulary decision), **views-faoapi** `forecast/serialize/json_contract.py` (the implemented half), FAO project `reports/post_mortems/2026-09-14_prn07_writing_session.md` (the review that found it).
+
+---
+
+### C-113: An undeclared `region` skips both coverage gates, and the skip is indistinguishable from the one the code deliberately supports
+
+| Field | Value |
+|-------|-------|
+| ID | C-113 |
+| Tier | 2 — structural fragility with a clear trigger and a partner-facing consequence: a launch config that omits `region` ships a delivery whose cell curation and completeness gate both silently did nothing. Not Tier 1 because the count-gate logs a warning before skipping, so the evidence does reach the run log. |
+| Source | `/code-review max`, 2026-11-12 (findings 10-12), measured |
+| Trigger | When a new launch config, partner or region is added — or when anyone proposes a test asserting that unpinned regions are refused. Check that "no region declared" and "a named region that is not pinned" are distinguishable before writing that assertion. |
+| Owner | This repository. |
+| Location | `views_postprocessing/delivery/coverage.py:62` (`return EXPECTED_CELLS.get(region) if region else None`), `:99` (`return EXCLUDED_GIDS_BY_REGION.get(region, frozenset()) if region else frozenset()`); call sites `views_postprocessing/crafd/managers/crafd.py:223,299,415` and the identical lines in `unfao/managers/unfao.py` |
+
+Both accessors collapse two different conditions into one return value. `expected_for(None)` and `expected_for("not_a_pinned_region")` both return `None`; `excluded_for(None)` and `excluded_for(<unknown>)` both return `frozenset()`.
+
+One of those is a supported configuration. `coverage.py:52-54` records that `africa_me_legacy` is **intentionally** not pinned — the register cites 5 pure-ocean cells for which "complete" is ambiguous — and both managers implement the matching documented skip. The other is ADR-003 inference by omission, which must refuse.
+
+Measured consequence: a config that omits `region` reaches `assert_no_excluded_cells` with an empty exclusion set, so the GAUL-uncovered cell check is a no-op, and `assert_complete_coverage` with `None`, so the count-gate is skipped. `region` is the only one of the product-defining launch axes read through a bare `.get()`; `wire_contract` and the historical `data_format` each have a declared assertion (`launch_config.assert_contract_mode`, `assert_frame_native_historical`).
+
+**The fix is one branch, not a fourth launch axis.** Splitting `if region else` at both lines — raise on undeclared, keep the documented skip for named-but-unpinned — repairs all six call sites at once. A guard written the other way round, refusing any region absent from `EXPECTED_CELLS`, would make `africa_me_legacy` unlaunchable.
+
+Cross-refs: **C-30** (absorbs C-34 — the coverage contract these gates enforce), ADR-003 (inference by omission), **views-models ADR-021** (`docs/ADRs/021_coverage_is_declared_once.md` — the upstream half).
+
+---
+
+### C-114: The release-readiness falsification stubs can neither fail for a stated reason nor ever flip — and a behaviour-preserving rename turns one into a hard red on a required check
+
+| Field | Value |
+|-------|-------|
+| ID | C-114 |
+| Tier | 3 — no delivery correctness depends on them, but they are the mechanism by which an unaddressed falsification stays visible, and both directions of their signal are broken. Tier 3 rather than 4 because one direction closes `main`. |
+| Source | `/code-review max`, 2026-11-12 (findings 4-5), mutation-measured |
+| Trigger | When views-pipeline-core's file-selection sort lands and the pin moves, or when anyone refactors `delivery/findability.py` — including a pure rename. Check that the stub reports the refactor rather than absorbing it. |
+| Owner | This repository. |
+| Location | `tests/test_falsification_release_readiness.py:193`, `:198` |
+
+Under `xfail(strict=True)` any exception counts as the expected failure. The S7 stub locates its anchor with `source.index("for category, expected in legs.items():")` and reads the module with `read_text()`, so three unrelated accidents all report XFAIL with the reason "S7: unaddressed falsification": renaming the loop variables (ValueError), renaming `assert_all_findable` (ValueError), and moving `findability.py` away entirely (FileNotFoundError). All three measured, each mutation restored. The suite therefore claims a finding is open at the moment the module it audits ceases to exist.
+
+The other direction is worse. The assertion matches the injected callable's **name**, not the order-dependence it describes. Renaming `resolve_latest` to `latest_file_id` — the port's real method name, per `delivery/findability.py:206-207` — makes the assertion pass, so XPASS, so `strict=True`, so FAILED. With `protect_main` making `test` a required check with zero bypass actors, a pure rename closes `main`, and the message tells the renamer that selection "still resolves through pipeline-core's unsorted `files_list[0]`" — the opposite of what they did. Conversely the upstream fix the docstring names leaves `findability.py` byte-identical, so the stub stays XFAIL forever and never says "delete me".
+
+Compounding it, `legs_loop.split("assert_all_findable")[0]` has no separator-absent signal: rename the delimiter and the scanned region silently widens to EOF, where `resolve_latest` also appears in a signature and a docstring, so a mere mention satisfies the guard.
+
+Minimum fix: assert the anchor is present as its own step, outside the xfail'd slice, so a missing anchor fails for a stated reason instead of becoming the result.
+
+Cross-refs: **C-108** (the same shape in a different file, where the false signal was green rather than red), **C-102** (a guard that has never run is unproven), **C-86** (why a false red is expensive here), ADR-014 §1.
+
+---
+
+### C-115: The credential tripwire's operator-facing message asserts which key the deliveries authenticate with, derived from `min()` over timestamps the same file calls invented
+
+| Field | Value |
+|-------|-------|
+| ID | C-115 |
+| Tier | 3 — it misdirects a rotation rather than corrupting data, but the window in which it misleads is exactly the 30 days an operator is acting on it. |
+| Source | `/code-review max`, 2026-11-12 (findings 7-8), measured |
+| Trigger | When the real expiry values are read from the console — which the file's own docstring anticipates — or when a third key is added to `KEY_EXPIRY`. |
+| Owner | This repository. |
+| Location | `tests/test_credential_expiry.py:106`, `:118` |
+
+`expiry_warning` renders *"Both of this repository's delivery paths — un_fao and crafd — authenticate with `{name!r}`, the earlier one"*, where `name = min(KEY_EXPIRY, key=...)` over times the file's own comment calls *"approximate — creation order, an hour apart — and **not** a console reading"*. `KEY_EXPIRY` now also holds `faoapi-server`, which lines 48-49 describe as views-faoapi's server-side key, which this repository does not use.
+
+Measured by swapping the two timestamps — the exact scenario the docstring says it guards against — the message names `faoapi-server` as the key both deliveries authenticate with, and all six tests still pass.
+
+Same hunk, same shape: `gap` comes from `divmod(seconds, 3600)` with no day rollover, so it renders `4392h00m apart` at six months and `8784h00m` at a year — while the message itself instructs the operator to rotate the keys separately, making a multi-month gap the normal path. The replacement assertion `re.search(r"\d+h\d{2}m apart", message)` matched every value measured, including `0h00m` from identical timestamps and from a single-key dict: it constrains the f-string template, not any fact.
+
+Both halves share one cause. Removing `assert name == "VIEWS Pipeline Core"` did not remove the invention — it moved it out of an assertion, where a test could catch it, into the prose an operator acts on, where nothing can.
+
+Cross-refs: **C-84** (RESOLVED — why the datetime literal pin was removed: *"a guard that refuses its own documented fix is worse than no guard"*), **C-116** (the same file's other escape), **C-86**.
+
+---
+
+### C-116: `ACKNOWLEDGED_UNTIL`'s only bound is "before the earliest expiry", so moving the keys to 2027 silently widened the escape from three months to a year
+
+| Field | Value |
+|-------|-------|
+| ID | C-116 |
+| Tier | 2 — one reviewed line can now silence a seam-outage tripwire until the day before the outage, with every test green. |
+| Source | `/code-review max`, 2026-11-12 (finding 9), measured |
+| Trigger | When `KEY_EXPIRY` moves again, or when anyone sets `ACKNOWLEDGED_UNTIL` — check the postponement against `LEAD_DAYS`, not only against the expiry. |
+| Owner | This repository. |
+| Location | `tests/test_credential_expiry.py:167` |
+
+Measured: setting `ACKNOWLEDGED_UNTIL = date(2027, 10, 28)` gives **6 passed**, with `test_the_lead_window_is_not_quietly_shrunk` still green (tree restored, `git status` verified). That silences the tripwire until one day before a total seam outage, in one reviewed line.
+
+The escape's stated purpose is that it *"postpones attention but never replaces it"*. That no longer holds when the postponement can swallow 29 of the 30 lead days. Bounding it to `earliest - LEAD_DAYS <= ACKNOWLEDGED_UNTIL < earliest` restores the intent in one line.
+
+Cross-refs: **C-110** (RESOLVED — *"the obvious shortcut is closed, and closed deliberately"*; this path reaches the same place with nothing red), **C-115**, **C-86**.
+
+---
+
+### C-117: The seam-pin drift detector projects three fields, so a rotation the registry has not recorded is invisible — and the pinned registry still declares two retired keys dying 2026-11-17
+
+| Field | Value |
+|-------|-------|
+| ID | C-117 |
+| Tier | 3 — it misinforms an operator who follows this package's own instruction to read the pinned registry. No delivery depends on the two fields. |
+| Source | `/code-review max`, 2026-11-12 (finding 6), measured against the sibling checkout |
+| Trigger | At the next key rotation, or when `SEAM_CONTRACT_VERSION`/`SEAM_CONTRACT_COMMIT` is next bumped — check `console_key_name` and `expiry` as well as the coordinate values. |
+| Owner | This repository for the projection; views-appwrite for the registry content. |
+| Location | `tests/seam_registry.py:189` (the projection); `views_postprocessing/unfao/appwrite_env.py:47-48` and `views_postprocessing/crafd/appwrite_env.py` (the pin) |
+
+`seam_registry` projects only `(section, body["class"], body["value"])`, so the registry's `console_key_name` and `expiry` fields sit outside the comparison. Measured in the sibling checkout: the registry is at `version = "1.8.0"`, `amended = "2026-11-12"`, still declares `"VIEWS Pipeline Core"` and `"UN FAO"` with `expiry = "EXACT: 2026-11-17 12:35 … ⚠ BOTH PLATFORM KEYS EXPIRE ON THE SAME AFTERNOON"`, and contains no mention of `pipeline-core-writer` or `faoapi-server` — the two keys `KEY_EXPIRY` now names. This repository pins 1.5.2 / `c7b597e`.
+
+So an operator who follows `appwrite_env.py`'s instruction to read the pinned registry is told the platform keys die in five days with no stagger and no fallback, and may plan or re-raise a rotation that already happened on 2026-10-29. Amending the registry is views-appwrite's and a two-repository change; the in-repo half is to project the two fields so the drift reddens.
+
+Cross-refs: **C-57** (RESOLVED — the pin-staleness detector this extends), **C-96** (another registry table this package declines to read), **C-115**.
+
+---
+
+### C-118: The widened views-frames cap rests on an unguarded import invariant, and the re-check recipe it points at is scoped to the one directory the MAJOR did not change
+
+| Field | Value |
+|-------|-------|
+| ID | C-118 |
+| Tier | 2 — the justification for admitting views-frames 3.x minors is prose, and the verification it prescribes returns empty for the wrong reason. The delivered wire bytes are what is at stake. |
+| Source | `/code-review max`, 2026-11-12 (findings 2-3), measured against the views-frames checkout |
+| Trigger | When views-frames 3.x or 4.0 is released, or when anyone imports `views_frames_reconcile`. Run the re-check at the package root, not at `io/`. |
+| Owner | This repository. |
+| Location | `pyproject.toml:26-35`; `tests/fixtures/wire_contract/README.md:71` |
+
+Two halves of one claim, each unsound in its own way.
+
+First, `<4.0.0` is justified by *"the 3.0.0 MAJOR's behavioural change is confined to `views_frames_reconcile`, which this repo does not import"*. True today — grep returns nothing — and guarded by nothing: there is no import-linter config and no test naming it. The repository already owns the mechanism, at `tests/test_doc_accuracy.py:465`, which holds the same kind of invariant for `views_pipeline_core` with an exact-list source scan.
+
+Second, the fixture README designates `git diff v2.0.0..v3.0.0 -- src/views_frames/io/` as the re-check, and `pyproject.toml:28` instructs the reader to **read that file before raising the pin again**. Measured: that pathspec is empty, and the only file the MAJOR changed under `src/views_frames/` is `conformance/__init__.py` — the module `tests/test_views_frames_conformance.py:18` imports from. So the next reader follows the instruction, gets an empty diff, and concludes the imported surface is unchanged while it has changed. The control line beside it would surface this but is labelled only as proof that the command can still speak, not as a thing to read. This is the identical silent-pass shape the same file's own paragraph warns about, one directory up. Widen the pathspec to `-- src/views_frames/`.
+
+Also unstated: the lock's pipeline-core 3.4.0 declares `views-frames >=3.0.0,<4.0.0` — a floor, not a widened cap — so the comment's claim that frames 2.x plus pipeline-core 3.3.x "is still a coherent resolution" silently requires holding pipeline-core below 3.4.0.
+
+Cross-refs: **C-72** (the pyarrow pin and the wire bytes), **C-107** (prose that rots unwatched), ADR-013 §10.
+
+---
+
+### C-119: Resolving C-84 and C-110 left three live records asserting a red build that is green
+
+| Field | Value |
+|-------|-------|
+| ID | C-119 |
+| Tier | 3 — the register is the artifact a releaser diagnoses from, and it now misreports the state of the thing it exists to track. |
+| Source | `/code-review max`, 2026-11-12 (finding 15), measured |
+| Trigger | The next `/review-rr` pass, or the next release attempt that consults C-86. |
+| Owner | This repository. |
+| Location | `reports/technical_risk_register.md:170,173,649,1404,1436-1452,1481` |
+
+Measured false claims. The **open** Tier-2 entry C-86 says *"From 2026-10-18 `tests/test_credential_expiry.py` fails by design"* — it passes 6/6, and the first red day is now 2027-09-29. Cluster N still lists C-110 inline with live members and calls it closable by reading, while five of that cluster's eight lines do mark their closed members. Resolved C-84 and C-110 retain their entire pre-resolution bodies below the resolution, in the present tense, including *"no release can be tagged"* and a Trigger row still reading *"goes red from 2026-10-18"*; C-84 also claims the failure message names *"the 3h35m gap"* and `views-faoapi#338`, and the rendered message contains neither.
+
+This is this register's own **Expired triggers** convention unapplied: *"a trigger whose event has already occurred is worse than a vague one — it reads identically to a pending trigger and silently misreports state. On firing, rewrite the trigger and re-tier in the same pass."* Nothing mechanical will catch it — `test_register_integrity.py`'s content guards are scoped to Open Concerns by design.
+
+Cross-refs: **C-109** (Location line numbers decay, the same class of rot), **C-86** / **C-84** / **C-110** (the entries themselves), ADR-010.
+
+---
+
 
 ## Disagreements
 
