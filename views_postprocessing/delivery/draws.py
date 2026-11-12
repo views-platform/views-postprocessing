@@ -60,7 +60,11 @@ def assert_draws_uncollapsed(
     a payload with zero rows (which check 4 reported as "every one of the 0 rows is
     draw-degenerate" — vacuously true, and a diagnosis pointing at the summarizer
     when the frame simply resolved empty). Both raise ``DrawsCollapseError`` naming
-    the real fault, so the ``Raises`` contract below holds for every input.
+    the real fault, so no *payload* can now reach a caller as a bare ``ValueError``.
+    The declared ints are a separate matter and are still unenforced: a non-int
+    ``s_min`` escapes as a ``TypeError`` from check 3. Unreachable from
+    ``wire/sink.py``, which passes a product constant, and measured rather than
+    assumed — but not a claim this docstring should make for every input.
 
     NaN note: a NaN draw compares unequal to everything (including another NaN), so a
     NaN-carrying row counts as non-degenerate here. That is deliberate — NaN payloads
