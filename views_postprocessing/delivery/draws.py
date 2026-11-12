@@ -7,12 +7,19 @@ contract values (the header's ``sample_count``, the configured ``s_min``); the r
 lives here. Declare-don't-guess: nothing is inferred from the payload — the caller
 states what the payload claims to be, and this invariant fails loud if it is not.
 
-Why this matters: the whole point of the sampled-forecast wire (ADR-013) is that FAO
-receives the full posterior mixture — ``(N, S≈1024)`` draws per cell — collapsed to a
-point exactly once, downstream, in the summarizer. Any hop that bakes out a mean/median
-or ships a mislabeled point payload silently flattens the mixture. This is the single
-**policy** gate (the per-hop emission/ingest asserts are mechanism guards); it runs
-before every FAO-facing forecast upload.
+Why this matters: the whole point of the sampled-forecast wire (ADR-013) is that a
+partner receives the full posterior mixture — ``(N, S)`` draws per cell — collapsed to
+a point exactly once, downstream, in the summarizer. Any hop that bakes out a
+mean/median or ships a mislabeled point payload silently flattens the mixture. This is
+the single **policy** gate (the per-hop emission/ingest asserts are mechanism guards);
+it runs before every partner-facing forecast upload — FAO's and CRAF'd's alike, since
+the sink is partner-neutral (#153).
+
+``S`` is deliberately not given a value here. It is whatever the run's §2 header
+declares — the width pooled across the ensemble's members, which differs per ensemble —
+and the floor a delivery will accept is its product's own ``S_MIN``. Those are its two
+homes. The ``S≈1024`` that stood in this paragraph until 2026-11-12 was a third copy
+and had gone stale: it stated a design target as though it were the delivered width.
 """
 
 from __future__ import annotations
