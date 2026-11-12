@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-11-12                           |
-| Total Concerns          | 123                                   |
-| Open Concerns           | 40                                    |
+| Total Concerns          | 124                                   |
+| Open Concerns           | 41                                    |
 | Resolved Concerns       | 83                                   |
 
 ---
@@ -1537,6 +1537,32 @@ Cross-refs: **C-116** (the loose bound this test was supposed to hold), **C-102*
 The repository already owns the fix and documents this exact failure mode: `tests/conftest.py:55-74` declares `PARTNER_PACKAGES` with the comment recording #211 — *"Eight separate guards named `unfao`, and when `crafd/` landed all eight went on passing over a package they did not cover"* — and `tests/test_env_declaration.py:59` provides `_manager_source(partner)`. This is the ninth.
 
 Cross-refs: **C-63** (the inference-by-omission rule the negative half enforces), **C-113** (the region axis, whose proposed guard would land beside this one), #211.
+
+---
+
+### C-123: `delivery/draws.py` declares an interface and enforces half of it — a non-int floor escapes as `TypeError`, and a DataFrame passes all four checks
+
+| Field | Value |
+|-------|-------|
+| ID | C-123 |
+| Tier | 3 — unreachable on today's path, measured, so not Tier 2. Registered at 3 rather than 4 because the floor is the one argument scheduled to stop being a literal: the per-audience `S_MIN` decision and the connection split both move it toward configuration, and that is the change that makes this reachable. |
+| Source | `/falsify` claim mode (2026-11-12), two soft falsifications; both re-measured 2026-11-12 before registration. |
+| Trigger | When `s_min` stops arriving from a module-level product constant — the pending per-audience `S_MIN` values (FAO 128 / CRAF'd 1,024) or the connection split in views-postprocessing#327, either of which would have the floor come from config — or when a third caller of `assert_draws_uncollapsed` appears outside the two managers' sink path. |
+| Owner | This repository. |
+| Location | `views_postprocessing/delivery/draws.py:35-41` (the declared ints in the signature), `:83-84` (the `np.asarray` coercion), `:106` (check 3, the comparison that raises); callers at `views_postprocessing/contract/wire/sink.py:151` fed from `views_postprocessing/unfao/managers/unfao.py:350` and `views_postprocessing/crafd/managers/crafd.py:350` |
+
+The module opens *"Representation-free — primitives only (a 2-D numpy array + declared ints) ... Declare-don't-guess: nothing is inferred from the payload — the caller states what the payload claims to be, and this invariant fails loud if it is not."* Measured, neither half of that interface is checked:
+
+- `s_min=None` and `s_min="2"` both escape as `TypeError: '<' not supported between instances of 'int' and 'NoneType'` / `'str'` from check 3. `DrawsCollapseError` subclasses `ValueError`; a `TypeError` is neither, so a caller catching either type misses it entirely.
+- A 2-D `pandas.DataFrame` passes **every one of the four checks**, because `np.asarray` coerces it. "No pandas" is a statement about this module's imports, not a precondition on its argument — and silently accepting a representation is the inference the same paragraph forbids.
+
+**Why this is not Tier 2.** Neither is reachable from production today. Both products declare `S_MIN: int = 2` (`views_postprocessing/unfao/product.py:36`, `views_postprocessing/crafd/product.py:42`), and that constant is what both managers pass; the payload is `frame.values`, already an array.
+
+**Why it is registered rather than fixed on sight.** The docstring was narrowed in `b80bd3d` to state the gap instead of overclaiming past it — *"The declared ints are a separate matter and are still unenforced"* — so the prose is honest and the shortfall is declared, which is the condition under which this register tracks rather than blocks. What makes it standing risk is the direction of travel: the floor becomes a per-audience value the moment that decision lands, and a declaration that arrives missing or as a string would then surface on the partner-facing path as an exception type no caller is written to catch.
+
+The failing stubs are kept **outside `tests/`**, at `/tmp/claude-1000/-home-simon-Documents-scripts-views-platform-views-postprocessing/f3881619-6312-451d-b6b0-4d69424f45be/scratchpad/test_falsify_draws_raises_contract.py`, deliberately: C-114 and the untracked region stub are this repository's live record of what an unmarked or self-absorbing falsification stub does to a required check, and a third one would add to that hazard rather than to the evidence.
+
+Cross-refs: **C-107** (the same docstring, the opposite shape — there the prose had drifted from the code; here the prose is accurate and the code is what falls short), **C-120** (ADR-013 §6's four-rule count, which the two new refusals already sit outside), **C-114** (why these stubs are not in `tests/`).
 
 ---
 
