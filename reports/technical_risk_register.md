@@ -6,8 +6,8 @@
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-11-12                           |
 | Total Concerns          | 124                                   |
-| Open Concerns           | 40                                    |
-| Resolved Concerns       | 84                                   |
+| Open Concerns           | 39                                    |
+| Resolved Concerns       | 85                                   |
 
 ---
 
@@ -177,8 +177,8 @@ that indexes only deleted code is noise.
 
 ### Cluster O: A guard that cannot fail
 **Root cause:** the guards here are declarative — they check code against a stated contract — and the failure that keeps recurring is the *inverse* of a wrong check: a declaration nothing enforces, or a check that cannot fire. Each instance was filed as an unrelated finding. Together they are one review habit, not seven defects.
-**Entries:** C-113 (an undeclared region's skip is indistinguishable from the supported one), C-114 (stubs that can neither fail for a stated reason nor ever flip), C-116 (a bound that permits a year-long escape), C-121 (an assertion that has never executed), C-122 (a launch-axis guard covering one partner of two), C-123 (a declared interface enforced in half), C-108 (two `xfail(strict=True)` deploy gates that have never evaluated their assertions) — precedent in **C-102** and **C-89, both RESOLVED**.
-**Highest tier:** 2 (C-113, C-116)
+**Entries:** C-114 (stubs that can neither fail for a stated reason nor ever flip), C-116 (a bound that permits a year-long escape), C-121 (an assertion that has never executed), C-122 (a launch-axis guard covering one partner of two), C-123 (a declared interface enforced in half), C-108 (two `xfail(strict=True)` deploy gates that have never evaluated their assertions) — plus **C-113, RESOLVED 2026-11-12**, the cluster's first discharge — precedent in **C-102** and **C-89, both RESOLVED**.
+**Highest tier:** 2 (C-116)
 **Fix strategy:** not one deletion and not one new guard. Each member is its own small code change — and the cluster exists to stop seven entries reading as seven backlog items when the thing they have in common is a habit at review time: *a guard is not evidence until a mutation proves it can fail.* ADR-014 §2 already states the trap in the obvious alternative — a second declaration to check the first can itself go stale. **C-102** is the resolved precedent and the method: derive the probe from the declaration rather than hardcoding it, so the proof survives the next rotation instead of expiring with it.
 **Resolution scope:** Full per member, and the members are independent — this cluster will not collapse on one change the way **Cluster L** did. What closes together is the habit; what closes one at a time is the code.
 **Why this cluster was late, and it is the same reason Cluster N was.** Seven of its members arrived in two sprints (C-108 on 2026-08-17, the other six on 2026-11-12), every one of them from a `/code-review max` or `/falsify` pass rather than from a failing test — which is the cluster's own thesis restated: nothing in the suite can report a guard that cannot fail, because a guard that cannot fail is green.
@@ -1226,7 +1226,7 @@ Cross-refs: **C-100** (the live sibling — a four-method port with three used m
 | Source | `/repo-assimilation` (2026-08-16), measured |
 | Trigger | When the next module moves under `views_postprocessing/`, check its inbound docstring references as well as its markdown ones — or when someone proposes widening `tests/test_doc_accuracy.py`'s corpus, at which point C-97's objection applies and this entry states what the gap actually is. |
 | Owner | This repository. |
-| Location | `tests/test_doc_accuracy.py:76-78,133-134` (the scanned corpus); `views_postprocessing/delivery/coverage.py:5`; `views_postprocessing/delivery/observed_range.py:6` |
+| Location | `tests/test_doc_accuracy.py:76-78,133-134` (the scanned corpus); ~~`views_postprocessing/delivery/coverage.py:5`~~ **corrected 2026-11-12** with C-113's fix; `views_postprocessing/delivery/observed_range.py:6` (still stale) |
 
 `test_doc_accuracy` scans `README.md`, `docs/architecture/*.md`, package `README.md` files, ADRs and CICs. Python docstrings are outside that corpus. Two are already stale, and both point at files that moved in exactly the refactors whose *markdown* fallout the same test was extended to catch: `delivery/coverage.py` sends the reader to `views_postprocessing/unfao/extraction.py`, deleted in #151, and `delivery/observed_range.py` to `views_postprocessing/unfao/source_metadata.py`, moved to `contract/` in #153.
 
@@ -1344,29 +1344,6 @@ The delivered historical artefact carries **`lr_ged_sb`, `lr_ged_ns`, `lr_ged_os
 **Two ways to close it**, and the choice is not this register's to make: rename at this write boundary, mirroring what faoapi does for the forecast (small, and makes RN 06's commitment true); or scope the release note's naming commitment to the forecast columns and leave the historical file on wire vocabulary. The first costs a rename at one boundary; the second costs a paragraph of explanation in every note that touches the schema.
 
 Cross-refs: **D-06** (RESOLVED — the general principle, and the finding that no renaming layer existed at all; this is the residual for one artefact), **C-24** (a consumer-facing contract divergence nobody surfaced), **ADR-013** adoption record above (the wire vocabulary decision), **views-faoapi** `forecast/serialize/json_contract.py` (the implemented half), FAO project `reports/post_mortems/2026-09-14_prn07_writing_session.md` (the review that found it).
-
----
-
-### C-113: An undeclared `region` skips both coverage gates, and the skip is indistinguishable from the one the code deliberately supports
-
-| Field | Value |
-|-------|-------|
-| ID | C-113 |
-| Tier | 2 — structural fragility with a clear trigger and a partner-facing consequence: a launch config that omits `region` ships a delivery whose cell curation and completeness gate both silently did nothing. Not Tier 1 because the count-gate logs a warning before skipping, so the evidence does reach the run log. |
-| Source | `/code-review max`, 2026-11-12 (findings 10-12), measured |
-| Trigger | When a new launch config, partner or region is added — or when anyone proposes a test asserting that unpinned regions are refused. Check that "no region declared" and "a named region that is not pinned" are distinguishable before writing that assertion. |
-| Owner | This repository. |
-| Location | `views_postprocessing/delivery/coverage.py:62` (`return EXPECTED_CELLS.get(region) if region else None`), `:99` (`return EXCLUDED_GIDS_BY_REGION.get(region, frozenset()) if region else frozenset()`); call sites `views_postprocessing/crafd/managers/crafd.py:228-229`, `:300-301`, `:419` — and the *same* lines in `views_postprocessing/unfao/managers/unfao.py`, verified identical. *(This row cited `:223,299,415` until 2026-11-12. Those numbers were wrong on the day the entry was written — the managers' last change predates it — which makes C-109's point sharper than C-109 makes it: the decay is not only over time.)* |
-
-Both accessors collapse two different conditions into one return value. `expected_for(None)` and `expected_for("not_a_pinned_region")` both return `None`; `excluded_for(None)` and `excluded_for(<unknown>)` both return `frozenset()`.
-
-One of those is a supported configuration. `coverage.py:52-54` records that `africa_me_legacy` is **intentionally** not pinned — the register cites 5 pure-ocean cells for which "complete" is ambiguous — and both managers implement the matching documented skip. The other is ADR-003 inference by omission, which must refuse.
-
-Measured consequence: a config that omits `region` reaches `assert_no_excluded_cells` with an empty exclusion set, so the GAUL-uncovered cell check is a no-op, and `assert_complete_coverage` with `None`, so the count-gate is skipped. `region` is the only one of the product-defining launch axes read through a bare `.get()`; `wire_contract` and the historical `data_format` each have a declared assertion (`launch_config.assert_contract_mode`, `assert_frame_native_historical`).
-
-**The fix is one branch, not a fourth launch axis.** Splitting `if region else` at both lines — raise on undeclared, keep the documented skip for named-but-unpinned — repairs all six call sites at once. A guard written the other way round, refusing any region absent from `EXPECTED_CELLS`, would make `africa_me_legacy` unlaunchable.
-
-Cross-refs: **C-30** (absorbs C-34 — the coverage contract these gates enforce), ADR-003 (inference by omission), **views-models ADR-021** (`docs/ADRs/021_coverage_is_declared_once.md` — the upstream half).
 
 ---
 
@@ -1632,6 +1609,45 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 ---
 
 ## Resolved Concerns
+
+### C-113: An undeclared `region` skips both coverage gates, and the skip is indistinguishable from the one the code deliberately supports — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-113 |
+| Tier | 2 — structural fragility with a clear trigger and a partner-facing consequence: a launch config that omits `region` ships a delivery whose cell curation and completeness gate both silently did nothing. Not Tier 1 because the count-gate logs a warning before skipping, so the evidence does reach the run log. |
+| Source | `/code-review max`, 2026-11-12 (findings 10-12), measured |
+| Trigger | When a new launch config, partner or region is added — or when anyone proposes a test asserting that unpinned regions are refused. Check that "no region declared" and "a named region that is not pinned" are distinguishable before writing that assertion. |
+| Owner | This repository. |
+| Location | `views_postprocessing/delivery/coverage.py:62` (`return EXPECTED_CELLS.get(region) if region else None`), `:99` (`return EXCLUDED_GIDS_BY_REGION.get(region, frozenset()) if region else frozenset()`); call sites `views_postprocessing/crafd/managers/crafd.py:228-229`, `:300-301`, `:419` — and the *same* lines in `views_postprocessing/unfao/managers/unfao.py`, verified identical. *(This row cited `:223,299,415` until 2026-11-12. Those numbers were wrong on the day the entry was written — the managers' last change predates it — which makes C-109's point sharper than C-109 makes it: the decay is not only over time.)* |
+
+Both accessors collapse two different conditions into one return value. `expected_for(None)` and `expected_for("not_a_pinned_region")` both return `None`; `excluded_for(None)` and `excluded_for(<unknown>)` both return `frozenset()`.
+
+One of those is a supported configuration. `coverage.py:52-54` records that `africa_me_legacy` is **intentionally** not pinned — the register cites 5 pure-ocean cells for which "complete" is ambiguous — and both managers implement the matching documented skip. The other is ADR-003 inference by omission, which must refuse.
+
+Measured consequence: a config that omits `region` reaches `assert_no_excluded_cells` with an empty exclusion set, so the GAUL-uncovered cell check is a no-op, and `assert_complete_coverage` with `None`, so the count-gate is skipped. `region` is the only one of the product-defining launch axes read through a bare `.get()`; `wire_contract` and the historical `data_format` each have a declared assertion (`launch_config.assert_contract_mode`, `assert_frame_native_historical`).
+
+**The fix is one branch, not a fourth launch axis.** Splitting `if region else` at both lines — raise on undeclared, keep the documented skip for named-but-unpinned — repairs all six call sites at once. A guard written the other way round, refusing any region absent from `EXPECTED_CELLS`, would make `africa_me_legacy` unlaunchable.
+
+**RESOLVED 2026-11-12 — and the entry's own prescription held, including the part that said what NOT to build.**
+
+The refusal landed where the repository already keeps launch declarations rather than as a fourth guard invented next to the gates: **`contract/launch_config.assert_region_declared`**, a sibling of `assert_contract_mode` and `assert_frame_native_historical`, called from `_read_forecast_data` in both managers before any store call. `delivery/coverage.py` holds the same rule at the invariant for every other caller — `expected_for` and `excluded_for` now raise **`RegionNotDeclaredError`** on an undeclared region and still return `None`/empty for one that is declared but unpinned.
+
+`RegionNotDeclaredError` is deliberately **not** a `CoverageError` subclass. Nothing was delivered wrongly; the question could not be asked. A caller catching `CoverageError` to report a coverage failure must not catch this and mislabel it.
+
+**The entry's warning was the load-bearing part.** It said: *"A guard written the other way round, refusing any region absent from `EXPECTED_CELLS`, would make `africa_me_legacy` unlaunchable."* A falsification stub written the same day prescribed exactly that — `test_a_region_that_is_not_pinned_is_refused_rather_than_skipped`, asserting a refusal naming `land_gaul` for any unpinned region. It was never committed, and `tests/test_launch_config.py::test_a_declared_region_passes_whether_or_not_it_is_pinned` now pins the opposite. The stub's other two failures were a name it had guessed (`assert_coverage_region`); its finding was right and its remedy was wrong on one of two points.
+
+**A second, silent half of the same defect, fixed with it.** The count gate logged its skip; the exclusion gate did not. So a delivery curated by nothing left only half the evidence in the run log — which is why this entry's Tier rationale (*"the count-gate logs a warning before skipping, so the evidence does reach the run log"*) was true of one gate and not the pair. Both gates now report their own skip, **inside the invariant** rather than at the call site: `assert_complete_coverage` accepts `expected_count=None` and `assert_no_excluded_cells` an empty manifest, each logging a WARNING naming the leg. That removed the orchestration from both managers — the `if expected is not None: ... else: log` block in each — which is what let this land at all: the first attempt put the reporting in the shell and tripped `test_doc_accuracy`'s 300-line manager ratchet at 319. The ratchet was right, and C-40(a) is the reason: *logic that can be called with declared arguments belongs where it can be tested without a manager, an Appwrite environment or a views-models path manager.* Both skips are now proven by `caplog` in `tests/test_delivery_coverage.py`, with no framework at all.
+
+**Sixteen new tests, suite 529 → 545 passed.** The type half is covered too — a `region` that is not a non-empty string is refused rather than reaching the gates as though it had been declared, which is the local instance of the gap **C-123** registers generally.
+
+Cross-refs added on resolution: **C-122** (the launch-axis guard this one's fix lands beside — still one partner of two), **C-123** (declared types unenforced, the general form), **C-40** (the manager line ratchet that shaped the fix), **C-107** (whose `delivery/coverage.py:5` stale pointer was corrected in the same change).
+
+Cross-refs: **C-30** (absorbs C-34 — the coverage contract these gates enforce), ADR-003 (inference by omission), **views-models ADR-021** (`docs/ADRs/021_coverage_is_declared_once.md` — the upstream half).
+
+---
+
+---
 
 ### C-119: Resolving C-84 and C-110 left three live records asserting a red build that is green — RESOLVED
 

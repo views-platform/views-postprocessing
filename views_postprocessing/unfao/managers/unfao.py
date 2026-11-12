@@ -243,8 +243,15 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         The launcher must DECLARE ``wire_contract: True``. The pandas reader this
         key used to select was retired in #149; omitting the key is a refusal, not
         a fallback (register C-63).
+
+        It must also DECLARE ``region``, for the same reason one axis further out:
+        both coverage gates are chosen by region, so an omitted one used to select
+        "check nothing" and report it as a supported configuration (register
+        C-113). Asserted here rather than at the first gate so the refusal arrives
+        before any store call, not after the shards are leased.
         """
         launch_config.assert_contract_mode(self.configs)
+        launch_config.assert_region_declared(self.configs)
         self._read_forecast_data_contract()
 
     def _read(self) -> any:
@@ -306,21 +313,12 @@ class UNFAOPostProcessorManager(PostprocessorManager, ForecastingModelManager):
                 len(cells),
                 n_rows,
             )
-            # GAUL-uncovered cells the curated region must drop (S4/C-30) — checked
-            # before the count gate so a leaked island names itself, not "over-coverage
-            # by 1". Empty for unpinned regions (e.g. africa_me_legacy keeps its ocean
-            # cells), so this is a no-op there.
-            if excluded:
-                coverage.assert_no_excluded_cells(cells, excluded, label=label)
-            if expected is not None:
-                coverage.assert_complete_coverage(cells, expected, label=label)
-            else:
-                logger.warning(
-                    "Coverage count-gate skipped for %s: region %r is not pinned in "
-                    "delivery.coverage.EXPECTED_CELLS — verify and pin before relying on it.",
-                    label,
-                    region,
-                )
+            # Exclusion before count, so a leaked island names itself rather than
+            # reading as "over-coverage by 1" (S4/C-30). Each gate reports its own
+            # skip for an unpinned region — that is the invariant's business, not
+            # the shell's (C-113, C-40(a)).
+            coverage.assert_no_excluded_cells(cells, excluded, label=label)
+            coverage.assert_complete_coverage(cells, expected, label=label)
 
     def _save_contract(self) -> dict:
         """ADR-013 contract outbound (epic #105): the composed sink delivers the run.

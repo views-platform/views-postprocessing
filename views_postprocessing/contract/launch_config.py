@@ -39,6 +39,11 @@ WIRE_CONTRACT_KEY = "wire_contract"
 # passed here as a string so this module needs no pipeline-core import.
 FEATURE_FRAME_FORMAT = "feature_frame"
 
+# The launch-config key naming the region whose cells the delivery must cover.
+# Declared, never inferred, and never defaulted: the two coverage gates are chosen
+# BY this value, so an absent one silently selects "check nothing" (register C-113).
+REGION_KEY = "region"
+
 
 class LaunchConfigError(ValueError):
     """The launcher did not declare the delivery this package implements."""
@@ -60,6 +65,52 @@ def assert_contract_mode(configs: dict) -> None:
             f"{WIRE_CONTRACT_KEY}: True in the postprocessor's config_meta. "
             "The pandas delivery this key used to select was retired in #149; "
             "there is no fallback to omit your way into."
+        )
+        logger.error(err_msg)  # ADR-008: logged persistently AND raised
+        raise LaunchConfigError(err_msg)
+
+
+def assert_region_declared(configs: dict) -> None:
+    """Raise unless the launch config declares a region.
+
+    **Register C-113: an omission that disables two gates and looks like a feature.**
+    ``delivery.coverage`` chooses both gates by region — ``expected_for(region)`` gives
+    the completeness target and ``excluded_for(region)`` the curation manifest. Both
+    read the value out of ``configs`` with ``.get("region")``, so a launcher that never
+    mentioned a region produced ``None``, and ``None`` took the same path as a region
+    that is declared but **not yet pinned**:
+
+    - ``expected_for(None) -> None``  → the count gate logs "skipped" and returns
+    - ``excluded_for(None) -> frozenset()`` → the exclusion gate is a no-op
+
+    A delivery then shipped with its cell curation and its completeness check both
+    having done nothing, reported as a supported configuration. The supported one is
+    real — ``africa_me_legacy`` is deliberately unpinned, because "complete" is
+    ambiguous there until a run settles it — which is exactly why the two must not
+    share a representation. This is ADR-003's rule in the shape C-83 already found
+    once: the *absence* of an answer silently given the shape of an answer.
+
+    A region that is declared but unpinned stays launchable and still logs a skipped
+    gate. Only the undeclared case is refused.
+
+    Args:
+        configs: the launcher's config mapping.
+
+    Raises:
+        LaunchConfigError: naming the missing key, and distinguishing it from the
+            unpinned-region case so the reader does not "fix" the wrong one.
+    """
+    region = configs.get(REGION_KEY)
+    if not isinstance(region, str) or not region.strip():
+        err_msg = (
+            f"the launcher did not declare {REGION_KEY!r} (got {region!r}) — the "
+            "delivery chooses its cell-curation manifest and its completeness target "
+            "by region, so without one BOTH coverage gates silently pass. Set "
+            f"{REGION_KEY}: '<region>' in the postprocessor's config_meta. "
+            "Note this is NOT the same as a region that is declared but not yet "
+            "pinned in delivery.coverage.EXPECTED_CELLS: that is supported, stays "
+            "launchable, and logs a skipped count-gate. There is no region to omit "
+            "your way into."
         )
         logger.error(err_msg)  # ADR-008: logged persistently AND raised
         raise LaunchConfigError(err_msg)
