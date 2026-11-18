@@ -1550,6 +1550,7 @@ Cross-refs: **C-107** (the same docstring, the opposite shape — there the pros
 | Source | `/code-review`, 2026-11-18 |
 | Trigger | When the first global forecast delivery is cut, or when either product's `S_MIN` rises — both enlarge the array this line materializes. Also when anyone diagnoses a failed delivery from this gate's message rather than from the run log. |
 | Owner | This repository. |
+| Tracked | views-postprocessing#336 |
 | Location | `views_postprocessing/delivery/draws.py:83-94` (the `try`/`except Exception` around `np.asarray`) |
 
 The gate wraps `np.asarray(values)` in `except Exception` and raises `DrawsCollapseError` saying *"the payload could not be read as an array at all … this is malformed input, not a collapsed forecast. Nothing about the draws has been checked."* That sentence is a diagnosis, and it is only correct for the failure it was written for: ragged input, which `np.asarray` reports as a `ValueError`.
