@@ -20,12 +20,16 @@ get a quiet fallback; it gets an error naming the key it left out.
 
 Deliberately dependency-light: no pipeline-core, no pandas, no frames — the
 queryset's ``data_format`` arrives as a plain string from the caller, so this
-module stays importable (and testable) anywhere.
+module stays importable (and testable) anywhere. The one package import,
+``delivery.coverage``, imports nothing but ``logging`` itself and is here so the
+set of regions has a single home rather than a copy in this file.
 """
 
 from __future__ import annotations
 
 import logging
+
+from views_postprocessing.delivery import coverage
 
 logger = logging.getLogger(__name__)
 
@@ -91,14 +95,21 @@ def assert_region_declared(configs: dict) -> None:
     once: the *absence* of an answer silently given the shape of an answer.
 
     A region that is declared but unpinned stays launchable and still logs a skipped
-    gate. Only the undeclared case is refused.
+    gate. Two cases are refused: no region at all, and a region this delivery does not
+    recognise. The second was found by review on 2026-11-18 and is the same defect one
+    level in — ``region: "lnd_gaul"`` is a non-empty string, so it passed this
+    assertion, missed both dictionary lookups, and disabled both gates while reporting
+    itself as the supported unpinned configuration. The recognised set is
+    ``delivery.coverage.KNOWN_REGIONS``, which is where regions are declared; this
+    function refuses in the launcher's own terms rather than keeping a second copy.
 
     Args:
         configs: the launcher's config mapping.
 
     Raises:
-        LaunchConfigError: naming the missing key, and distinguishing it from the
-            unpinned-region case so the reader does not "fix" the wrong one.
+        LaunchConfigError: naming the missing key, or the unrecognised region, and
+            distinguishing both from the unpinned-region case so the reader does not
+            "fix" the wrong one.
     """
     region = configs.get(REGION_KEY)
     if not isinstance(region, str) or not region.strip():
@@ -111,6 +122,20 @@ def assert_region_declared(configs: dict) -> None:
             "pinned in delivery.coverage.EXPECTED_CELLS: that is supported, stays "
             "launchable, and logs a skipped count-gate. There is no region to omit "
             "your way into."
+        )
+        logger.error(err_msg)  # ADR-008: logged persistently AND raised
+        raise LaunchConfigError(err_msg)
+    if region not in coverage.KNOWN_REGIONS:
+        err_msg = (
+            f"the launcher declared {REGION_KEY}: {region!r}, which this delivery does "
+            f"not recognise (known: {sorted(coverage.KNOWN_REGIONS)}). Both coverage "
+            "gates are selected by the region name, so an unrecognised one passes both "
+            "without checking anything — a mistyped letter disables exactly what "
+            "declaring a region is for, and it does so while looking like the "
+            "supported declared-but-unpinned case. Fix the name in the "
+            "postprocessor's config_meta, or, if views-datafactory has curated a new "
+            "region, declare it in delivery.coverage.KNOWN_REGIONS (and pin its cell "
+            "count and excluded-cell manifest once each is verified)."
         )
         logger.error(err_msg)  # ADR-008: logged persistently AND raised
         raise LaunchConfigError(err_msg)

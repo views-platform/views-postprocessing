@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-11-12                           |
-| Total Concerns          | 124                                   |
-| Open Concerns           | 39                                    |
+| Last Updated      | 2026-11-18                           |
+| Total Concerns          | 125                                   |
+| Open Concerns           | 40                                    |
 | Resolved Concerns       | 85                                   |
 
 ---
@@ -1412,7 +1412,7 @@ Cross-refs: **C-110** (RESOLVED — *"the obvious shortcut is closed, and closed
 
 ---
 
-### C-117: The seam-pin drift detector projects three fields, so a rotation the registry has not recorded is invisible — and the pinned registry still declares two retired keys dying 2026-11-17
+### C-117: The seam-pin drift detector projects three fields, so a rotation the registry has not recorded is invisible — and the pinned registry still declares two retired keys dying 2026-11-17 *(that date passed on 2026-11-17; checked 2026-11-18)*
 
 | Field | Value |
 |-------|-------|
@@ -1535,9 +1535,32 @@ The module opens *"Representation-free — primitives only (a 2-D numpy array + 
 
 **Why it is registered rather than fixed on sight.** The docstring was narrowed in `b80bd3d` to state the gap instead of overclaiming past it — *"The declared ints are a separate matter and are still unenforced"* — so the prose is honest and the shortfall is declared, which is the condition under which this register tracks rather than blocks. What makes it standing risk is the direction of travel: the floor becomes a per-audience value the moment that decision lands, and a declaration that arrives missing or as a string would then surface on the partner-facing path as an exception type no caller is written to catch.
 
-The failing stubs are kept **outside `tests/`**, at `/tmp/claude-1000/-home-simon-Documents-scripts-views-platform-views-postprocessing/f3881619-6312-451d-b6b0-4d69424f45be/scratchpad/test_falsify_draws_raises_contract.py`, deliberately: C-114 and the untracked region stub are this repository's live record of what an unmarked or self-absorbing falsification stub does to a required check, and a third one would add to that hazard rather than to the evidence.
+The failing stubs were kept **outside `tests/`**, in this session's scratchpad directory — *checked 2026-11-18: that directory has since been cleared, so the stubs are gone and the path no longer resolves. A session scratchpad is not a durable home; the entry body above is now the only record of what the stubs asserted, which is why it states both falsifications in full.* They were kept out of `tests/` deliberately: C-114 and the untracked region stub are this repository's live record of what an unmarked or self-absorbing falsification stub does to a required check, and a third one would add to that hazard rather than to the evidence.
 
-Cross-refs: **C-107** (the same docstring, the opposite shape — there the prose had drifted from the code; here the prose is accurate and the code is what falls short), **C-120** (ADR-013 §6's four-rule count, which the two new refusals already sit outside), **C-114** (why these stubs are not in `tests/`).
+Cross-refs: **C-107** (the same docstring, the opposite shape — there the prose had drifted from the code; here the prose is accurate and the code is what falls short), **C-120** (ADR-013 §6's four-rule count, which the two new refusals already sit outside), **C-114** (why these stubs are not in `tests/`), **C-124** (the same function's other failure of discrimination — there a declared type is unchecked, here an unrelated failure is given a confident wrong diagnosis).
+
+---
+
+### C-124: The §6 draws gate catches `Exception` and reports every failure as malformed input — including the `MemoryError` this exact path has a measured history of
+
+| Field | Value |
+|-------|-------|
+| ID | C-124 |
+| Tier | 3 — it misdiagnoses, it does not mis-deliver. The gate still refuses and nothing ships, so there is no partner-facing correctness consequence; what is lost is the operator's time and the traceback that would have named the real fault. |
+| Source | `/code-review`, 2026-11-18 |
+| Trigger | When the first global forecast delivery is cut, or when either product's `S_MIN` rises — both enlarge the array this line materializes. Also when anyone diagnoses a failed delivery from this gate's message rather than from the run log. |
+| Owner | This repository. |
+| Location | `views_postprocessing/delivery/draws.py:83-94` (the `try`/`except Exception` around `np.asarray`) |
+
+The gate wraps `np.asarray(values)` in `except Exception` and raises `DrawsCollapseError` saying *"the payload could not be read as an array at all … this is malformed input, not a collapsed forecast. Nothing about the draws has been checked."* That sentence is a diagnosis, and it is only correct for the failure it was written for: ragged input, which `np.asarray` reports as a `ValueError`.
+
+`MemoryError` is a subclass of `Exception`. An out-of-memory failure while materializing a large draws payload is therefore reported as a producer having published a malformed artifact, and the reader is sent upstream. This repository has measured that exact failure twice on this path — **C-32** (run 0 OOM-killed at 23.8 GB during the historical enrichment join) and **C-101** (the streaming fix, where downloading every shard of a target before decoding the first made peak 3.06× the delivered frame). The streaming fix is what keeps this cheap today; a larger sample width is what makes it dear again.
+
+Narrowing to `except (ValueError, TypeError)` restores the diagnosis to the failures it describes and lets `MemoryError` propagate with its own traceback. This is one line and one test.
+
+**Registered rather than fixed on sight**, because the branch that found it exists to fix C-113 in `delivery/coverage.py` and the two managers. Mixing an unrelated narrowing into `delivery/draws.py` — a module with two other open entries about its own docstring, last touched by a separate pull request for exactly that reason — would make each change harder to review than it is on its own.
+
+Cross-refs: **C-123** (same function, the declared-type half), **C-105** / the `source_metadata` entry recording `except Exception: lv = None` (the same disease: two faults leaving through one branch with one outcome), **C-32** and **C-101** (the measured OOMs this message would mislabel), **ADR-008** (log persistently and raise).
 
 ---
 
@@ -1641,7 +1664,26 @@ The refusal landed where the repository already keeps launch declarations rather
 
 **Sixteen new tests, suite 529 → 545 passed.** The type half is covered too — a `region` that is not a non-empty string is refused rather than reaching the gates as though it had been declared, which is the local instance of the gap **C-123** registers generally.
 
-Cross-refs added on resolution: **C-122** (the launch-axis guard this one's fix lands beside — still one partner of two), **C-123** (declared types unenforced, the general form), **C-40** (the manager line ratchet that shaped the fix), **C-107** (whose `delivery/coverage.py:5` stale pointer was corrected in the same change).
+**AMENDED 2026-11-18 — the resolution above was true of the smaller leg and wrong about the larger one.** `/code-review` on the resolving branch found that the sentence *"Both gates now report their own skip"* did not hold where most of the coverage checking happens. Forecast coverage is not asserted in the managers at all: it is asserted inside `contract/wire/source_selection.py`'s `TargetLease.load()`, and that method guarded both calls with `if self.excluded_gids:` and `if self.expected_cells is not None:`. For a region that pins neither — the supported unpinned case — both conditions were false, so **every forecast target loaded with both gates skipped and nothing at all in the run log**. The managers' `_check_coverage`, which the first fix corrected, covers the historical leg. Both `if`s are now gone and the lease calls each gate unconditionally, which is the only form that lets the invariant own its own skip report.
+
+**And the same defect one level in: an unrecognised region name was still silently the unpinned case.** `assert_region_declared` accepted any non-empty string, so `region: "lnd_gaul"` passed the launch assertion, missed both dictionary lookups, and skipped both gates — reporting itself as the configuration someone deliberately chose. Measured: `expected_for("lnd_gaul")` returned `None` and `excluded_for("lnd_gaul")` returned `frozenset()`, and a two-cell delivery was accepted. The register entry above anticipated the wrong guard (*"refusing any region absent from `EXPECTED_CELLS`"*, which would ground `africa_me_legacy`) and this is the right one: a declared set of **known** regions, `delivery.coverage.KNOWN_REGIONS`, separate from the question of whether a known region's cell count has been pinned. `africa_me_legacy` is known and still deliberately unpinned, so it still launches and still logs a skipped count-gate. An unknown name now raises `UnknownRegionError` at the invariant and `LaunchConfigError` at launch, each naming the known set and both repair paths.
+
+Two tests in the resolving commit **pinned the old behaviour** — `expected_for("does_not_exist") is None` and `assert_region_declared({"region": "not_pinned_anywhere"}) is None` — the second written on purpose, to record that an unpinned region must stay launchable. It was right about `africa_me_legacy` and wrong to generalise from it to any string. Both are rewritten.
+
+**The guard audit then found that the fix's own guards were asymmetric.** `/falsify guard`, run independently, applied 38 mutations to production code and ran each one: 31 were caught, **7 survived**, 0 unrun. Every mutation against `delivery/coverage.py` itself was caught — the invariant layer is strongly guarded. All seven survivors sat at the **call sites** the change had created an obligation for, or in the declaration the invariant is told to trust:
+
+- **Restoring `if excluded:` / `if expected is not None:` in BOTH managers left the whole suite green.** That mutation reopens this entry's own silence on the historical leg, and nothing noticed. The forecast leg's equivalents were both caught, because the forecast leg got a new test and the managers got rewritten production code and none. Closed by an `ast` scan over both managers' `_check_coverage`: each gate is called exactly once, and neither call is enclosed by an `If`.
+- **Adding `"atlantis"` to `KNOWN_REGIONS` left the suite green** — the new declaration was checked in one direction only (pinned ⊆ known) and not against what views-datafactory actually serves, which is C-113's shape re-entering through the declaration rather than through an omission. Closed by a cross-check against the sibling checkout's `src/datafactory_query/regions.py`, read with `ast` (the package is not a dependency here), skipped when no checkout is present, the same pattern as the excluded-gid cross-check above it.
+- **Deleting both `logger.error` calls from `assert_region_declared` left the suite green**, breaking ADR-008 unnoticed — although this repository already owns the mechanism that catches it, `tests/test_env_declaration.py::_REFUSALS`, whose own comment says *"adding a third validator is one line here, not a new test."* The validator had not been added. It now is, for both refusals.
+- **Deleting the manager call site of `assert_region_declared` left the suite green**: the source scan that checks for the other two assertions read `unfao.py` only and listed two of three. It is now parametrised over both partners and covers all three.
+- **Swapping the two gate calls left the suite green** on all three legs, although both managers and the lease carry a comment saying the order is load-bearing (exclusion first, so a leaked island names itself). Now executable: a call-order assertion on the forecast leg and a line-order assertion in both managers.
+- **One of the new tests asserted something untrue of itself.** Its comment said *"the exclusion gate still fires when a dropped cell comes back"*; it does not, because `drop_units` removes the excluded cell on the line directly above the gates, so the `CoverageError` it caught came from the count gate. Making the exclusion gate blind kept it green. The comment is corrected, the assertion now names the count gate, and a separate test states what the exclusion gate is actually for on that leg — a post-condition on the curation it follows.
+
+All seven are closed. The pattern is worth keeping: the design decision to move skip-reporting out of the two shells and into the invariant was sound and is well guarded; what went unguarded was the shells' remaining obligation to *call* it, which the change itself created.
+
+Measured 2026-11-18 in the `poetry.lock` environment: **565 passed, 3 skipped, 41 xfailed** (twenty tests more than the resolving commit's 545), `ruff check` clean.
+
+Cross-refs added on resolution: **C-122** (the launch-axis guard this one's fix lands beside — still one partner of two), **C-123** (declared types unenforced, the general form), **C-40** (the manager line ratchet that shaped the fix), **C-107** (whose `delivery/coverage.py:5` stale pointer was corrected in the same change). Added on amendment: **C-109** (an entry's own `Location` decays — here the *resolution prose* was the thing that was wrong, which no `Location` check would have caught).
 
 Cross-refs: **C-30** (absorbs C-34 — the coverage contract these gates enforce), ADR-003 (inference by omission), **views-models ADR-021** (`docs/ADRs/021_coverage_is_declared_once.md` — the upstream half).
 

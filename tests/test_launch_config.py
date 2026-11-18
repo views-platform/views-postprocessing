@@ -103,20 +103,31 @@ def test_declared_feature_frame_passes():
 # ── the manager actually calls them ─────────────────────────────────────────
 
 
-def test_the_manager_asserts_both_axes():
+@pytest.mark.parametrize("partner", ["unfao", "crafd"])
+def test_the_manager_asserts_every_launch_axis(partner):
     """Source-scan: the manager pulls the full pipeline-core framework and cannot be
     imported in every test environment (the repo's standing pattern — see
-    `test_env_declaration.py`). What matters is that neither axis is left to
-    `.get()` with a silent default."""
+    `test_env_declaration.py`). What matters is that no axis is left to `.get()`
+    with a silent default.
+
+    Parametrised over both partners, and covering `assert_region_declared`, because
+    a guard audit removed that call from both managers with the whole suite green:
+    the scan read one file and listed two of the three assertions (2026-11-18, ME1).
+    """
     from pathlib import Path
 
     source = (
         Path(__file__).resolve().parent.parent
-        / "views_postprocessing" / "unfao" / "managers" / "unfao.py"
+        / "views_postprocessing" / partner / "managers" / f"{partner}.py"
     ).read_text()
 
     assert "launch_config.assert_contract_mode(" in source
     assert "launch_config.assert_frame_native_historical(" in source
+    assert "launch_config.assert_region_declared(" in source, (
+        f"{partner}: the region axis is read by both coverage gates, so a manager "
+        "that does not assert it ships a delivery whose gates chose themselves "
+        "(C-113)."
+    )
     # And the inference it replaced must not survive anywhere.
     assert 'configs.get("wire_contract")' not in source, (
         "the manager still branches on wire_contract — S1 replaced that fork with a "
@@ -145,7 +156,10 @@ def test_a_blank_or_non_string_region_is_refused_too(region):
     # Declared-don't-infer applies to the TYPE as well: a region that is not a
     # non-empty string cannot select a manifest, and must not reach the gates as
     # though it had. (C-123 registers the general version of this gap elsewhere.)
-    with pytest.raises(launch_config.LaunchConfigError):
+    # `match=` matters: without it this test cannot tell "you declared no region"
+    # from "that region is unrecognised", and a check that collapses the two walks
+    # through it (guard audit 2026-11-18, mutations MD3/MD4b/MD9).
+    with pytest.raises(launch_config.LaunchConfigError, match="did not declare"):
         launch_config.assert_region_declared({"region": region})
 
 
@@ -159,9 +173,32 @@ def test_the_refusal_distinguishes_itself_from_an_unpinned_region():
     assert "stays launchable" in message
 
 
-def test_a_declared_region_passes_whether_or_not_it_is_pinned():
+def test_a_known_region_passes_whether_or_not_it_is_pinned():
     # africa_me_legacy is deliberately unpinned and MUST stay launchable — the
     # falsification stub that prescribed refusing it would have grounded it.
     assert launch_config.assert_region_declared({"region": "land_gaul"}) is None
     assert launch_config.assert_region_declared({"region": "africa_me_legacy"}) is None
-    assert launch_config.assert_region_declared({"region": "not_pinned_anywhere"}) is None
+
+
+@pytest.mark.parametrize("region", ["lnd_gaul", "land-gaul", "not_pinned_anywhere"])
+def test_an_unrecognised_region_is_refused_at_launch(region):
+    """Found by review 2026-11-18, and this test replaces one that pinned the defect.
+
+    The line above used to assert that `region: "not_pinned_anywhere"` LAUNCHED. It
+    does not any more, and the reason is that a name nobody recognises is not the
+    unpinned case: it misses both lookups in `delivery.coverage`, so both gates skip.
+    Refusing at launch means the operator hears about a misspelling before any store
+    call, not from a run log after the delivery shipped unchecked.
+    """
+    with pytest.raises(launch_config.LaunchConfigError, match="does not recognise"):
+        launch_config.assert_region_declared({"region": region})
+
+
+def test_the_unrecognised_refusal_names_the_regions_it_knows():
+    # So the fix is in the message: either the name is wrong, or the region is new
+    # and must be declared in one named place.
+    with pytest.raises(launch_config.LaunchConfigError) as excinfo:
+        launch_config.assert_region_declared({"region": "lnd_gaul"})
+    message = str(excinfo.value)
+    assert "land_gaul" in message and "africa_me_legacy" in message
+    assert "KNOWN_REGIONS" in message

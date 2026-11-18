@@ -27,6 +27,19 @@ class CoverageError(ValueError):
     """A delivery did not cover exactly the expected set of cells."""
 
 
+class UnknownRegionError(ValueError):
+    """A region was declared, but not one this delivery recognises.
+
+    A sibling of ``RegionNotDeclaredError`` and not a subclass of it: there the
+    launcher said nothing, here it said something this repository does not know. The
+    two have different fixes — add the config key, versus correct a misspelling or
+    declare a new region — so they must not share a message. Until 2026-11-18 an
+    unrecognised name took the declared-but-unpinned path, which means a single
+    mistyped letter disabled both gates and reported itself as a supported
+    configuration: register C-113's own shape, one level in.
+    """
+
+
 class RegionNotDeclaredError(ValueError):
     """No region was declared, so neither coverage gate can be chosen.
 
@@ -37,17 +50,51 @@ class RegionNotDeclaredError(ValueError):
     """
 
 
+# The region names this delivery recognises.
+#
+# SSOT CAVEAT, the same one EXPECTED_CELLS carries below: which regions exist is a
+# *views-datafactory* fact (it curates the region cell-sets). It is declared here
+# because both gates are selected BY the region name, so a name this repository does
+# not recognise must not be allowed to select "check nothing". Source this from
+# datafactory region metadata once it publishes a region list.
+#
+# Being KNOWN and being PINNED are separate statements. A region is known once
+# datafactory curates it; it is pinned only once its cell count has been verified
+# against a real run. ``africa_me_legacy`` is known and deliberately unpinned.
+#
+# Adding a region is a one-line declaration here. That is the intended cost: a region
+# this file has not heard of produces a refusal that names it, never a silent pass.
+KNOWN_REGIONS: frozenset[str] = frozenset({"land_gaul", "africa_me_legacy"})
+
+
 def _declared(region: str | None) -> str:
-    """The region, or refuse. Chosen by region means absent-region checks nothing."""
+    """The region, or refuse — declared, and one this delivery recognises.
+
+    Chosen by region means an absent region checks nothing, and a region nobody here
+    has heard of checks nothing either.
+    """
     if not isinstance(region, str) or not region.strip():
         raise RegionNotDeclaredError(
             f"no region declared (got {region!r}): the completeness target and the "
             "cell-curation manifest are both selected BY the region, so there is "
             "nothing to check and nothing to curate. This is not the same as a "
             "region that is declared but unpinned — that is supported, returns no "
-            "target, and is reported as a skipped gate by the caller. Pinned "
-            f"regions: {sorted(EXPECTED_CELLS)}. Declared at launch; see "
+            "target, and is reported as a skipped gate by the caller. Known "
+            f"regions: {sorted(KNOWN_REGIONS)} (of those, pinned: "
+            f"{sorted(EXPECTED_CELLS)}). Declared at launch; see "
             "contract.launch_config.assert_region_declared (register C-113)."
+        )
+    if region not in KNOWN_REGIONS:
+        raise UnknownRegionError(
+            f"region {region!r} is not one this delivery recognises (known: "
+            f"{sorted(KNOWN_REGIONS)}). Both coverage gates are selected by the region "
+            "name, so an unrecognised one would pass both without checking anything — "
+            "a single mistyped letter disables exactly what declaring a region is for. "
+            "If the name is wrong, fix it in the postprocessor's config_meta. If the "
+            "region is real and newly curated by views-datafactory, declare it in "
+            "delivery.coverage.KNOWN_REGIONS; pin its cell count in EXPECTED_CELLS and "
+            "its excluded-cell manifest in EXCLUDED_GIDS_BY_REGION once each is "
+            "verified against a run (register C-113)."
         )
     return region
 

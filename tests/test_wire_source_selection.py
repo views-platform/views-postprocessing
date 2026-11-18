@@ -179,3 +179,81 @@ def test_a_store_that_raises_keyerror_is_not_blamed_on_the_manifest():
     assert excinfo.value.__cause__ is not None, (
         "the store's own KeyError must be chained, not discarded"
     )
+
+
+# --- C-113, the forecast leg: an unpinned region leaves evidence -------------------
+#
+# Found by review 2026-11-18. The managers' `_check_coverage` was fixed to call both
+# gates unconditionally, but forecast coverage is asserted HERE, inside the lease's
+# `load()`, behind two caller-side `if`s. For an unpinned region those `if`s were both
+# false, so every target loaded with both gates skipped and NOTHING in the run log —
+# the larger half of the defect the managers' fix claimed to have closed.
+
+
+def test_an_unpinned_region_reports_both_skipped_gates_on_the_forecast_leg(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="views_postprocessing.delivery.coverage"):
+        leases = _resolve()  # no excluded_gids, no expected_cells: the unpinned region
+        leases["lr_ged_sb"].load()
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("exclusion-gate SKIPPED" in m for m in messages), messages
+    assert any("count-gate SKIPPED" in m for m in messages), messages
+    # Both name the leg, so a two-target run says which target was unchecked.
+    assert all("forecast[lr_ged_sb]" in m for m in messages if "SKIPPED" in m), messages
+
+
+def test_a_pinned_region_still_enforces_both_gates_and_reports_no_skip(caplog):
+    import logging
+
+    from views_postprocessing.delivery.coverage import CoverageError
+
+    with caplog.at_level(logging.WARNING, logger="views_postprocessing.delivery.coverage"):
+        leases = _resolve(excluded_gids=frozenset({100006}), expected_cells=5)
+        leases["lr_ged_sb"].load()  # 6 cells, one excluded -> 5 delivered: passes
+    assert not [r for r in caplog.records if "SKIPPED" in r.getMessage()]
+
+    # The count gate still refuses when the pinned count does not match. This says
+    # "count gate" and not "exclusion gate" on purpose: `drop_units` removes the
+    # excluded cell on the line directly above the gates, so on THIS leg the
+    # exclusion gate is a post-condition on that call and cannot fire from a
+    # declared exclusion alone. An earlier version of this test claimed otherwise
+    # and a guard audit disproved it by making the exclusion gate blind and keeping
+    # the test green (2026-11-18, MF4). The exclusion gate's own refusal is tested
+    # where it can actually fire: tests/test_delivery_coverage.py.
+    leases = _resolve(excluded_gids=frozenset({100006}), expected_cells=6)
+    with pytest.raises(CoverageError, match="under-coverage"):
+        leases["lr_ged_sb"].load()
+
+
+def test_the_exclusion_gate_is_a_post_condition_on_the_curation_it_follows():
+    """What the exclusion gate is FOR on this leg: catching a `drop_units` that did
+    not drop. Proven by feeding the gate the uncurated cell set directly, which is
+    the state the gate exists to refuse.
+    """
+    from views_postprocessing.contract.frame_extraction import cells_of
+    from views_postprocessing.delivery.coverage import (
+        CoverageError,
+        assert_no_excluded_cells,
+    )
+
+    leases = _resolve()  # no curation: the raw producer frame, 100006 included
+    frame, _ = leases["lr_ged_sb"].load()
+    assert 100006 in cells_of(frame)
+    with pytest.raises(CoverageError, match="100006"):
+        assert_no_excluded_cells(cells_of(frame), frozenset({100006}), label="forecast")
+
+
+def test_the_gates_run_exclusion_before_count(monkeypatch):
+    """The order is load-bearing and was stated only in a comment: a leaked island
+    must name itself rather than arriving as "over-coverage by 1" (S4/C-30). A guard
+    audit swapped the two calls with the whole suite green (2026-11-18, MF3).
+    """
+    from views_postprocessing.delivery import coverage as cov
+
+    called = []
+    monkeypatch.setattr(cov, "assert_no_excluded_cells", lambda *a, **k: called.append("exclusion"))
+    monkeypatch.setattr(cov, "assert_complete_coverage", lambda *a, **k: called.append("count"))
+    leases = _resolve(excluded_gids=frozenset({100006}), expected_cells=5)
+    leases["lr_ged_sb"].load()
+    assert called == ["exclusion", "count"]

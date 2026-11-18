@@ -248,7 +248,7 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         both coverage gates are chosen by region, so an omitted one used to select
         "check nothing" and report it as a supported configuration (register
         C-113). Asserted here rather than at the first gate so the refusal arrives
-        before any store call, not after the shards are leased.
+        before any contract-store call, not after the shards are leased.
         """
         launch_config.assert_contract_mode(self.configs)
         launch_config.assert_region_declared(self.configs)

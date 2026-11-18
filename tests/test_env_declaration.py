@@ -377,6 +377,21 @@ _REFUSALS = (
         launch_config.FEATURE_FRAME_FORMAT,
         id="launch_config.assert_frame_native_historical",
     ),
+    # Added 2026-11-18: a guard audit deleted both `logger.error` calls from
+    # `assert_region_declared` with the whole suite green. This list is the
+    # mechanism that catches that, and the validator had not been added to it.
+    pytest.param(
+        lambda: launch_config.assert_region_declared({}),
+        launch_config.LaunchConfigError,
+        launch_config.REGION_KEY,
+        id="launch_config.assert_region_declared[undeclared]",
+    ),
+    pytest.param(
+        lambda: launch_config.assert_region_declared({"region": "lnd_gaul"}),
+        launch_config.LaunchConfigError,
+        "lnd_gaul",
+        id="launch_config.assert_region_declared[unrecognised]",
+    ),
 )
 
 
