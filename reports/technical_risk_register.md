@@ -4,7 +4,7 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-11-18                           |
+| Last Updated      | 2026-11-25                           |
 | Total Concerns          | 125                                   |
 | Open Concerns           | 40                                    |
 | Resolved Concerns       | 85                                   |
@@ -42,7 +42,7 @@ covered a single open entry (see Historical clusters below).
 **Root cause:** a family of entries whose entire risk statement was "unverified until the first global run" — all keyed to one event, which occurred **2026-07-27**.
 **Entries:** C-43 (the survivor), C-30 (**still OPEN** — see the scope correction below) + C-34 (merged, discharged), C-32 (discharged), C-25 (residual), D-12 and D-09 (deferral conditions)
 **Highest tier:** 2 (C-43)
-**Fix strategy:** one post-run-0 verification pass against producer run `rusty_bucket_forecasting_20260727_095355` — issue **#131 q1**, **CLOSED 2026-07-31**. C-43 resolved 2026-08-02; this cluster is discharged.
+**Fix strategy:** one post-run-0 verification pass against producer run `rusty_bucket_forecasting_20260727_095355` — issue **#131 q1**, **CLOSED 2026-07-31**. C-43 resolved 2026-08-02. ~~this cluster is discharged.~~ **Corrected at review-rr 2026-11-25: it is not.** This line contradicted the `Resolution scope` line directly below it, which has recorded since 2026-11-12 that **C-30 is open at Tier 2 with a declared residual**. The cluster therefore remains LIVE, and its only live purpose is to be C-30's home: the residual is upstream-regression risk on a views-datafactory region definition, which no other cluster covers. The run-0 verification half *is* discharged.
 **Resolution scope:** Full for C-32/C-34. **Not full for C-30, corrected 2026-11-12:** this line claimed C-30 among the fully-resolved, and C-30 is open at Tier 2 with a declared residual — *"upstream-regression risk"* — which run-0 could not discharge because the risk is a future change to someone else's region definition. **Partial for C-43 — the finding that matters.** Run-0 discharged the *availability* half of this cluster (the path runs, memory is bounded at 5.6 GB, coverage is proven at 64,742 cells). It discharged **none of the correctness half**, because proving the path *runs* at scale was never what C-43 asked for. **C-43 now stands alone and un-gated, with delivered data in the partner store.**
 
 ### Cluster I: Governance-artifact drift
@@ -132,7 +132,8 @@ Plus, outside the register: #158's rename finished and the **broken URL it creat
 
 ---
 
-### Cluster M: Six open concerns, one upstream publish
+### Cluster M: One open concern, one upstream publish
+*(Renamed at review-rr 2026-11-25. The title read "Six open concerns" and the cluster has held exactly one — C-72 — since 2026-08-03, which the `Entries` line below already said. A reader triaging by cluster title was shown five concerns that no longer existed. **This cluster closes when C-72 closes**: a one-member cluster carries no shared root cause to fix.)*
 **Root cause:** this repo pins `views-pipeline-core >=2.1.3,<3.0.0`, which resolves 2.3.0 from PyPI. Every fix and every removal below exists **only** on pipeline-core's unreleased 3.0.0. None is engineering work here; all five arrive together with one pin bump, and none can be taken before that bump.
 **Entries:** **C-72** — and nothing else. **DISCHARGED 2026-08-03 apart from that one.**
 
@@ -202,6 +203,7 @@ that indexes only deleted code is noise.
 | Source | CI failure on PR #266, 2026-08-13 |
 | Trigger | A guard is written whose subject is an event in another repository — a release, a tag, a published artifact — and the value it actually reads lives in this one. |
 | Location | `tests/test_falsify_adr013_s2.py` (the retired `test_e3s_claim_about_unreleased_behaviour_is_still_true`); `docs/ADRs/013_sampled_forecast_wire_contract.md`, Erratum E3 |
+| Owner | This repository. |
 
 ADR-013's Erratum E3 stated that a views-pipeline-core fix — an editable install reporting `"unknown"` instead of a stale version — was *"not yet in any released version."* That is a dated claim about someone else's release history, so a tripwire was attached to it: if the installed pipeline-core is a released distribution past 3.0.0, E3's wording is stale.
 
@@ -224,6 +226,7 @@ This is the same shape as vpp_017 §7a, arrived at from the other side: a check 
 | Source | Reading the whole port while fixing C-99, 2026-08-14 |
 | Trigger | The second partner store (#97) is scoped, or anyone proposes deleting `contract/store_metadata.py` — at which point this entry says what it costs and what moves with it. |
 | Location | `views_postprocessing/{unfao,crafd}/store_port.py` (`file_metadata`); `views_postprocessing/contract/store_metadata.py` |
+| Owner | This repository. |
 
 `_ContractStorePort.file_metadata` has **no caller in the package**. Measured: `latest_file_id` is called three times and `download` three times, both in `contract/wire/source_selection.py`; `upload` three times — `contract/wire/sink.py:164` plus each partner's historical artifact at `managers/<partner>.py:325`; `file_metadata` is called by nothing. Its only body is a call to `contract/store_metadata.py:file_metadata`, whose own module docstring says *"the one caller is `_ContractStorePort.file_metadata`"* — true, and the chain terminates there. The module has tests (`tests/test_store_metadata.py`) and no production reader.
 
@@ -736,6 +739,7 @@ It is a worked example wearing a risk's clothes. **Give it a real trigger or mov
 | Source | `expert-review` (2026-06-02), `falsification-audit` (2026-06-02) |
 | Trigger | When wiring pipeline-core #245's structured metadata field, or when adding/removing a provenance key — verify the closed keyset in `delivery/provenance.py` and the `DESCRIPTION_MAX` bound still hold, and that the carrier is no longer free-text `description` |
 | Location | `views_postprocessing/delivery/provenance.py` (`build_provenance`); `_historical_frame_description` in each partner's manager (the only caller); `views_postprocessing/contract/wire/sink.py` (the forecast leg, which attaches none). Symbols rather than line numbers — the earlier row's three line ranges were all past end-of-file. |
+| Owner | This repository for the carrier; views-pipeline-core for the structured metadata field (their #245). |
 
 Both `dsm.upload_data()` calls in `_save()` carry metadata: `name`, `loa`, `type`, `targets`, `description`, `category`. The `description` field was updated from a hardcoded test string to an enrichment timestamp (`"Enriched with geographic metadata on {timestamp}"`). However, broader enrichment provenance is still missing: no shapefile version/hash, no enrichment error count, no unmapped cell count. The consumer cannot verify which shapefile version produced their data or whether any errors occurred during enrichment.
 
@@ -756,6 +760,7 @@ See also C-14 (stale cache without version tracking), C-22 (no post-delivery cor
 | Source | `falsification-audit` (2026-06-02) |
 | Trigger | When views-faoapi implements the Release-Note-01 Topic-C renaming layer — verify this repo's column names stay **unchanged** (faoapi's `_METADATA_COLS` validation depends on them) and that the rename lands consumer-side only. Take no action here otherwise. |
 | Location | `views_postprocessing/contract/gaul_schema.py` (`METADATA_COLS`, the declared 9-column contract); `views_postprocessing/contract/historical.py` and `views_postprocessing/contract/wire/sidecar.py` (which project it); FAO Release Note 01 `topic_c.tex`. *(This row previously cited `unfao.py:277 (filter_cols)` — no such symbol exists anywhere in the package, and `unfao/gaul_schema.py` moved to `contract/` in #153.)* |
+| Owner | views-faoapi owns the fix (their #222); this repository owns keeping its column names unchanged. |
 
 The FAO API contract (Release Note 01, Topic C, confirmed and locked) specifies: UN M49 country codes, `ADM1_CODE`/`ADM1_NAME`/`ADM2_CODE`/`ADM2_NAME` for admin fields, and `lat`/`lon` for coordinates. The postprocessor's `filter_cols` uses: `country_iso_a3` (ISO Alpha-3), `admin1_gaul1_code`/`admin1_gaul1_name`/`admin2_gaul2_code`/`admin2_gaul2_name`, and `pg_xcoord`/`pg_ycoord`. Three of four data categories (country ID, admin fields, coordinates) use different naming conventions from the locked contract.
 
@@ -780,6 +785,7 @@ See also C-17 (RESOLVED — implicit column naming between mapper and manager), 
 | Source | `expert-code-review` (2026-06-12) |
 | Trigger | When changing the historical fetch path, or when bumping views-pipeline-core's dataloader — verify whether the **currently active** path (`get_feature_frame`, since #126) zero-fills missing months/cells, and that any fill count is logged rather than silent |
 | Location | views-pipeline-core `modules/dataloaders/dataloaders.py:1208` (`fillna(0.0)`, legacy pandas fetch); consumed at `views_postprocessing/unfao/managers/unfao.py:125-147` (`_read_historical_data`, legacy branch). Frame-native branch: `:101-124` (`_read_historical_frame` → `get_feature_frame`) |
+| Owner | views-pipeline-core owns the loader's NaN policy; this repository owns re-verifying it at each dataloader bump. |
 
 `_fetch_data_from_datafactory()` applies `df.fillna(0.0)` unconditionally to all features. For `lr_ged_sb/ns/os`, a datafactory assembly gap (unharvested month, failed source) flows to FAO as "zero fatalities" rather than failing. The postprocessor's `_validate()` checks only the 9 metadata columns for nulls (`unfao.py:188-221`), never the feature columns — so the fabricated zeros pass every gate. There is no fill-count logging, so the corruption is unquantified and undetectable after the fact. The zarr exposes `last_valid_month_id` in its attributes, which would permit bounded filling (fill only outside the declared valid range, fail on fills inside it), but it is not consulted.
 
@@ -814,6 +820,7 @@ By this entry's own re-tier rule, Tier 1 is no longer justified.
 | Source | `expert-code-review` (2026-06-12) |
 | Trigger | When configuring the datafactory zarr fetch, or bumping views-pipeline-core's dataloader — verify a read deadline exists on the HTTP path; today none does anywhere on the fetch path, so a mid-chunk stall blocks the run forever |
 | Location | views-pipeline-core `modules/dataloaders/dataloaders.py:1180-1188`; views-datafactory `src/datafactory_query/dataset.py:106-217` |
+| Owner | views-pipeline-core owns the read deadline on the fetch path; this repository owns noticing its absence. |
 
 `load_dataset()` opens a remote zarr over plain HTTP. xarray chunk reads have no timeout; a stall blocks the scheduled run forever, and the only detection is manually noticing a run never finished. Risk grows with the planned global region (~5× data volume → longer fetch window). Partial overlap with C-13 (no timeout on Appwrite operations) — same problem type, different dependency and repo; registered separately because the fix sites are disjoint.
 
@@ -836,6 +843,7 @@ Cross-referenced there to their **#248 / #347** (the same defect class on the Ap
 | Source | `expert-code-review` (2026-06-12), verified by direct data inspection; **merged with C-34** (`expert-code-review` 2026-06-12) during review-rr 2026-07-31 |
 | Trigger | When a region's expected cell count or exclusion manifest changes upstream — a views-datafactory region redefinition (`regions.py`, the bundled `*_pgids.json`), a new GAUL curation like ADR-043, or a region-string change in views-models `config_queryset.py` — verify `EXPECTED_CELLS_BY_REGION` and `EXCLUDED_GIDS_BY_REGION` are re-derived from the live producer rather than trusted as frozen |
 | Location | `views_postprocessing/delivery/coverage.py:56` (`land_gaul: 64_742`), `:92` (`EXCLUDED_GIDS_BY_REGION`), `:99`; `views_postprocessing/unfao/managers/unfao.py::_check_coverage`, `:300` (`_validate`); views-models `postprocessors/un_fao/configs/config_queryset.py`; views-datafactory `src/datafactory_query/regions.py` |
+| Owner | views-datafactory owns the region definition; this repository owns the pinned cell count and the exclusion manifest. |
 
 Verified 2026-06-12: of the datafactory's 64,818 `land`-region cells, 64,736 have complete area-majority metadata; exactly 82 are unassigned across all 7 GAUL fields — all remote sub-Antarctic islands FAO's GAUL 2024 boundaries do not cover (Macquarie, Auckland Islands, Prince Edward; sample gids 51078, 51798, 53979, 62356, 94776, 99027). The mitigation must be a named exclusion-list constant with the gids, count-asserted in both the enricher and a test, logged at WARNING, and disclosed to FAO — not a generic `code != -1` filter, which would silently absorb future coverage regressions. Generalizes the previously documented "5 ocean cells" of africa_me_legacy (those 5 are among the excluded set).
 
@@ -928,6 +936,7 @@ See also C-24 (schema contract per store), C-77 (the fourth home for partner ide
 | Source | `expert-code-review` (2026-06-24) |
 | Trigger | **(a) Upstream change:** when pipeline-core changes `PGMDataset` / the data loader / the postprocessor base (mid-migration: their #186/#188/#161), verify the inherited surface this repo depends on still holds. **(b) Standing work item:** the input-side de-inheritance (the sink side landed — see the 2026-07-31 update) — schedule it, don't wait for a trigger. |
 | Location | `views_postprocessing/<partner>/managers/<partner>.py` — the `class <PARTNER>PostProcessorManager(PostprocessorManager, ForecastingModelManager)` statement (double inheritance); `_build_prod_forecasts_store`, `_build_partner_store`, `_partner_appwrite_config` (env/AppwriteConfig/DatastoreModule — moved OFF the class 2026-08-05, see the update below); `_validate` and `_check_coverage`; the DIP sink adapter `_ContractStorePort`. **Since 2026-08-03 all of it exists twice** — `unfao` and `crafd` are the same file with the partner name changed (C-33). Symbols rather than lines, deliberately: an earlier version of this row was invalidated by a comment edit four lines long. |
+| Owner | This repository for the thin shell; views-pipeline-core for the input side (their #186/#207). |
 
 `UNFAOPostProcessorManager` subclasses **two concrete** pipeline-core base classes (`PostprocessorManager`, `ForecastingModelManager`) and **interleaves infrastructure** (env reading, `AppwriteConfig` construction, `DatastoreModule`, path resolution) with the FAO **business logic** (GAUL enrichment, the 9-column null gate) inside the lifecycle hooks. Consequences: (a) the FAO logic cannot be instantiated or unit-tested without the full framework + Appwrite env + viewser; (b) **pandas cannot leave the delivery path** because the inherited data loader and `PGMDataset` are pandas — gated on pipeline-core's own DataFrame retirement; (c) **SDP exposure** — heavy *inheritance* coupling to a pipeline-core that is itself unstable (mid-migration), so upstream changes break far from their cause (cf. C-27, C-29); (d) it's the repo's only composition-over-inheritance violation. The dependency itself is correct (`unfao.py` genuinely *is* a pipeline-core postprocessor) — the issue is its **blast radius**. Mitigation (does **not** fight the Template-Method framework): keep the subclass as a **thin shell** but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager *calls*, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP). This makes the FAO logic testable standalone and insulates it from pipeline-core churn.
 
@@ -1001,6 +1010,7 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 | Source | `manual` (2026-08-01) — GitHub surfaced 32 Dependabot alerts on the push that made `main` current; reviewed alert by alert |
 | Trigger | When lifting the `pyarrow < 17` ceiling — pipeline-core **#280** (the viewser → views-storage chain) is the platform half — **regenerate the ADR-013 §10 golden fixture in the same change and notify the faoapi seat**, because the upgrade is expected to change the delivered bytes. Also fires if this repo ever gains a production arrow **read**. |
 | Location | `pyproject.toml:15` (`pyarrow = ">=16.1.0,<17.0.0"`); `poetry.lock`; the affected operation would be `views_frames.io.arrow.load`, called only at `tests/test_wire_shard.py:90`, `tests/test_wire_fixture.py:73`, `tests/test_wire_header.py:39` |
+| Owner | views-pipeline-core owns the platform pin (their #280); views-faoapi owns the read-path exposure; this repository owns regenerating the ADR-013 §10 golden fixture when the ceiling lifts. |
 
 **GHSA — "Apache Arrow: potential use-after-free when reading IPC file with pre-buffering."** Vulnerable range `>= 15.0.0, < 23.0.1`; patched in **23.0.1**. This repo's declared pin is `>=16.1.0,<17.0.0` — **entirely inside the vulnerable range, with a ceiling that excludes the fix.** It is the only one of the 32 alerts against a dependency this repo declares itself (`pyproject.toml`); the other 31 are `poetry.lock` resolution — see the disposition note below.
 
@@ -1280,6 +1290,10 @@ C-103 is the sharp case, and the reason this is a class rather than three typos:
 **Why the obvious guard does not work, stated so it is not proposed again cheaply.** Checking that a file has at least that many lines catches nothing: every stale citation above points at a real line. Checking *content* requires the entry to declare what it expects to find there, which is a second declaration that can itself go stale — the shape ADR-014 §2 warns about. The cheap and durable move is the convention (`::symbol`), not a test.
 
 Cross-refs: **C-103** (twice stale in four days — the case that made this visible), **C-95** (a verdict mis-cited in three places — the same defect in prose rather than in a line number, and the nearest sibling), **C-107** (docstrings outside the doc-accuracy scan; the same "nothing checks the prose" family), **C-82** (governance prose carrying numbers nothing checks, resolved).
+
+**Trigger fired and discharged, review-rr 2026-11-25.** The row says *"at each `/review-rr` pass, re-resolve the `Location` of every entry filed since the previous one"*. The previous pass was 2026-11-12, so the scope was the eleven entries filed since: C-114, C-115, C-116, C-117, C-118, C-120, C-121, C-122, C-123, C-124, C-242. **19 file references checked, 0 unresolvable** — every cited file exists and every cited line number is within the file.
+
+**What that does and does not prove, stated because the distinction is this entry's whole subject.** It proves no `Location` points at a deleted file or past the end of one. It does **not** prove a cited line still holds the thing cited — a line number can be in range and point at unrelated code after an insertion above it. Closing that gap needs the symbol-anchored form D-09's `Location` adopted on 2026-11-12 ("Symbols rather than lines"), not a deeper check. **This trigger is perpetual by construction** — it fires every pass, which the register's own trigger-quality rule rejects. It is kept deliberately: the subject is decay over time, and the only honest trigger for decay is the clock. Read it as a standing review step, not as a condition that can be satisfied.
 
 ---
 
@@ -1585,36 +1599,6 @@ Three maintainer-raised intents, assessed and **deliberately deferred** — all 
 **Re-open trigger:** Run 0 verified AND retention owner named — then sequence 2→3 (or 2 alone) as an infrastructure epic, and 1 whenever wire churn is calm. See also C-40 (the migration this rides on), ADR-013 §8.
 
 **Status 2026-08-03 (both halves re-checked): #131 is CLOSED (2026-07-31), so the verification half of this trigger HAS fired.** The text below was written the day it closed and was already stale; it is corrected rather than deleted because the deferral it holds shut is a live decision. **Run 0 delivered** on 2026-07-27 (first FAO global-land forecast, frame-native, no OOM) and its integrity verification is closed — and #131 also surfaced a liveness dialect gap on the `unfao_delivery` forecast surface. **The retention owner is still unnamed** (ADR-013 §3.5 records the duty as OPEN), and that is now the *only* thing holding this deferral shut. Both halves must hold before it re-opens; one of the two now does. **Naming a retention owner re-opens D-12** — that is an operator decision, not engineering work. Note that intent 2 (move `production_forecasts` off Appwrite) and the unnamed retention owner compound: run-0 added ~110 objects in a single run to a store with no retention policy.
-
----
-
-### D-11: Pandas→frames seam — concrete siblings + delete vs a polymorphic abstraction
-
-| Field | Value |
-|-------|-------|
-| ID | D-11 |
-| Source | `expert-code-review` (2026-06-28) — review of pandas-migration epic #85 |
-| Location | epic #85 / stories #86 (`unfao/frames.py`), #87 (`unfao/extraction.py` + new frame module), #88/#91 (`unfao/managers/unfao.py` source/sink seams) |
-
-The pandas→views-frames migration (epic #85) deliberately swaps each seam by adding a **concrete** frame-native sibling next to the pandas one and later **deleting** the pandas path — rather than introducing a polymorphic abstraction (an `Extractor` Protocol / a representation port) that both implementations satisfy.
-
-- **Position A — concrete siblings + delete (the plan's choice; Martin/Beck-pragmatic, WET-before-DRY).** pandas and frames do **not** coexist at runtime — it is a migration, not a permanent dual representation — so a polymorphic interface would be speculative (YAGNI/ISP: don't force an interface nobody dispatches on). The seam stays readable, each representation is one-concept-per-file, and retirement is a clean file-delete. The invariants already depend on **primitives** (the real abstraction, DIP-satisfied at that boundary), so no port is needed above them.
-- **Position B — abstraction/port (Hickey/strict-OCP).** Depending on a representation port would make the swap "extend, not modify," and would let the two paths coexist cleanly during cutover.
-
-**Decision: A**, consistent with the maintainer's WET-before-DRY rule and the "migration not coexistence" reality. **Re-open trigger (the one acute case):** S6 (#91) introduces a temporary **dual-write** (legacy parquet + arrow sample-frame) for parity during the faoapi cutover — *if that coexistence proves long-lived* (rather than a brief cutover window), a small abstraction may then earn its place; revisit only then. Until then, concrete-and-delete stands.
-
-**RE-INSTANTIATED 2026-07-31 (`expert-code-review`) — same tension, new subject; merged here rather than registered as its own disagreement entry.** The review surfaced the identical disagreement one level down, about the **keyed gather** rather than the representation seam. "Given gids, fetch their lookup rows" now exists **three times, all simultaneously live**: a pandas left-merge (`unfao/enrichment.py:117`), an argsort/searchsorted gather (`unfao/historical.py:57-68`), and an isin/filter/sort (`unfao/wire/sidecar.py:47-57`).
-
-- **Position A (GoF, Hickey) — unify now.** Three implementations of one join is a correctness surface, not a migration artifact. They differ in failure semantics: two raise in place naming the absent gids; the pandas one yields NaN and defers to a downstream gate. That divergence is invisible at the call sites.
-- **Position B (Feathers, Beck) — defer to #89.** The differing failure semantics are *deliberate*, each implementation is separately tested, and unification means changing three call sites while the legacy branch is still live. The duplication is scheduled to die with that branch.
-
-**✅ CONDITION MET 2026-08-01 (epic #148).** The legacy forecast branch **was** deleted (#149) — before #89 landed, so the re-open trigger below never fired. Position A is vindicated by events rather than by argument: concrete siblings were built, the migration completed, and the second implementation was deleted rather than abstracted over. A Protocol introduced at decision time would have outlived the thing it existed to unify. Recorded in `tests/test_input_integrity_design_contract.py` ② so the next seam decision has the precedent.
-
-**Adjudication: B — but conditionally, and the condition is now named.** B is only correct *if the legacy forecast branch is actually deleted*. It had no scheduled deletion PR when this was adjudicated — #149 deleted it on 2026-07-31, which is what made B correct rather than merely preferable — only a "named post-run-0 follow-up" (C-40). If it lingers, three-way duplication becomes the permanent shape and Position A wins retroactively. **Re-open trigger: if the legacy forecast branch still exists when #89 (numpy/pyarrow keyed gather) lands, unify all three consumers onto one fail-loud gather primitive as part of that story rather than deferring again.** Cross-refs C-59 (the duplicate-key hazard that lands differently in each of the three), C-40, #89.
-
-**SETTLED 2026-07-31 (review-rr — the original re-open trigger resolved without firing).** The sole re-open condition was a long-lived S6/#91 dual-write. **#91 is CLOSED**, and the contract path shipped frame-native end-to-end (PRs #115–#129, wire delivered in run-0) without a durable dual-representation window. Position A is vindicated by events: concrete siblings + delete is what actually happened, the pandas path is confined to the legacy branch pending its named post-run-0 deletion, and no polymorphic representation port was ever needed. No live tension remains — this entry is kept as decision provenance for the remaining seam work (#89, #90) rather than as an open question.
-
-See also C-40 (the inheritance/representation coupling this migration unwinds), #85 (the migration epic), #45 (the faoapi wire / S6 dual-write).
 
 ---
 
@@ -3860,6 +3844,40 @@ repository whether views-models read it.
 ---
 
 ## Resolved Disagreements
+
+### D-11: Pandas→frames seam — concrete siblings + delete vs a polymorphic abstraction — SETTLED
+
+*(Moved here from `## Disagreements` at review-rr 2026-11-25. The body had carried `**SETTLED 2026-07-31**` and `**✅ CONDITION MET 2026-08-01**` and stated outright that "no live tension remains — this entry is kept as decision provenance rather than as an open question", while the entry itself stayed filed under open. `test_no_closed_entry_sits_under_open_concerns` could not see it: that check reads only the `Open Concerns` section and inspects headings, not bodies. Both gaps are now covered by `tests/test_register_integrity.py` — see `test_no_settled_entry_sits_under_an_open_section`.)*
+
+| Field | Value |
+|-------|-------|
+| ID | D-11 |
+| Source | `expert-code-review` (2026-06-28) — review of pandas-migration epic #85 |
+| Location | epic #85 / stories #86 (`unfao/frames.py`), #87 (`unfao/extraction.py` + new frame module), #88/#91 (`unfao/managers/unfao.py` source/sink seams) |
+
+The pandas→views-frames migration (epic #85) deliberately swaps each seam by adding a **concrete** frame-native sibling next to the pandas one and later **deleting** the pandas path — rather than introducing a polymorphic abstraction (an `Extractor` Protocol / a representation port) that both implementations satisfy.
+
+- **Position A — concrete siblings + delete (the plan's choice; Martin/Beck-pragmatic, WET-before-DRY).** pandas and frames do **not** coexist at runtime — it is a migration, not a permanent dual representation — so a polymorphic interface would be speculative (YAGNI/ISP: don't force an interface nobody dispatches on). The seam stays readable, each representation is one-concept-per-file, and retirement is a clean file-delete. The invariants already depend on **primitives** (the real abstraction, DIP-satisfied at that boundary), so no port is needed above them.
+- **Position B — abstraction/port (Hickey/strict-OCP).** Depending on a representation port would make the swap "extend, not modify," and would let the two paths coexist cleanly during cutover.
+
+**Decision: A**, consistent with the maintainer's WET-before-DRY rule and the "migration not coexistence" reality. **Re-open trigger (the one acute case):** S6 (#91) introduces a temporary **dual-write** (legacy parquet + arrow sample-frame) for parity during the faoapi cutover — *if that coexistence proves long-lived* (rather than a brief cutover window), a small abstraction may then earn its place; revisit only then. Until then, concrete-and-delete stands.
+
+**RE-INSTANTIATED 2026-07-31 (`expert-code-review`) — same tension, new subject; merged here rather than registered as its own disagreement entry.** The review surfaced the identical disagreement one level down, about the **keyed gather** rather than the representation seam. "Given gids, fetch their lookup rows" now exists **three times, all simultaneously live**: a pandas left-merge (`unfao/enrichment.py:117`), an argsort/searchsorted gather (`unfao/historical.py:57-68`), and an isin/filter/sort (`unfao/wire/sidecar.py:47-57`).
+
+- **Position A (GoF, Hickey) — unify now.** Three implementations of one join is a correctness surface, not a migration artifact. They differ in failure semantics: two raise in place naming the absent gids; the pandas one yields NaN and defers to a downstream gate. That divergence is invisible at the call sites.
+- **Position B (Feathers, Beck) — defer to #89.** The differing failure semantics are *deliberate*, each implementation is separately tested, and unification means changing three call sites while the legacy branch is still live. The duplication is scheduled to die with that branch.
+
+**✅ CONDITION MET 2026-08-01 (epic #148).** The legacy forecast branch **was** deleted (#149) — before #89 landed, so the re-open trigger below never fired. Position A is vindicated by events rather than by argument: concrete siblings were built, the migration completed, and the second implementation was deleted rather than abstracted over. A Protocol introduced at decision time would have outlived the thing it existed to unify. Recorded in `tests/test_input_integrity_design_contract.py` ② so the next seam decision has the precedent.
+
+**Adjudication: B — but conditionally, and the condition is now named.** B is only correct *if the legacy forecast branch is actually deleted*. It had no scheduled deletion PR when this was adjudicated — #149 deleted it on 2026-07-31, which is what made B correct rather than merely preferable — only a "named post-run-0 follow-up" (C-40). If it lingers, three-way duplication becomes the permanent shape and Position A wins retroactively. **Re-open trigger: if the legacy forecast branch still exists when #89 (numpy/pyarrow keyed gather) lands, unify all three consumers onto one fail-loud gather primitive as part of that story rather than deferring again.** Cross-refs C-59 (the duplicate-key hazard that lands differently in each of the three), C-40, #89.
+
+**SETTLED 2026-07-31 (review-rr — the original re-open trigger resolved without firing).** The sole re-open condition was a long-lived S6/#91 dual-write. **#91 is CLOSED**, and the contract path shipped frame-native end-to-end (PRs #115–#129, wire delivered in run-0) without a durable dual-representation window. Position A is vindicated by events: concrete siblings + delete is what actually happened, the pandas path is confined to the legacy branch pending its named post-run-0 deletion, and no polymorphic representation port was ever needed. No live tension remains — this entry is kept as decision provenance for the remaining seam work (#89, #90) rather than as an open question.
+
+See also C-40 (the inheritance/representation coupling this migration unwinds), #85 (the migration epic), #45 (the faoapi wire / S6 dual-write).
+
+---
+
+---
 
 ### D-07: Historical data route — keep pipeline-core dispatcher vs call datafactory directly — RESOLVED
 
