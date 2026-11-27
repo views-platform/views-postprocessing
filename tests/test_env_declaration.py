@@ -275,7 +275,23 @@ def test_declared_names_match_the_manager_reads(partner):
     module, own_store, _ = _PARTNER_ENV[partner]
     text = _manager_source(partner).read_text()
     read_names = set(re.findall(r'os\.getenv\("(APPWRITE_[A-Z_]+)"\)', text))
-    declared = set(module.CONNECTION_ENV + module.PROD_FORECASTS_ENV + own_store)
+    # AUDIENCE_CONNECTION_ENV is #327's second connection: the partner's OWN project,
+    # written with its own key, alongside the shared shelf the delivery reads. Declared
+    # for `crafd` today; absent for `unfao`, whose audience project does not exist yet
+    # (views-appwrite#196 is still deciding its coordinate, and #337 is the FAO track).
+    #
+    # `getattr(..., ())` rather than requiring the attribute, deliberately: a partner with
+    # no audience project should not be forced to declare an empty tuple to satisfy a
+    # test. But note what this does NOT do — it does not let a partner read an audience
+    # coordinate it has not declared. An undeclared read still lands in
+    # `read_names - declared` and still fails below. The default widens the DECLARATION
+    # side only.
+    declared = set(
+        module.CONNECTION_ENV
+        + module.PROD_FORECASTS_ENV
+        + own_store
+        + getattr(module, "AUDIENCE_CONNECTION_ENV", ())
+    )
     assert read_names == declared, (
         f"[{partner}] the manager reads {sorted(read_names - declared)} without "
         f"declaring them, and declares {sorted(declared - read_names)} without "

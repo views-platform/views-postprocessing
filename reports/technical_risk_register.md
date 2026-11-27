@@ -4,9 +4,9 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-11-25                           |
-| Total Concerns          | 125                                   |
-| Open Concerns           | 40                                    |
+| Last Updated      | 2026-11-27                           |
+| Total Concerns          | 126                                   |
+| Open Concerns           | 41                                    |
 | Resolved Concerns       | 85                                   |
 
 ---
@@ -178,7 +178,7 @@ that indexes only deleted code is noise.
 
 ### Cluster O: A guard that cannot fail
 **Root cause:** the guards here are declarative — they check code against a stated contract — and the failure that keeps recurring is the *inverse* of a wrong check: a declaration nothing enforces, or a check that cannot fire. Each instance was filed as an unrelated finding. Together they are one review habit, not seven defects.
-**Entries:** C-114 (stubs that can neither fail for a stated reason nor ever flip), C-116 (a bound that permits a year-long escape), C-121 (an assertion that has never executed), C-122 (a launch-axis guard covering one partner of two), C-123 (a declared interface enforced in half), C-108 (two `xfail(strict=True)` deploy gates that have never evaluated their assertions) — plus **C-113, RESOLVED 2026-11-12**, the cluster's first discharge — precedent in **C-102** and **C-89, both RESOLVED**.
+**Entries:** C-114 (stubs that can neither fail for a stated reason nor ever flip), C-116 (a bound that permits a year-long escape), C-121 (an assertion that has never executed), C-122 (a launch-axis guard covering one partner of two), C-123 (a declared interface enforced in half), C-108 (two `xfail(strict=True)` deploy gates that have never evaluated their assertions), C-125 (two sound guards removed by an interpreter below the declared floor, the run reporting `passed`) — plus **C-113, RESOLVED 2026-11-12**, the cluster's first discharge — precedent in **C-102** and **C-89, both RESOLVED**.
 **Highest tier:** 2 (C-116)
 **Fix strategy:** not one deletion and not one new guard. Each member is its own small code change — and the cluster exists to stop seven entries reading as seven backlog items when the thing they have in common is a habit at review time: *a guard is not evidence until a mutation proves it can fail.* ADR-014 §2 already states the trap in the obvious alternative — a second declaration to check the first can itself go stale. **C-102** is the resolved precedent and the method: derive the probe from the declaration rather than hardcoding it, so the proof survives the next rotation instead of expiring with it.
 **Resolution scope:** Full per member, and the members are independent — this cluster will not collapse on one change the way **Cluster L** did. What closes together is the habit; what closes one at a time is the code.
@@ -1576,6 +1576,69 @@ Narrowing to `except (ValueError, TypeError)` restores the diagnosis to the fail
 **Registered rather than fixed on sight**, because the branch that found it exists to fix C-113 in `delivery/coverage.py` and the two managers. Mixing an unrelated narrowing into `delivery/draws.py` — a module with two other open entries about its own docstring, last touched by a separate pull request for exactly that reason — would make each change harder to review than it is on its own.
 
 Cross-refs: **C-123** (same function, the declared-type half), **C-105** / the `source_metadata` entry recording `except Exception: lv = None` (the same disease: two faults leaving through one branch with one outcome), **C-32** and **C-101** (the measured OOMs this message would mislabel), **ADR-008** (log persistently and raise).
+
+---
+
+### C-125: The suite was run on an interpreter below this project's own floor, and the same unmet requirement both skipped guards quietly and aborted collection
+
+| Field | Value |
+|-------|-------|
+| ID | C-125 |
+| Tier | 2 — structural, with a measured instance. Not Tier 1: nothing is corrupted and CI on the declared interpreter catches it before merge. Not Tier 3: the value involved is a cross-repo pin a developer edits locally and then reads a green suite about, and the skip message is indistinguishable from an ordinary missing-fixture skip. |
+| Source | `manual` — found 2026-11-27 while completing the registry pin for #327, by reading the registry at the commit being named rather than by any failing test. |
+| Trigger | The next edit to `SEAM_CONTRACT_VERSION` / `SEAM_CONTRACT_COMMIT` in either partner package, or the next test added that parses a TOML file, made from a shell whose `python` is below 3.11. |
+| Owner | This repository. |
+| Location | `pyproject.toml:12` (the declared floor), `tests/seam_registry.py:61` (the guarded skip), `tests/test_locked_environment.py:47` (the unguarded module-scope `import tomllib`), and the guards that disappear: `tests/test_env_declaration.py:705` and `:895` |
+
+`pyproject.toml:12` declares `python = ">=3.11,<3.15"`, and CI runs 3.11
+(`.github/workflows/run_pytest.yml:104`). Nothing in the suite asserts that the running
+interpreter satisfies that floor, and **the same unmet requirement produces two different
+outcomes depending on which file reaches it first.** Measured 2026-11-27 on this machine,
+whose shell `python` is 3.10.14:
+
+- `python -m pytest -q` → `1 error in 0.40s`, **Interrupted during collection, zero tests
+  run**, because `tests/test_locked_environment.py:47` imports `tomllib` at module scope
+  with no guard.
+- `python -m pytest tests/test_env_declaration.py -q` → **`40 passed, 9 skipped`**. The nine
+  skip on `tests/seam_registry.py:61: stdlib from 3.11; pyproject requires it`, and they
+  include both pin guards. That module reads green *with its guards removed*, and the skip
+  reason reads like the ordinary absent-fixture skips elsewhere in this suite.
+- The same suite under `views-models/envs/views-postprocessing` (Python 3.11.15, the prefix
+  the launcher installs into) → **`573 passed, 2 failed, 3 skipped, 41 xfailed`**.
+
+**The guards themselves are sound, and that is the point.** Under 3.11, restoring the pin
+this session nearly shipped — `SEAM_CONTRACT_COMMIT = "34261d1"` beside
+`SEAM_CONTRACT_VERSION = "1.9.1"` — turns
+`test_the_pinned_commit_declares_the_pinned_version[crafd]` and
+`test_the_docstring_url_points_at_the_commit_the_constant_declares[crafd]` red; both pass
+at `a251cb8`. Nothing was wrong with the checks. They were being run where they could not
+run, and the run said `passed`.
+
+**What this cost, once, already.** The pin was set to edition v1.9.1 against `34261d1` by
+reading the edition table in a views-appwrite working tree instead of the file at the
+commit being named. That commit declares v1.9.0 and mints no publisher slot, so the pair
+contradicted itself — the same class of error **#196** was written to prevent, and the
+reason it was caught was a sibling session's report plus a re-read, not a guard.
+
+**Fix, and it is two small changes rather than one.** First, a test that **fails** when
+`sys.version_info` is below the floor `pyproject.toml` declares, so an unsupported
+interpreter is a red build with something to do rather than a quiet subtraction. Second,
+route `test_locked_environment.py`'s `tomllib` through the same guarded helper
+`tests/seam_registry.py` already uses, so one unmet requirement has one outcome. Neither
+is a new declaration to go stale: both read the floor from `pyproject.toml`, which is
+**C-102**'s method — derive the probe from the declaration.
+
+**Cluster O membership is the whole claim.** The cluster's thesis is that *nothing in the
+suite can report a guard that cannot fail, because a guard that cannot fail is green*.
+Every earlier member was a guard that could not fire for a reason inside the code. This one
+fires correctly and was removed by the environment, which is the same thesis reached from
+outside and the first member found while using the suite rather than auditing it.
+
+Cross-refs: **Cluster O** (member), **C-57** (the drift check that could not see a stale pin
+because it was scoped to one package by name — the same pin, the previous way it escaped),
+**C-102** (resolved precedent: derive the probe from the declaration), **C-114** (a stub
+that can neither fail for a stated reason nor flip — the nearest shape among the existing
+members), **#196** (the pinning rule this protects).
 
 ---
 

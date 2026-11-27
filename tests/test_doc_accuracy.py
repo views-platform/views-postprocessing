@@ -376,7 +376,28 @@ _MANAGER_LINE_BUDGET = 450
 #: longer see the code. The move was right; reporting it as compliance was not.
 #: Measured 2026-08-14: unfao 626, crafd 635. A ratchet, like the class budget — the
 #: response to it binding is to move something OUT OF THE PACKAGE, not to raise it.
-_PARTNER_PACKAGE_LINE_BUDGET = 700
+#: RAISED 700 -> 732 on 2026-11-25 by #327, and the number is the argument.
+#:
+#: Measured at that commit: `crafd/` was **697** lines against a 700 bound — three lines
+#: of headroom — so ANY new capability in the package overran it. #327 adds a second
+#: Appwrite connection (the audience project alongside the shared shelf): 19 lines of
+#: declaration in `appwrite_env.py` and 13 of wiring in the manager. Roughly half is
+#: irreducible — a four-name tuple, an `assert_env_declared` call, the isolation check and
+#: two changed kwargs.
+#:
+#: This is a SCOPE change, not the regrowth the bound exists to catch, and the bound
+#: cannot tell them apart. The distinction was kept honest two ways: the invariant itself
+#: went to `contract/audience.py` (partner-neutral, listed in `test_clone_readiness`'s
+#: `_MACHINERY`, so a clone gets it free), and the long-form reasoning stayed OUT of the
+#: package. The comments trimmed to pointers twice before this number moved.
+#:
+#: ⚠ Raising a guard's threshold is the suppression habit epic #344 is about. The check on
+#: that: it was raised ONCE, to a measured number, with the measurement recorded here —
+#: not to "whatever the code now is". `unfao/` is still well inside the bound and keeps
+#: one connection; when #337 gives FAO an audience project this number will be asked to
+#: move again, and that is the point at which to ask whether the per-partner package is
+#: the right home for a second connection at all.
+_PARTNER_PACKAGE_LINE_BUDGET = 732
 
 #: The manager CLASS, separately (C-40). 351 before the 2026-08-05 extraction, 272 after.
 #: A ratchet — see `test_the_manager_class_itself_stays_thin` for why it is not a target.

@@ -12,7 +12,7 @@ from views_pipeline_core.managers.ensemble import EnsemblePathManager
 from datetime import datetime
 import os
 from views_pipeline_core.modules.dataloaders.datafactory_contract import declared_data_format
-from views_postprocessing.contract import frame_extraction, gaul_lookup, historical, launch_config, source_metadata
+from views_postprocessing.contract import audience, frame_extraction, gaul_lookup, historical, launch_config, source_metadata
 from views_postprocessing.crafd import appwrite_env, product
 from views_postprocessing.crafd.store_port import _ContractStorePort
 from views_postprocessing.contract.wire import sink as wire_sink
@@ -91,17 +91,30 @@ def _build_partner_store(model_path) -> DatastoreModule:
 
 
 def _partner_appwrite_config(model_path) -> AppwriteConfig:
-    """Env → ``AppwriteConfig`` for the partner bucket. Declared names only; the values
-    live in the environment and are never read into this repository's source."""
+    """Env → ``AppwriteConfig`` for the AUDIENCE connection — CRAF'd's own project.
+
+    Declared names only; the values live in the environment and are never read into this
+    repository's source.
+
+    **#327: the second of two connections, and a different PROJECT** — container ids
+    unchanged, only the project moves. Rationale: #327, ``contract/audience.py``.
+    """
     appwrite_env.assert_env_declared(
-        appwrite_env.CONNECTION_ENV + appwrite_env.CRAFD_ENV,
-        store="crafd_bucket datastore",
+        appwrite_env.AUDIENCE_CONNECTION_ENV + appwrite_env.CRAFD_ENV,
+        store="crafd_bucket datastore (audience project)",
+    )
+    # Refuse a non-isolated connection BEFORE building a client; the checked value is
+    # used, so the coordinate is read exactly once (see contract/audience.py).
+    audience_project_id = audience.assert_audience_is_not_the_shelf(
+        os.getenv("APPWRITE_CRAFD_PROJECT_ID"),
+        os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
+        consumer=product.CONSUMER_DOCUMENT_NAME,
     )
     return AppwriteConfig(
         path_manager=model_path,
         endpoint=os.getenv("APPWRITE_ENDPOINT"),
-        project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
-        credentials=os.getenv("APPWRITE_DATASTORE_API_KEY"),
+        project_id=audience_project_id,
+        credentials=os.getenv("APPWRITE_CRAFD_PUBLISHER_API_KEY"),
         auth_method="api_key",
         cache_ttl_hours=24,
         bucket_id=os.getenv("APPWRITE_CRAFD_BUCKET_ID"),

@@ -16,7 +16,39 @@ python = ">=3.11,<3.15"
 # `views_pipeline_core.modules.appwrite.file` and `.modules.datastore`, and those modules
 # import the SDK unguarded. Without the extra the FAO delivery fails **at import**, not
 # at runtime, and inside a dependency rather than in our own code. Register C-07.
-views-pipeline-core = {version = ">=3.0.0,<4.0.0", extras = ["appwrite"]}
+# FLOOR RAISED 3.0.0 -> 3.6.0 on 2026-11-25 by #327, and it is a REQUIREMENT, not hygiene.
+#
+# Appwrite 1.8 renamed the Databases API to TablesDB. A key created in the console after
+# that rename is offered only `tables.*`/`rows.*` and gets 401 from `databases.*`
+# (measured by views-crafdapi in the crafdapi project 2026-11-13; views-appwrite registry
+# v1.9.1 :251-254). CRAF'd's own project has only such a key — `publisher-2026-11`.
+#
+# pipeline-core moved the delivery's metadata calls to TablesDB in 3.6.0 (their #603/#604,
+# tag `d0d9a8c`). Verified at that tag: zero `databases.list_documents/create_document/
+# update_document` left in `modules/appwrite/file.py`, and the reply envelope
+# `data={"documents": ..., "total": ...}` is unchanged, so this repo's five read sites are
+# untouched.
+#
+# Why a floor rather than a comment: below 3.6.0 the audience delivery would upload the
+# forecast FILES successfully — storage scopes did not change in the rename — and then 401
+# on every metadata row. Orphans in `crafd_bucket`, and under ADR-047 a run that logs the
+# failure and exits 0. A floor is the only thing that makes that unreachable rather than
+# merely documented.
+#
+# ⚠ THIS CHANGES WHAT THE NEXT FAO RUN INSTALLS. views-models' launcher reuses a conda
+# prefix that currently holds 3.3.5, and a bare `pip install` leaves an already-satisfied
+# specifier alone. 3.3.5 does not satisfy `>=3.6.0`, so the next run WILL upgrade it — and
+# FAO's next delivery would be the first to use the TablesDB path. FAO does not need it
+# (its key predates the rename and carries both vocabularies), so this is a cost of
+# keeping one floor for both products rather than a benefit to FAO. Flagged to the
+# operator 2026-11-25; the alternative is a per-product floor, which this repo has no
+# mechanism for.
+#
+# 3.6.0 does NOT move provisioning (their #605 is open; 17 `self.databases.*` calls remain
+# in `modules/appwrite/provisioning.py` at that tag). #327 needs no provisioning run —
+# `file.py:26` states the upload path "creates no containers", and CRAF'd's table and
+# bucket already exist, verified by the views-crafdapi session 2026-11-25.
+views-pipeline-core = {version = ">=3.6.0,<4.0.0", extras = ["appwrite"]}
 # Widened from `<3` on 2026-11-02 (#324, filed from views-models). The cap was not
 # harmless: views-models' pod runners require views-frames >= 3.0.0, so `<3` meant this
 # repo could not be installed alongside the ensemble lane that produces its input.

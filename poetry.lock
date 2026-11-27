@@ -3526,14 +3526,14 @@ docs = ["jupyterlab (>=4,<5)", "matplotlib (>=3.8,<4)", "nbmake (>=1.5,<2)", "py
 
 [[package]]
 name = "views-pipeline-core"
-version = "3.4.0"
+version = "3.6.0"
 description = "Core orchestration, data and model-management library for the VIEWS conflict forecasting platform."
 optional = false
 python-versions = "<3.15,>=3.11"
 groups = ["main"]
 files = [
-    {file = "views_pipeline_core-3.4.0-py3-none-any.whl", hash = "sha256:c560396f1ff880ea76da7365e75bbb6a49d4fa58b4518ab57021240cb29e553e"},
-    {file = "views_pipeline_core-3.4.0.tar.gz", hash = "sha256:806c4410caab4562ca1542af604808eca4532c079c800fb3b7615171b1156599"},
+    {file = "views_pipeline_core-3.6.0-py3-none-any.whl", hash = "sha256:fe17f5d415a2528db022618d3258171629b30559e254e5522336e9a8d3c750f3"},
+    {file = "views_pipeline_core-3.6.0.tar.gz", hash = "sha256:237b5e4d020b12c6cc5e052f5bc635c0d60961411f47787aebe0863e3f8e30da"},
 ]
 
 [package.dependencies]
@@ -3723,4 +3723,4 @@ test = ["pytest", "websockets"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "454f301b3fa62ea74ff8b906804cc6e02f758854d47d290f4fbe8ef3fb44ee46"
+content-hash = "53b357efb60a721a6295f0cd19dab69294b0b57b4f1ce35f8bfcb67012bfe13e"
