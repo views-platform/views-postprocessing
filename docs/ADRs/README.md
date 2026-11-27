@@ -115,6 +115,21 @@ These ADRs form the architectural constitution of the repository.
   source. No credential, for any number of private APIs. States plainly the half it does not
   cover: the consumer's own code against its own declaration.
 
+- **[vpp_018](018_one_audience_one_connection.md)** — One Audience, One Connection, And Never a Fallback to the Shelf
+  A delivery reads from a store the whole platform shares and writes into a store belonging
+  to one partner. Those became two separate Appwrite projects on 2026-11-11 and this
+  repository kept addressing one, so a CRAF'd delivery would have written where CRAF'd
+  could not read — with the upload succeeding, the read-back verifying the wrong project,
+  and three surfaces agreeing the data was missing while none of them named the cause.
+  Decides that each project gets its own declared connection (endpoint, project id,
+  credential), that a credential belongs to exactly one of them, and that a partner
+  connection which cannot be proven distinct from the shared one is a **refusal before any
+  byte moves** — never a fallback, since writing to the shared store is the outcome being
+  prevented. Refusals name the coordinate names and print no value (this repo is public).
+  Also states the binding requirement the first implementation failed: the rule must be
+  asserted on the client configuration the manager actually builds, because nine passing
+  unit tests of the rule itself stayed green with the rule deleted from the manager.
+
 ### Why one of these carries a `vpp_` prefix
 
 Three repositories each numbered an ADR **017**, and a bare "ADR-017" in a cross-repo

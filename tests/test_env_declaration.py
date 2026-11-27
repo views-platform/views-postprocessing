@@ -115,6 +115,14 @@ _PARTNER_ENV = {
             "APPWRITE_CRAFD_BUCKET_NAME": "target",
             "APPWRITE_CRAFD_COLLECTION_ID": "target",
             "APPWRITE_CRAFD_COLLECTION_NAME": "target",
+            # #327's second connection. Classified here, from the registry at the pinned
+            # commit, because EVERY check in this file reads these classes: the
+            # registry-existence check, the rotation drift projection, and the secret-copy
+            # scan over tracked documents. Left out, the publisher key — the only secret
+            # #327 adds, in a PUBLIC repository — was outside the scan that exists to
+            # catch a value pasted into a markdown file.
+            "APPWRITE_CRAFD_PROJECT_ID": "connection",
+            "APPWRITE_CRAFD_PUBLISHER_API_KEY": "secret",
         },
     ),
 }
@@ -275,7 +283,23 @@ def test_declared_names_match_the_manager_reads(partner):
     module, own_store, _ = _PARTNER_ENV[partner]
     text = _manager_source(partner).read_text()
     read_names = set(re.findall(r'os\.getenv\("(APPWRITE_[A-Z_]+)"\)', text))
-    declared = set(module.CONNECTION_ENV + module.PROD_FORECASTS_ENV + own_store)
+    # AUDIENCE_CONNECTION_ENV is #327's second connection: the partner's OWN project,
+    # written with its own key, alongside the shared shelf the delivery reads. Declared
+    # for `crafd` today; absent for `unfao`, whose audience project does not exist yet
+    # (views-appwrite#196 is still deciding its coordinate, and #337 is the FAO track).
+    #
+    # `getattr(..., ())` rather than requiring the attribute, deliberately: a partner with
+    # no audience project should not be forced to declare an empty tuple to satisfy a
+    # test. But note what this does NOT do — it does not let a partner read an audience
+    # coordinate it has not declared. An undeclared read still lands in
+    # `read_names - declared` and still fails below. The default widens the DECLARATION
+    # side only.
+    declared = set(
+        module.CONNECTION_ENV
+        + module.PROD_FORECASTS_ENV
+        + own_store
+        + getattr(module, "AUDIENCE_CONNECTION_ENV", ())
+    )
     assert read_names == declared, (
         f"[{partner}] the manager reads {sorted(read_names - declared)} without "
         f"declaring them, and declares {sorted(declared - read_names)} without "
@@ -507,7 +531,16 @@ def test_every_declared_name_is_classified_here(partner):
     That is register **C-74**'s shape: a guard quietly narrower than it claims.
     """
     module, own_store, expected = _PARTNER_ENV[partner]
-    declared = set(module.CONNECTION_ENV + module.PROD_FORECASTS_ENV + own_store)
+    # AUDIENCE_CONNECTION_ENV included, and the default is deliberate: a partner without
+    # a second connection declares none. Omitting it is what let #327's two new
+    # coordinates pass this check at 13 == 13 while never entering the class map above —
+    # C-74's shape again, in the test whose docstring names C-74.
+    declared = set(
+        module.CONNECTION_ENV
+        + module.PROD_FORECASTS_ENV
+        + own_store
+        + getattr(module, "AUDIENCE_CONNECTION_ENV", ())
+    )
     assert set(expected) == declared, (
         f"[{partner}] unclassified: {sorted(declared - set(expected))}; "
         f"stale: {sorted(set(expected) - declared)}"

@@ -40,6 +40,25 @@ _EXPECTED_SECTIONS = [
 # A heading that announces the entry is no longer an open concern.
 _CLOSED_MARKERS = ("RESOLVED", "MERGED", "RELOCATED")
 
+# A BODY line that announces the whole entry is settled, in this register's own
+# dialect: bold, line-initial, optionally ticked. D-11 carried two of these for
+# sixteen weeks while filed under ``## Disagreements`` — the heading check below
+# could not see it, because the heading never changed and the section was not
+# scanned at all (found at review-rr 2026-11-25).
+#
+# Anchored at line start and requiring the bold marker ON PURPOSE. The register
+# is full of legitimate mid-entry uses that must NOT trip this: cross-references
+# to other closed entries ("C-74, resolved"), and partial discharges that are the
+# point of the entry they sit in ("**RESIDUAL DISCHARGED 2026-07-27**",
+# "**⚠ The re-pin deferral below is DISCHARGED**"). Measured against the file
+# when written: 0 matches in ``## Open Concerns``, 1 in ``## Disagreements``
+# (D-11), 34 in ``## Resolved Concerns``. A looser pattern reported eight
+# false positives, every one of them a partial discharge.
+_SETTLED_BODY = re.compile(r"^\*\*(?:✅\s*)?(?:CLOSED|RESOLVED|SETTLED|CONDITION MET)\b", re.M)
+
+# The sections whose entries are, by the section's own name, still open.
+_OPEN_SECTIONS = ("Open Concerns", "Disagreements")
+
 # Prefixes that namespace an ID to another repository's register. A reference
 # without one of these must resolve to an entry in THIS file.
 _FOREIGN_PREFIXES = ("views-", "pipeline-core", "faoapi", "datafactory", "frames", "models", "reporting")
@@ -71,6 +90,14 @@ def _open_blocks(register: str) -> list[tuple[str, str]]:
     return [
         (block.split(":", 1)[0].strip(), block)
         for block in re.split(r"^### ", body, flags=re.M)[1:]
+    ]
+
+
+def _entries(section_body: str) -> list[tuple[str, str]]:
+    """[(entry id, entry block)] for any section — ``_open_blocks`` is fixed to one."""
+    return [
+        (block.split(":", 1)[0].strip(), block)
+        for block in re.split(r"^### ", section_body, flags=re.M)[1:]
     ]
 
 
@@ -117,6 +144,32 @@ def test_no_closed_entry_sits_under_open_concerns(register):
     assert not stragglers, (
         "entries announcing themselves closed are still filed under '## Open Concerns' — "
         f"move them to Resolved and correct the header counts: {stragglers}"
+    )
+
+
+def test_no_settled_entry_sits_under_an_open_section(register):
+    """The same rule as above, widened twice — by section, and from heading to body.
+
+    Two gaps let D-11 sit settled under ``## Disagreements`` from 2026-08-01 to
+    2026-11-25. First, the check above reads only ``## Open Concerns``, so no
+    disagreement was ever scanned. Second, it inspects headings, and an entry that
+    settles in its body without anyone editing its heading is invisible to it —
+    which is the ordinary way a settlement gets recorded here.
+
+    Moving is physical, not annotational: a settled entry belongs in the matching
+    Resolved section. See the Register Conventions.
+    """
+    sections = dict(_sections(register))
+    stragglers = []
+    for section in _OPEN_SECTIONS:
+        for entry_id, block in _entries(sections[section]):
+            body = block.split("\n", 1)[1] if "\n" in block else ""
+            if _SETTLED_BODY.search(body):
+                line = _SETTLED_BODY.search(body).group(0)
+                stragglers.append(f"{entry_id} under '{section}' ({line!r})")
+    assert not stragglers, (
+        "entries whose body announces the whole entry settled are still filed under an "
+        f"open section — move them to the matching Resolved section: {stragglers}"
     )
 
 

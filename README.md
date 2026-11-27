@@ -205,11 +205,21 @@ Contract's registry, which this repo references by pinned URL and never copies (
 sáttmál S6 — copies were the platform's original failure). The launcher supplies the
 values; the API key is an operator slot.
 
+Since #327 there are **two connections, not one**: the shared store is READ with the
+platform key, and the CRAF'd delivery WRITES into CRAF'd's own Appwrite project with a key
+of its own. A key authenticates against exactly one project, so neither connection can
+stand in for the other, and a delivery that cannot prove the two are distinct refuses
+rather than falling back — see **[vpp_018](docs/ADRs/018_one_audience_one_connection.md)**.
+
 ```bash
-# Appwrite connection
+# Appwrite connection — the SHARED store, read by every delivery
 APPWRITE_ENDPOINT=...
 APPWRITE_DATASTORE_PROJECT_ID=...
 APPWRITE_DATASTORE_API_KEY=...        # operator-issued secret
+
+# CRAF'd's OWN project — the second connection, written by the CRAF'd delivery (#327)
+APPWRITE_CRAFD_PROJECT_ID=...
+APPWRITE_CRAFD_PUBLISHER_API_KEY=...  # operator-issued secret, a DIFFERENT key
 
 # Production-forecasts store (input — shared by every partner)
 APPWRITE_PROD_FORECASTS_BUCKET_ID=...
@@ -223,7 +233,7 @@ APPWRITE_UNFAO_BUCKET_NAME=...
 APPWRITE_UNFAO_COLLECTION_ID=...
 APPWRITE_UNFAO_COLLECTION_NAME=...
 
-# CRAF'd store (output)
+# CRAF'd store (output) — containers inside CRAF'd's own project, above
 APPWRITE_CRAFD_BUCKET_ID=...
 APPWRITE_CRAFD_BUCKET_NAME=...
 APPWRITE_CRAFD_COLLECTION_ID=...
@@ -237,6 +247,12 @@ APPWRITE_METADATA_DATABASE_NAME=...
 *(Corrected 2026-08-03: four production-forecasts coordinate **values** were written out
 above, two lines below the sentence saying they never are. The value-copy guard scanned
 only `.py`; it now scans markdown too.)*
+
+*(Corrected 2026-11-27: the two #327 coordinates above were missing, so the only operator
+reference in this repository could not say where either value comes from — while the
+delivery refused at entry naming them. They were also outside the markdown value-copy
+scan, because that scan is built from the same classification map that did not list them;
+the map and this block are now both complete.)*
 
 ---
 

@@ -30,7 +30,6 @@ on the one person who could not route around it.
 
 from __future__ import annotations
 
-import re
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -76,6 +75,32 @@ import pytest
 KEY_EXPIRY: dict[str, datetime] = {
     "pipeline-core-writer": datetime(2027, 10, 29, 22, 0),
     "faoapi-server": datetime(2027, 10, 29, 23, 0),
+    # Added with #327. Until it was here, this tripwire's subject was the two keys above
+    # and nothing else, and `min()` masked the new one completely: once the 2027-10 pair
+    # rotate forward onto fresh terms, the CRAF'd delivery's own credential becomes the
+    # earliest real expiry with no entry naming it — authentication failing against
+    # CRAF'd's project with zero days of warning, from the file written to prevent that.
+    #
+    # Date, honestly sourced: ARITHMETIC, not a console reading. The coordinate registry
+    # at views-appwrite a251cb8 records `publisher-2026-11` created 2026-11-25 on a
+    # 12-month term and states in the row that the expiry is arithmetic rather than a
+    # quoted time. The time of day is NOT known and is left at midnight deliberately: the
+    # window below is 30 days, so it changes nothing, and inventing a precision the source
+    # does not have is the failure this file's comments exist to avoid.
+    "publisher-2026-11": datetime(2027, 11, 25, 0, 0),
+}
+
+#: What each key authenticates, so the message names the path that actually dies. The
+#: previous text said *"Both of this repository's delivery paths — un_fao and crafd —
+#: authenticate with the earlier one"*, which #327 made false: the operator reading the
+#: tripwire would have been steered to rotate a key that was not the one that expired.
+KEY_ROLE: dict[str, str] = {
+    "pipeline-core-writer": "the shared shelf — both deliveries READ the forecast run with it, "
+                            "and the FAO delivery also WRITES its outbound bucket with it",
+    "faoapi-server": "views-faoapi's own reads; nothing in this repository uses it",
+    "publisher-2026-11": "the CRAF'd delivery's WRITE into CRAF'd's own project (#327). "
+                         "Nothing else can reach that project: an Appwrite key "
+                         "authenticates against exactly one",
 }
 
 #: How long before the earliest expiry this starts failing. C-84's own window, and the
@@ -101,9 +126,6 @@ def days_until_earliest_expiry(today: date) -> tuple[str, int]:
 
 def expiry_warning(name: str, days_left: int) -> str:
     """What the tripwire says when it fires."""
-    spread = max(KEY_EXPIRY.values()) - min(KEY_EXPIRY.values())
-    hours, remainder = divmod(int(spread.total_seconds()), 3600)
-    gap = f"{hours}h{remainder // 60:02d}m"
     when = (
         f"in {days_left} days" if days_left > 0
         else "TODAY" if days_left == 0
@@ -115,17 +137,16 @@ def expiry_warning(name: str, days_left: int) -> str:
     )
     return (
         f"the platform Appwrite keys expire {when}:\n{listing}\n\n"
-        f"Both of this repository's delivery paths — un_fao and crafd — authenticate with "
-        f"{name!r}, the earlier one.\n\n"
-        f"These two keys are {gap} apart, and unlike their predecessors that is now "
-        "merely a coincidence of when they were issued rather than a trap. The pair this "
-        "file used to name were 36-scope keys SHARED across every identity on the seam, "
-        "so neither could carry traffic while the other was replaced and the later death "
-        "took model writes, both partner deliveries and FAO's read access at once. The "
-        "2026-10-29 split ended that: these two serve different consumers, hold different "
-        "scopes, and can be rotated one at a time without the other noticing. Rotate them "
-        "separately — the whole point of the split was that you no longer have to do both "
-        "at once.\n\n"
+        f"The one that dies first is {name!r}, and it authenticates "
+        f"{KEY_ROLE.get(name, 'SOMETHING THIS FILE DOES NOT RECORD — add it to KEY_ROLE')}."
+        "\n\n"
+        "Each key below serves a different identity, holds different scopes, and can be "
+        "rotated on its own. That is not how this started: the pair this file first named "
+        "were 36-scope keys SHARED across every identity on the seam, so neither could "
+        "carry traffic while the other was replaced, and the later death would have taken "
+        "model writes, both partner deliveries and FAO's read access at once. The "
+        "2026-10-29 split ended that, and #327's own publisher key continues it. Rotate "
+        "them separately — not doing both at once is the whole point.\n\n"
         "This repository cannot rotate anything and must not hold credentials "
         "(þing-01 D3). Issuing and installing keys is an operator console action "
         "(views-appwrite#12). The procedure that worked, and is worth repeating: create "
@@ -199,12 +220,21 @@ def test_the_tripwire_actually_fires_inside_the_lead_window():
 
     message = expiry_warning(name, days_left)
     assert f"expire in {days_left} days" in message
-    # The FORMAT, not the value. Under the old constants the gap was 3h35m and that was
-    # C-84's actual finding — a console fact worth pinning. It is now an artefact of two
-    # approximate creation times, so asserting the literal would pin a number this file
-    # openly says it invented, and would fail the day someone legitimately corrects the
-    # times from the console. That is the shape the removed literal pin had.
-    assert re.search(r"\d+h\d{2}m apart", message), "the gap must still render"
+    # What the message must get RIGHT about the key that dies: which path it carries. The
+    # assertion that stood here pinned the FORMAT of a "3h35m apart" gap between the two
+    # 2026-10-29 keys. That gap stopped meaning anything when #327 added a third key a
+    # year apart from them, and the sentence it belonged to was by then false — it told
+    # the operator that both delivery paths authenticate with the earliest key, which
+    # would have sent them to rotate a key that had not expired.
+    assert KEY_ROLE[name] in message, (
+        "the message must say what the dying key authenticates, or the operator rotates "
+        "the wrong one — an un-noticeable trigger, which ADR-014 §4 forbids"
+    )
+    assert set(KEY_ROLE) == set(KEY_EXPIRY), (
+        f"every tracked key needs a role: unroled {sorted(set(KEY_EXPIRY) - set(KEY_ROLE))}, "
+        f"stale {sorted(set(KEY_ROLE) - set(KEY_EXPIRY))}. Without this the message falls "
+        "back to a placeholder for exactly the key the reader needs named."
+    )
     assert "Rotate them separately" in message, (
         "the 2026-10-29 split's whole benefit is that the keys are now independent, and "
         "the operator must be told that rather than left with the old all-at-once warning"

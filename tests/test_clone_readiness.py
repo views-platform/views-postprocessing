@@ -47,6 +47,10 @@ _PKG = _REPO / "views_postprocessing"
 
 #: Every partner-neutral module a clone is expected to reuse as-is.
 _MACHINERY = (
+    # #327's audience-isolation invariant: partner-neutral by construction (two strings
+    # and a consumer name), so it belongs here for the same reason delivery/coverage.py
+    # does — a clone gets it free and must not fork it.
+    "views_postprocessing.contract.audience",
     "views_postprocessing.delivery.coverage",
     "views_postprocessing.delivery.draws",
     "views_postprocessing.delivery.parity",
