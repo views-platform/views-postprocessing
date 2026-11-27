@@ -6,22 +6,17 @@ target classes) plus the one operator-issued secret slot. The contract is homed 
 views-appwrite and referenced by pinned URL, never copied — copies were the
 platform's original failure (þing-01 sáttmál S6):
 
-    https://github.com/views-platform/views-appwrite/blob/c7b597e/docs/ADRs/platform/coordinate_registry.toml
+    https://github.com/views-platform/views-appwrite/blob/a251cb8/docs/ADRs/platform/coordinate_registry.toml
 
-That pin is registry **v1.5.2** — declared below as ``SEAM_CONTRACT_VERSION`` /
+That pin is registry **v1.9.1** — declared below as ``SEAM_CONTRACT_VERSION`` /
 ``SEAM_CONTRACT_COMMIT`` so the pin is a value a test can check rather than a fact
 buried in prose. A pinned URL does not rot, but it does go stale, and nothing in this
 repository could previously tell you it had (register C-57).
 
-**The first pin taken here predated its own coordinates having values.** At commit
-``47172af`` the four ``APPWRITE_CRAFD_*`` names were reserved slots with **no values**.
-The operator filled them in views-appwrite PR #38 (merged ``12eb6c6``, 2026-08-02),
-which landed *within* v1.3.0 without bumping the version; v1.4.0 came two hours later
-in PR #40. So the stale pin was stale by commit, not only by version — and no test
-could see it, because the drift check was scoped to the FAO package by name (register
-C-57, amended 2026-08-03). It is now scoped to both.
-
-**Pin from the tip of `main`, never from a sibling checkout's `HEAD`** (#196).
+**Pin from the tip of views-appwrite's `main`, never from a sibling checkout's working
+tree** (#196). Register **C-57** holds why, with the commits and dates: the first pin here
+named an edition whose coordinates had no values yet, and the drift check could not see it
+because it was scoped to the FAO package by name.
 
 The LAUNCHER assembles the environment
 (views-models M3: run.sh reads the owned registry; the secret stays the operator
@@ -44,16 +39,41 @@ logger = logging.getLogger(__name__)
 #: *which edition was read*, which is exactly what makes drift detectable.
 #:
 #: Bumping these is not bookkeeping: it asserts that someone re-checked this module's
-#: declaration against that edition of the registry. ``tests/test_env_declaration.py``
-#: enforces the pair — for this package and for ``unfao`` alike — against a local
-#: views-appwrite checkout when one is present.
-SEAM_CONTRACT_VERSION = "1.5.2"
-SEAM_CONTRACT_COMMIT = "c7b597e"
+#: declaration against that edition. ``tests/test_env_declaration.py`` enforces the pair,
+#: here and in ``unfao`` alike, against a local views-appwrite checkout when present.
+SEAM_CONTRACT_VERSION = "1.9.1"
+SEAM_CONTRACT_COMMIT = "a251cb8"
 
+#: The SHELF connection: the shared project the delivery READS. Unchanged by #327.
 CONNECTION_ENV = (
     "APPWRITE_ENDPOINT",
     "APPWRITE_DATASTORE_PROJECT_ID",
     "APPWRITE_DATASTORE_API_KEY",  # secret slot — the value must never be logged
+)
+
+#: Alias: "CONNECTION_ENV" stopped being unambiguous once a second connection existed, so
+#: the manager names the SHELF explicitly where it asserts both connections. The old name
+#: stays because the launcher and the other guards still use it, and because the two are
+#: the same tuple object — editing one "name" would silently edit both (vpp_018 §3).
+SHELF_CONNECTION_ENV = CONNECTION_ENV
+
+#: The AUDIENCE connection: CRAF'd's OWN Appwrite project, which this delivery WRITES to
+#: (#327) — a different *project* from the shelf above, not another bucket in it.
+#: ``APPWRITE_CRAFD_PROJECT_ID`` is registry-declared from edition 1.8.0.
+#:
+#: ``APPWRITE_CRAFD_PUBLISHER_API_KEY`` is MINTED by a registry slot of its own, added in
+#: edition **v1.9.1** (views-appwrite#211 → PR #212, merged 2026-11-27); the spelling this
+#: module was built against was adopted unchanged. A key authenticates against exactly one
+#: project, so the shelf key cannot reach the audience project, and one env-var name cannot
+#: carry two live values in one process — **#327**, views-appwrite#208.
+#:
+#: The pin below names v1.9.1, reachable from views-appwrite's ``main`` (#196) and tagged
+#: ``appwrite-seam-v1.9.1``. Read the registry with ``git show <commit>:<path>``, never a
+#: working tree — **C-125** records what that cost and why no guard caught it.
+AUDIENCE_CONNECTION_ENV = (
+    "APPWRITE_ENDPOINT",
+    "APPWRITE_CRAFD_PROJECT_ID",
+    "APPWRITE_CRAFD_PUBLISHER_API_KEY",  # secret slot — the value must never be logged
 )
 PROD_FORECASTS_ENV = (
     "APPWRITE_PROD_FORECASTS_BUCKET_ID",

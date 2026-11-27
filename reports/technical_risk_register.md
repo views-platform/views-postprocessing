@@ -4,10 +4,10 @@
 |-------------------|--------------------------------------|
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
-| Last Updated      | 2026-10-30                           |
-| Total Concerns          | 113                                   |
-| Open Concerns           | 30                                    |
-| Resolved Concerns       | 83                                   |
+| Last Updated      | 2026-11-27                           |
+| Total Concerns          | 128                                   |
+| Open Concerns           | 43                                    |
+| Resolved Concerns       | 85                                   |
 
 ---
 
@@ -31,19 +31,19 @@ covered a single open entry (see Historical clusters below).
 
 ### Cluster G: Inherited pipeline-core surface
 **Root cause:** this repo *is-a* pipeline-core postprocessor by double inheritance, so it inherits that project's data loader, container, store I/O, and dependency tree — defects in that surface land in FAO delivery without this repo owning the fix.
-**Entries:** C-40 (root), C-26, C-27, C-28 — plus **C-07, C-13, C-29, C-44, C-58, C-62, all RESOLVED**
+**Entries:** C-40 (root), C-26, C-28 — plus **C-07, C-13, C-27, C-29, C-44, C-58, C-62, all RESOLVED**
 **Update 2026-08-03 — the cluster halved at the 3.0.0 bump.** Six of its ten entries closed with the pin: the inherited surface stopped being a liability for timeouts (C-13), silent provisioning (C-58), the transitive drag (C-62) and the undeclared SDK (C-07). What remains is the root — the double inheritance itself — and the three genuinely upstream-owned data concerns (C-26, C-27, C-28). The cluster's thesis held: fixing the surface upstream fixed them here with a pin and no code.
 **Amended 2026-08-03:** the root's defining measurement — pipeline-core imported by exactly one module — became **two** when `crafd/managers/crafd.py` landed (PR #211). The count is still pinned by an explicit allowlist, so the cluster's boundary holds; what changed is that every fix in it now has two landing sites. See C-33 for why the second copy is deliberate and what triggers its removal.
-**Highest tier:** 1 (C-26)
+**Highest tier:** 2 (C-26) — this line read *"1 (C-26)"* until 2026-11-12, three months after C-26 re-tiered itself 1→2 on 2026-08-13. A reader triaging by cluster was shown a Tier 1 that no longer existed; the register has had **no open Tier 1 since that re-tier**.
 **Fix strategy:** the thin-shell de-inheritance C-40 prescribes — and which is **half-built**: the sink side landed (`_ContractStorePort`, moved to `<partner>/store_port.py` 2026-08-14 by C-99) and the invariants are already pipeline-core-free modules the manager calls (`delivery/*`, `unfao/historical.py`, `unfao/wire/`). The remaining half is the **input** side (loader + `PGMDataset`), gated on pipeline-core Epic #186/#207.
 **Resolution scope:** Partial — C-26/C-27/C-28 are upstream-owned; de-inheritance makes them visible and testable, not fixed.
 
 ### Cluster H: Go-global verification debt — discharged unevenly by run-0
 **Root cause:** a family of entries whose entire risk statement was "unverified until the first global run" — all keyed to one event, which occurred **2026-07-27**.
-**Entries:** C-43 (the survivor), C-30 + C-34 (merged, discharged), C-32 (discharged), C-25 (residual), D-12 and D-09 (deferral conditions)
+**Entries:** C-43 (the survivor), C-30 (**still OPEN** — see the scope correction below) + C-34 (merged, discharged), C-32 (discharged), C-25 (residual), D-12 and D-09 (deferral conditions)
 **Highest tier:** 2 (C-43)
-**Fix strategy:** one post-run-0 verification pass against producer run `rusty_bucket_forecasting_20260727_095355` — issue **#131 q1**, **CLOSED 2026-07-31**. C-43 resolved 2026-08-02; this cluster is discharged.
-**Resolution scope:** Full for C-30/C-32/C-34. **Partial for C-43 — the finding that matters.** Run-0 discharged the *availability* half of this cluster (the path runs, memory is bounded at 5.6 GB, coverage is proven at 64,742 cells). It discharged **none of the correctness half**, because proving the path *runs* at scale was never what C-43 asked for. **C-43 now stands alone and un-gated, with delivered data in the partner store.**
+**Fix strategy:** one post-run-0 verification pass against producer run `rusty_bucket_forecasting_20260727_095355` — issue **#131 q1**, **CLOSED 2026-07-31**. C-43 resolved 2026-08-02. ~~this cluster is discharged.~~ **Corrected at review-rr 2026-11-25: it is not.** This line contradicted the `Resolution scope` line directly below it, which has recorded since 2026-11-12 that **C-30 is open at Tier 2 with a declared residual**. The cluster therefore remains LIVE, and its only live purpose is to be C-30's home: the residual is upstream-regression risk on a views-datafactory region definition, which no other cluster covers. The run-0 verification half *is* discharged.
+**Resolution scope:** Full for C-32/C-34. **Not full for C-30, corrected 2026-11-12:** this line claimed C-30 among the fully-resolved, and C-30 is open at Tier 2 with a declared residual — *"upstream-regression risk"* — which run-0 could not discharge because the risk is a future change to someone else's region definition. **Partial for C-43 — the finding that matters.** Run-0 discharged the *availability* half of this cluster (the path runs, memory is bounded at 5.6 GB, coverage is proven at 64,742 cells). It discharged **none of the correctness half**, because proving the path *runs* at scale was never what C-43 asked for. **C-43 now stands alone and un-gated, with delivered data in the partner store.**
 
 ### Cluster I: Governance-artifact drift
 **Root cause:** the register, ADR prose, and issue bodies are hand-maintained mirrors of cross-repo state that moves under them.
@@ -132,7 +132,8 @@ Plus, outside the register: #158's rename finished and the **broken URL it creat
 
 ---
 
-### Cluster M: Six open concerns, one upstream publish
+### Cluster M: One open concern, one upstream publish
+*(Renamed at review-rr 2026-11-25. The title read "Six open concerns" and the cluster has held exactly one — C-72 — since 2026-08-03, which the `Entries` line below already said. A reader triaging by cluster title was shown five concerns that no longer existed. **This cluster closes when C-72 closes**: a one-member cluster carries no shared root cause to fix.)*
 **Root cause:** this repo pins `views-pipeline-core >=2.1.3,<3.0.0`, which resolves 2.3.0 from PyPI. Every fix and every removal below exists **only** on pipeline-core's unreleased 3.0.0. None is engineering work here; all five arrive together with one pin bump, and none can be taken before that bump.
 **Entries:** **C-72** — and nothing else. **DISCHARGED 2026-08-03 apart from that one.**
 
@@ -141,7 +142,7 @@ The cluster held six entries waiting on a single upstream publish. views-pipelin
 **C-72 does not close with them, and the difference is instructive.** The other five were fixed *upstream* and arrived with a version number. C-72's fix — a pyarrow release past the CVE — **changes delivered wire bytes**, so it needs a coordinated three-repo re-vendor of the ADR-013 §10 golden fixture. A pin bump cannot carry it. The pyarrow ceiling is deliberately unchanged at `>=16.1.0,<17.0.0`.
 
 *(An earlier version of this cluster claimed "Full" resolution for C-72 at the 3.0.0 bump — the error C-82 was registered for, corrected here.)*
-**Highest tier:** 2 (C-73)
+**Highest tier:** 3 (C-72) — the cluster's only remaining member. This line named **2 (C-73)** until 2026-11-12, five lines below the paragraph explaining that C-73 closed at the 3.0.0 bump and C-72 did not.
 **Fix strategy:** none here. The chain is **views-evaluation 0.5.0 → views-pipeline-core 3.0.0 → this repo's pin bump**, and it moves on the maintainer's platform-wide release signal, not on engineering. What this repo owes at the bump is one verification, recorded in C-73's trigger: **confirm the delivery selects the run it expects**, comparing the resolved `run_id` against the producer's newest published run.
 **Resolution scope:** Full for C-62, C-73, C-58, C-07; C-44 closes as the act itself. **C-72 does NOT close** — see above. Five entries, two of them Tier 2, on one publish.
 
@@ -167,12 +168,29 @@ that indexes only deleted code is noise.
 
 ### Cluster N: This repository cannot see itself
 **Root cause:** the guards here are unusually good at checking code against a declaration, and absent wherever the subject is the repository's own prose, its own records, or its relationship to anything outside. Every entry below was filed separately; together they are one class.
-**Entries:** C-109 (`Location` line numbers rot faster than the review cycle), C-107 (docstrings sit outside the doc-accuracy scan), C-95 (a verdict mis-cited in three places), C-110 (a release block this repo scheduled for itself, documented nowhere a releaser looks), C-111 (a release changes delivery behaviour and only the version number says so), C-112 (nothing observes what consumers actually run) — plus **C-81**, whose own headline number was falsified by PR #280 and stood stale for four days.
+**Entries:** C-109 (`Location` line numbers rot faster than the review cycle), C-107 (docstrings sit outside the doc-accuracy scan), C-95 (a verdict mis-cited in three places), C-112 (nothing observes what consumers actually run), **C-81** (whose own headline number was falsified by PR #280 and stood stale for four days) — plus, added 2026-11-12, **C-115** (a tripwire message asserting which key authenticates the deliveries), **C-117** (a drift detector blind to the two fields an operator acts on) and **C-120** (the ADR is now the stale copy of §6) — and **C-110, C-111, both RESOLVED**.
+**Marked 2026-11-12.** C-110 and C-111 sat in this line as live members after resolution; C-119 caught C-110 and missed C-111, which is this cluster's own disease landing inside the entry that reported it.
 **Highest tier:** 2 (C-81)
 **Fix strategy:** **not more guards.** C-109 records why the obvious mechanical check fails — content assertions need a second declaration that can itself go stale, which is ADR-014 §2's warning. What works is a *reading* pass: this cluster was assembled by `/review-rr strategic` on 2026-08-21, and four of its seven members were found by reading rather than by any test. Schedule the reading; do not build a linter for prose.
 **Resolution scope:** Partial and by nature. C-107 and C-109 are closable as conventions (scan the docstrings; cite by symbol). C-111 and C-112 are closable as artifacts (a changelog; a pin check). C-95, C-110 and C-81 are closable only by someone re-reading what the register says and comparing it to what is true — which is the activity, not a deliverable.
 
 **Why this cluster was late.** Six of its seven entries arrived between 2026-08-16 and 2026-08-21, during one sprint, each filed as an unrelated finding. The register had no cluster for them because the clusters describe *delivery* risks — inherited surface, go-global debt, aftercare, the lookup artifact. Nothing described the governance layer as a risk surface of its own, even though the register is the artifact four repositories read.
+
+### Cluster O: A guard that cannot fail
+**Root cause:** the guards here are declarative — they check code against a stated contract — and the failure that keeps recurring is the *inverse* of a wrong check: a declaration nothing enforces, or a check that cannot fire. Each instance was filed as an unrelated finding. Together they are one review habit, not seven defects.
+**Entries:** C-114 (stubs that can neither fail for a stated reason nor ever flip), C-116 (a bound that permits a year-long escape), C-121 (an assertion that has never executed), C-122 (a launch-axis guard covering one partner of two), C-123 (a declared interface enforced in half), C-108 (two `xfail(strict=True)` deploy gates that have never evaluated their assertions), C-125 (two sound guards removed by an interpreter below the declared floor, the run reporting `passed`) — plus **C-113, RESOLVED 2026-11-12**, the cluster's first discharge — precedent in **C-102** and **C-89, both RESOLVED**.
+**Highest tier:** 2 (C-116)
+**Fix strategy:** not one deletion and not one new guard. Each member is its own small code change — and the cluster exists to stop seven entries reading as seven backlog items when the thing they have in common is a habit at review time: *a guard is not evidence until a mutation proves it can fail.* ADR-014 §2 already states the trap in the obvious alternative — a second declaration to check the first can itself go stale. **C-102** is the resolved precedent and the method: derive the probe from the declaration rather than hardcoding it, so the proof survives the next rotation instead of expiring with it.
+**Resolution scope:** Full per member, and the members are independent — this cluster will not collapse on one change the way **Cluster L** did. What closes together is the habit; what closes one at a time is the code.
+**Why this cluster was late, and it is the same reason Cluster N was.** Seven of its members arrived in two sprints (C-108 on 2026-08-17, the other six on 2026-11-12), every one of them from a `/code-review max` or `/falsify` pass rather than from a failing test — which is the cluster's own thesis restated: nothing in the suite can report a guard that cannot fail, because a guard that cannot fail is green.
+
+### Cluster P: The delivery has no return channel
+**Root cause:** nothing downstream of upload reports back. The delivery path writes, verifies what it wrote against its own declarations, and stops — so every failure that lives *after* the upload, or *inside the consumer*, is invisible from here by construction.
+**Entries:** C-94 (nothing detects an invisible delivery at the time it happens), C-87 (the label is checked against a declaration, and nothing checks the declaration against the consumer), C-92 (nothing checks that a consumer selects by the delivery label — for either partner)
+**Highest tier:** 2 — **all three of them**, and all three state the consequence in nearly the same words: *upload succeeds, storage is billed, the consumer's endpoint returns empty, nothing raises anywhere.* ADR-013 §4.1a names the shape: *"invisible to the consumer, not merely degraded."*
+**Fix strategy:** one channel, not three checks. C-94's preflight is the half this repository owns and has built; the half it does not own is the consumer's selection, which is why C-87 and C-92 both put the check in views-faoapi and views-crafdapi and keep only *noticing* here. The honest position: this cluster closes when a delivery can be observed from the outside, and until then the three entries are one unanswered question asked from three angles.
+**Resolution scope:** Partial by ownership. C-94 is closable here. C-87 and C-92 are closable only with the consumer seats, and C-87's second arm (*a third-party private API becomes a consumer*) makes it permanently partial.
+**Adjacent, deliberately not absorbed:** **Cluster J** (aftercare — what to do once something wrong has shipped; this cluster is about not knowing) and **C-112** (the same blindness pointed upstream at what production runs).
 
 ## Open Concerns
 
@@ -185,6 +203,7 @@ that indexes only deleted code is noise.
 | Source | CI failure on PR #266, 2026-08-13 |
 | Trigger | A guard is written whose subject is an event in another repository — a release, a tag, a published artifact — and the value it actually reads lives in this one. |
 | Location | `tests/test_falsify_adr013_s2.py` (the retired `test_e3s_claim_about_unreleased_behaviour_is_still_true`); `docs/ADRs/013_sampled_forecast_wire_contract.md`, Erratum E3 |
+| Owner | This repository. |
 
 ADR-013's Erratum E3 stated that a views-pipeline-core fix — an editable install reporting `"unknown"` instead of a stale version — was *"not yet in any released version."* That is a dated claim about someone else's release history, so a tripwire was attached to it: if the installed pipeline-core is a released distribution past 3.0.0, E3's wording is stale.
 
@@ -207,6 +226,7 @@ This is the same shape as vpp_017 §7a, arrived at from the other side: a check 
 | Source | Reading the whole port while fixing C-99, 2026-08-14 |
 | Trigger | The second partner store (#97) is scoped, or anyone proposes deleting `contract/store_metadata.py` — at which point this entry says what it costs and what moves with it. |
 | Location | `views_postprocessing/{unfao,crafd}/store_port.py` (`file_metadata`); `views_postprocessing/contract/store_metadata.py` |
+| Owner | This repository. |
 
 `_ContractStorePort.file_metadata` has **no caller in the package**. Measured: `latest_file_id` is called three times and `download` three times, both in `contract/wire/source_selection.py`; `upload` three times — `contract/wire/sink.py:164` plus each partner's historical artifact at `managers/<partner>.py:325`; `file_metadata` is called by nothing. Its only body is a call to `contract/store_metadata.py:file_metadata`, whose own module docstring says *"the one caller is `_ContractStorePort.file_metadata`"* — true, and the chain terminates there. The module has tests (`tests/test_store_metadata.py`) and no production reader.
 
@@ -227,7 +247,7 @@ Cross-refs: **C-99** (the fix that surfaced it), **C-97**, **C-33** (the same sy
 | Source | `/code-review max` on #242, 2026-08-12; count reproduced here |
 | Trigger | **Either.** (a) A check whose failing function contains one of these values starts firing in CI. (b) Someone proposes widening the no-copy scan to docstrings — at which point this entry is the measurement that says what that would cost. |
 | Owner | This repository. |
-| Location | **Counting distinguishable coordinates only** — i.e. excluding the two whose declared values are this package's own directory names, which appear everywhere and are not evidence of anything. On that basis, measured across `git ls-files '*.py'`: **25 standalone occurrences in 8 files** (re-confirmed 2026-08-13; 2026-08-12, down from 33 in 9 when filed — #242 cleared the no-copy scan's own docstring and #248 cleared `tests/test_product.py`). Includes `views_postprocessing/{unfao,crafd}/managers/`, `contract/store_metadata.py`, `contract/wire/sink.py`. **The count moves whenever prose is edited; re-measure rather than cite it — and state which basis you used.** Counting *all* values including the package-name collisions gives 139 in 31 files on the same tree; an audit that did not know the basis reported 75 in 24 and read as a contradiction. The number was never wrong; the method was never written down. |
+| Location | **Counting distinguishable coordinates only** — i.e. excluding the two whose declared values are this package's own directory names, which appear everywhere and are not evidence of anything. On that basis, measured across `git ls-files '*.py'`: **25 standalone occurrences in 8 files** (re-confirmed 2026-08-13; 2026-08-12, down from 33 in 9 when filed — #242 cleared the no-copy scan's own docstring and #248 cleared `tests/test_product.py`). Includes `views_postprocessing/{unfao,crafd}/managers/`, `views_postprocessing/contract/store_metadata.py`, `views_postprocessing/contract/wire/sink.py`. **The count moves whenever prose is edited; re-measure rather than cite it — and state which basis you used.** Counting *all* values including the package-name collisions gives 139 in 31 files on the same tree; an audit that did not know the basis reported 75 in 24 and read as a contradiction. The number was never wrong; the method was never written down. |
 
 The no-copy scan compares string **constants** and excludes docstrings outright. That exclusion is C-57's recorded lesson: an early draft fired on refusal labels and on docstrings naming which store a function serves, and *"a guard that fails on `def file_metadata(record)` gets deleted — after which the real rule is unguarded"* (ADR-014 §3).
 
@@ -646,7 +666,7 @@ and silent about the *cost*. Adopting `[edition].obliges_consumers` is the defer
 would fix it, and its trigger is below.
 
 
-**A second source of redness, and it is ours — see C-110.** From 2026-10-18 `tests/test_credential_expiry.py` fails by design, so this entry's no-bypass finding starts applying to a block this repository scheduled for itself rather than one a sibling caused.
+**A second source of redness, and it was ours — see C-110.** From 2026-10-18 `tests/test_credential_expiry.py` failed by design, so this entry's no-bypass finding applied for eleven days to a block this repository had scheduled for itself rather than one a sibling caused. **Discharged 2026-10-29** when both keys rotated (C-84). Measured 2026-11-12: the file passes **6/6**, `KEY_EXPIRY` carries 2027-10-29 and `LEAD_DAYS` is 30, so the next red day is **2027-09-29**. The no-bypass finding itself is unchanged and remains this entry's subject.
 
 ---
 
@@ -718,7 +738,8 @@ It is a worked example wearing a risk's clothes. **Give it a real trigger or mov
 | Tier | 3 |
 | Source | `expert-review` (2026-06-02), `falsification-audit` (2026-06-02) |
 | Trigger | When wiring pipeline-core #245's structured metadata field, or when adding/removing a provenance key — verify the closed keyset in `delivery/provenance.py` and the `DESCRIPTION_MAX` bound still hold, and that the carrier is no longer free-text `description` |
-| Location | `views_postprocessing/delivery/provenance.py` (`build_provenance`); `_historical_frame_description` in each partner's manager (the only caller); `contract/wire/sink.py` (the forecast leg, which attaches none). Symbols rather than line numbers — the earlier row's three line ranges were all past end-of-file. |
+| Location | `views_postprocessing/delivery/provenance.py` (`build_provenance`); `_historical_frame_description` in each partner's manager (the only caller); `views_postprocessing/contract/wire/sink.py` (the forecast leg, which attaches none). Symbols rather than line numbers — the earlier row's three line ranges were all past end-of-file. |
+| Owner | This repository for the carrier; views-pipeline-core for the structured metadata field (their #245). |
 
 Both `dsm.upload_data()` calls in `_save()` carry metadata: `name`, `loa`, `type`, `targets`, `description`, `category`. The `description` field was updated from a hardcoded test string to an enrichment timestamp (`"Enriched with geographic metadata on {timestamp}"`). However, broader enrichment provenance is still missing: no shapefile version/hash, no enrichment error count, no unmapped cell count. The consumer cannot verify which shapefile version produced their data or whether any errors occurred during enrichment.
 
@@ -738,7 +759,8 @@ See also C-14 (stale cache without version tracking), C-22 (no post-delivery cor
 | Tier | 3 |
 | Source | `falsification-audit` (2026-06-02) |
 | Trigger | When views-faoapi implements the Release-Note-01 Topic-C renaming layer — verify this repo's column names stay **unchanged** (faoapi's `_METADATA_COLS` validation depends on them) and that the rename lands consumer-side only. Take no action here otherwise. |
-| Location | `contract/gaul_schema.py` (`METADATA_COLS`, the declared 9-column contract); `contract/historical.py` and `contract/wire/sidecar.py` (which project it); FAO Release Note 01 `topic_c.tex`. *(This row previously cited `unfao.py:277 (filter_cols)` — no such symbol exists anywhere in the package, and `unfao/gaul_schema.py` moved to `contract/` in #153.)* |
+| Location | `views_postprocessing/contract/gaul_schema.py` (`METADATA_COLS`, the declared 9-column contract); `views_postprocessing/contract/historical.py` and `views_postprocessing/contract/wire/sidecar.py` (which project it); FAO Release Note 01 `topic_c.tex`. *(This row previously cited `unfao.py:277 (filter_cols)` — no such symbol exists anywhere in the package, and `unfao/gaul_schema.py` moved to `contract/` in #153.)* |
+| Owner | views-faoapi owns the fix (their #222); this repository owns keeping its column names unchanged. |
 
 The FAO API contract (Release Note 01, Topic C, confirmed and locked) specifies: UN M49 country codes, `ADM1_CODE`/`ADM1_NAME`/`ADM2_CODE`/`ADM2_NAME` for admin fields, and `lat`/`lon` for coordinates. The postprocessor's `filter_cols` uses: `country_iso_a3` (ISO Alpha-3), `admin1_gaul1_code`/`admin1_gaul1_name`/`admin2_gaul2_code`/`admin2_gaul2_name`, and `pg_xcoord`/`pg_ycoord`. Three of four data categories (country ID, admin fields, coordinates) use different naming conventions from the locked contract.
 
@@ -763,6 +785,7 @@ See also C-17 (RESOLVED — implicit column naming between mapper and manager), 
 | Source | `expert-code-review` (2026-06-12) |
 | Trigger | When changing the historical fetch path, or when bumping views-pipeline-core's dataloader — verify whether the **currently active** path (`get_feature_frame`, since #126) zero-fills missing months/cells, and that any fill count is logged rather than silent |
 | Location | views-pipeline-core `modules/dataloaders/dataloaders.py:1208` (`fillna(0.0)`, legacy pandas fetch); consumed at `views_postprocessing/unfao/managers/unfao.py:125-147` (`_read_historical_data`, legacy branch). Frame-native branch: `:101-124` (`_read_historical_frame` → `get_feature_frame`) |
+| Owner | views-pipeline-core owns the loader's NaN policy; this repository owns re-verifying it at each dataloader bump. |
 
 `_fetch_data_from_datafactory()` applies `df.fillna(0.0)` unconditionally to all features. For `lr_ged_sb/ns/os`, a datafactory assembly gap (unharvested month, failed source) flows to FAO as "zero fatalities" rather than failing. The postprocessor's `_validate()` checks only the 9 metadata columns for nulls (`unfao.py:188-221`), never the feature columns — so the fabricated zeros pass every gate. There is no fill-count logging, so the corruption is unquantified and undetectable after the fact. The zarr exposes `last_valid_month_id` in its attributes, which would permit bounded filling (fill only outside the declared valid range, fail on fills inside it), but it is not consulted.
 
@@ -797,6 +820,7 @@ By this entry's own re-tier rule, Tier 1 is no longer justified.
 | Source | `expert-code-review` (2026-06-12) |
 | Trigger | When configuring the datafactory zarr fetch, or bumping views-pipeline-core's dataloader — verify a read deadline exists on the HTTP path; today none does anywhere on the fetch path, so a mid-chunk stall blocks the run forever |
 | Location | views-pipeline-core `modules/dataloaders/dataloaders.py:1180-1188`; views-datafactory `src/datafactory_query/dataset.py:106-217` |
+| Owner | views-pipeline-core owns the read deadline on the fetch path; this repository owns noticing its absence. |
 
 `load_dataset()` opens a remote zarr over plain HTTP. xarray chunk reads have no timeout; a stall blocks the scheduled run forever, and the only detection is manually noticing a run never finished. Risk grows with the planned global region (~5× data volume → longer fetch window). Partial overlap with C-13 (no timeout on Appwrite operations) — same problem type, different dependency and repo; registered separately because the fix sites are disjoint.
 
@@ -819,6 +843,7 @@ Cross-referenced there to their **#248 / #347** (the same defect class on the Ap
 | Source | `expert-code-review` (2026-06-12), verified by direct data inspection; **merged with C-34** (`expert-code-review` 2026-06-12) during review-rr 2026-07-31 |
 | Trigger | When a region's expected cell count or exclusion manifest changes upstream — a views-datafactory region redefinition (`regions.py`, the bundled `*_pgids.json`), a new GAUL curation like ADR-043, or a region-string change in views-models `config_queryset.py` — verify `EXPECTED_CELLS_BY_REGION` and `EXCLUDED_GIDS_BY_REGION` are re-derived from the live producer rather than trusted as frozen |
 | Location | `views_postprocessing/delivery/coverage.py:56` (`land_gaul: 64_742`), `:92` (`EXCLUDED_GIDS_BY_REGION`), `:99`; `views_postprocessing/unfao/managers/unfao.py::_check_coverage`, `:300` (`_validate`); views-models `postprocessors/un_fao/configs/config_queryset.py`; views-datafactory `src/datafactory_query/regions.py` |
+| Owner | views-datafactory owns the region definition; this repository owns the pinned cell count and the exclusion manifest. |
 
 Verified 2026-06-12: of the datafactory's 64,818 `land`-region cells, 64,736 have complete area-majority metadata; exactly 82 are unassigned across all 7 GAUL fields — all remote sub-Antarctic islands FAO's GAUL 2024 boundaries do not cover (Macquarie, Auckland Islands, Prince Edward; sample gids 51078, 51798, 53979, 62356, 94776, 99027). The mitigation must be a named exclusion-list constant with the gids, count-asserted in both the enricher and a test, logged at WARNING, and disclosed to FAO — not a generic `code != -1` filter, which would silently absorb future coverage regressions. Generalizes the previously documented "5 ocean cells" of africa_me_legacy (those 5 are among the excluded set).
 
@@ -911,6 +936,7 @@ See also C-24 (schema contract per store), C-77 (the fourth home for partner ide
 | Source | `expert-code-review` (2026-06-24) |
 | Trigger | **(a) Upstream change:** when pipeline-core changes `PGMDataset` / the data loader / the postprocessor base (mid-migration: their #186/#188/#161), verify the inherited surface this repo depends on still holds. **(b) Standing work item:** the input-side de-inheritance (the sink side landed — see the 2026-07-31 update) — schedule it, don't wait for a trigger. |
 | Location | `views_postprocessing/<partner>/managers/<partner>.py` — the `class <PARTNER>PostProcessorManager(PostprocessorManager, ForecastingModelManager)` statement (double inheritance); `_build_prod_forecasts_store`, `_build_partner_store`, `_partner_appwrite_config` (env/AppwriteConfig/DatastoreModule — moved OFF the class 2026-08-05, see the update below); `_validate` and `_check_coverage`; the DIP sink adapter `_ContractStorePort`. **Since 2026-08-03 all of it exists twice** — `unfao` and `crafd` are the same file with the partner name changed (C-33). Symbols rather than lines, deliberately: an earlier version of this row was invalidated by a comment edit four lines long. |
+| Owner | This repository for the thin shell; views-pipeline-core for the input side (their #186/#207). |
 
 `UNFAOPostProcessorManager` subclasses **two concrete** pipeline-core base classes (`PostprocessorManager`, `ForecastingModelManager`) and **interleaves infrastructure** (env reading, `AppwriteConfig` construction, `DatastoreModule`, path resolution) with the FAO **business logic** (GAUL enrichment, the 9-column null gate) inside the lifecycle hooks. Consequences: (a) the FAO logic cannot be instantiated or unit-tested without the full framework + Appwrite env + viewser; (b) **pandas cannot leave the delivery path** because the inherited data loader and `PGMDataset` are pandas — gated on pipeline-core's own DataFrame retirement; (c) **SDP exposure** — heavy *inheritance* coupling to a pipeline-core that is itself unstable (mid-migration), so upstream changes break far from their cause (cf. C-27, C-29); (d) it's the repo's only composition-over-inheritance violation. The dependency itself is correct (`unfao.py` genuinely *is* a pipeline-core postprocessor) — the issue is its **blast radius**. Mitigation (does **not** fight the Template-Method framework): keep the subclass as a **thin shell** but extract `enrich` + `validate` + the 9-column contract into a pipeline-core-free core object the manager *calls*, and wrap the Appwrite I/O behind a small delivery-sink adapter (DIP). This makes the FAO logic testable standalone and insulates it from pipeline-core churn.
 
@@ -984,6 +1010,7 @@ See also C-07/C-27/C-29 (pipeline-core coupling symptoms), C-39 (the dead-mapper
 | Source | `manual` (2026-08-01) — GitHub surfaced 32 Dependabot alerts on the push that made `main` current; reviewed alert by alert |
 | Trigger | When lifting the `pyarrow < 17` ceiling — pipeline-core **#280** (the viewser → views-storage chain) is the platform half — **regenerate the ADR-013 §10 golden fixture in the same change and notify the faoapi seat**, because the upgrade is expected to change the delivered bytes. Also fires if this repo ever gains a production arrow **read**. |
 | Location | `pyproject.toml:15` (`pyarrow = ">=16.1.0,<17.0.0"`); `poetry.lock`; the affected operation would be `views_frames.io.arrow.load`, called only at `tests/test_wire_shard.py:90`, `tests/test_wire_fixture.py:73`, `tests/test_wire_header.py:39` |
+| Owner | views-pipeline-core owns the platform pin (their #280); views-faoapi owns the read-path exposure; this repository owns regenerating the ADR-013 §10 golden fixture when the ceiling lifts. |
 
 **GHSA — "Apache Arrow: potential use-after-free when reading IPC file with pre-buffering."** Vulnerable range `>= 15.0.0, < 23.0.1`; patched in **23.0.1**. This repo's declared pin is `>=16.1.0,<17.0.0` — **entirely inside the vulnerable range, with a ceiling that excludes the fix.** It is the only one of the 32 alerts against a dependency this repo declares itself (`pyproject.toml`); the other 31 are `poetry.lock` resolution — see the disposition note below.
 
@@ -1209,11 +1236,13 @@ Cross-refs: **C-100** (the live sibling — a four-method port with three used m
 | Source | `/repo-assimilation` (2026-08-16), measured |
 | Trigger | When the next module moves under `views_postprocessing/`, check its inbound docstring references as well as its markdown ones — or when someone proposes widening `tests/test_doc_accuracy.py`'s corpus, at which point C-97's objection applies and this entry states what the gap actually is. |
 | Owner | This repository. |
-| Location | `tests/test_doc_accuracy.py:76-78,133-134` (the scanned corpus); `views_postprocessing/delivery/coverage.py:5`; `views_postprocessing/delivery/observed_range.py:6` |
+| Location | `tests/test_doc_accuracy.py:76-78,133-134` (the scanned corpus); ~~`views_postprocessing/delivery/coverage.py:5`~~ **corrected 2026-11-12** with C-113's fix; `views_postprocessing/delivery/observed_range.py:6` (still stale) |
 
 `test_doc_accuracy` scans `README.md`, `docs/architecture/*.md`, package `README.md` files, ADRs and CICs. Python docstrings are outside that corpus. Two are already stale, and both point at files that moved in exactly the refactors whose *markdown* fallout the same test was extended to catch: `delivery/coverage.py` sends the reader to `views_postprocessing/unfao/extraction.py`, deleted in #151, and `delivery/observed_range.py` to `views_postprocessing/unfao/source_metadata.py`, moved to `contract/` in #153.
 
 **This is not a proposal to scan docstrings.** C-97 measured what that costs for the no-copy scan and argued it down under ADR-014 §3 — a guard that fires on ordinary prose gets deleted, after which the real rule is unguarded. The two scans are not the same (a deleted symbol or a repo-relative module path is a far narrower pattern than a store name in a sentence), so the objection is not decisive here — but it is the reason this is registered as a measured gap rather than fixed on sight.
+
+**The gap is wider than broken pointers (measured 2026-11-12).** `/code-review max` found two stale *factual claims* in `views_postprocessing/delivery/draws.py`'s docstrings — `S≈1024` presented as the width FAO receives, and the floor described as "region-pinned for production" when nothing region-pins a sample width. Both were wrong about this package's own behaviour rather than about where a module lives, and both sat in the same docstring, one asserting that a fact had exactly two declared homes while the other was a third. Fixed in `docs/draws-docstring-stale-sample-width`. Recorded here because it widens what this entry is about: the unscanned corpus rots in two ways, and a stale claim is harder to spot than a stale path because nothing about it looks like a reference.
 
 Cross-refs: **C-80** (the same guard, the adjacent corpus gap, resolved by widening), **C-97** (why widening a scan into docstrings is not automatic).
 
@@ -1248,7 +1277,7 @@ Cross-refs: **C-46** (the untracked-artifact blocker these share), **C-102** (a 
 | ID | C-109 |
 | Tier | 4 — no correctness impact. Registered because `Location` is the field a reader trusts to find the thing an entry describes, and a wrong one sends them to unrelated code with no signal that it is wrong. |
 | Source | `/code-review max` on the release branch, 2026-08-21, then measured across the open set |
-| Trigger | When an entry's `Location` is used to find code and the code is not there — or when anyone proposes a guard over the register's citations, at which point this entry says what such a guard would have to check and why the obvious version does not work. |
+| Trigger | **At each `/review-rr` pass, re-resolve the `Location` of every entry filed since the previous one.** *(Rewritten 2026-11-12: the row read "when an entry's `Location` is used to find code and the code is not there", which is the symptom rather than an action anyone can take — ADR-014 §4. The 2026-11-12 pass ran the rewritten version over the eleven entries filed that day and found **two** wrong: C-113 and C-242.)* Also fires when anyone proposes a guard over the register's citations, at which point this entry says what such a guard would have to check and why the obvious version does not work. |
 | Owner | This repository. |
 | Location | `reports/technical_risk_register.md` — the `Location` field of every open concern that cites a line. |
 
@@ -1261,6 +1290,10 @@ C-103 is the sharp case, and the reason this is a class rather than three typos:
 **Why the obvious guard does not work, stated so it is not proposed again cheaply.** Checking that a file has at least that many lines catches nothing: every stale citation above points at a real line. Checking *content* requires the entry to declare what it expects to find there, which is a second declaration that can itself go stale — the shape ADR-014 §2 warns about. The cheap and durable move is the convention (`::symbol`), not a test.
 
 Cross-refs: **C-103** (twice stale in four days — the case that made this visible), **C-95** (a verdict mis-cited in three places — the same defect in prose rather than in a line number, and the nearest sibling), **C-107** (docstrings outside the doc-accuracy scan; the same "nothing checks the prose" family), **C-82** (governance prose carrying numbers nothing checks, resolved).
+
+**Trigger fired and discharged, review-rr 2026-11-25.** The row says *"at each `/review-rr` pass, re-resolve the `Location` of every entry filed since the previous one"*. The previous pass was 2026-11-12, so the scope was the eleven entries filed since: C-114, C-115, C-116, C-117, C-118, C-120, C-121, C-122, C-123, C-124, C-242. **19 file references checked, 0 unresolvable** — every cited file exists and every cited line number is within the file.
+
+**What that does and does not prove, stated because the distinction is this entry's whole subject.** It proves no `Location` points at a deleted file or past the end of one. It does **not** prove a cited line still holds the thing cited — a line number can be in range and point at unrelated code after an insertion above it. Closing that gap needs the symbol-anchored form D-09's `Location` adopted on 2026-11-12 ("Symbols rather than lines"), not a deeper check. **This trigger is perpetual by construction** — it fires every pass, which the register's own trigger-quality rule rejects. It is kept deliberately: the subject is decay over time, and the only honest trigger for decay is the clock. Read it as a standing review step, not as a condition that can be satisfied.
 
 ---
 
@@ -1312,7 +1345,7 @@ Cross-refs: **C-111** (the outbound half), **C-99** (the defect production is st
 | Source | Review of FAO Release Note 06 against the delivered artefacts, 2026-09-14 (found while checking a Pre-Release Note 07 claim, not predicted) |
 | Trigger | The next `un_fao` delivery is cut, or the historical artefact's schema is touched — decide whether the consumer rename applies at this boundary, and if not, say so where the release note makes the commitment. |
 | Owner | This repository, at the write boundary. The name itself is upstream and deliberate — see below.  Tracked as **views-postprocessing#305**. |
-| Location | `views_postprocessing/unfao/managers/unfao.py:440` writes `historical_dataset_{timestamp}.parquet` with the frame's columns unchanged. The name originates in `views-models/postprocessors/un_fao/configs/config_queryset.py:57-59` (`ged_sb_best` → `lr_ged_sb`, and the same for `ns`/`os`). |
+| Location | `views_postprocessing/unfao/managers/unfao.py:435` writes `historical_dataset_{timestamp}.parquet` with the frame's columns unchanged. *(Cited `:440` until 2026-11-12 — past the end of a 437-line file.)* The name originates in `views-models/postprocessors/un_fao/configs/config_queryset.py:57-59` (`ged_sb_best` → `lr_ged_sb`, and the same for `ns`/`os`). |
 
 The delivered historical artefact carries **`lr_ged_sb`, `lr_ged_ns`, `lr_ged_os`** as its three value columns. Verified against the newest delivery — `historical_dataset_20260813_080043.parquet`, the 13 August re-delivery after the empty-bucket incident, 28,421,738 rows, 14 columns — and against the copy downloaded 2026-09-09. Both carry the wire names.
 
@@ -1325,6 +1358,395 @@ The delivered historical artefact carries **`lr_ged_sb`, `lr_ged_ns`, `lr_ged_os
 **Two ways to close it**, and the choice is not this register's to make: rename at this write boundary, mirroring what faoapi does for the forecast (small, and makes RN 06's commitment true); or scope the release note's naming commitment to the forecast columns and leave the historical file on wire vocabulary. The first costs a rename at one boundary; the second costs a paragraph of explanation in every note that touches the schema.
 
 Cross-refs: **D-06** (RESOLVED — the general principle, and the finding that no renaming layer existed at all; this is the residual for one artefact), **C-24** (a consumer-facing contract divergence nobody surfaced), **ADR-013** adoption record above (the wire vocabulary decision), **views-faoapi** `forecast/serialize/json_contract.py` (the implemented half), FAO project `reports/post_mortems/2026-09-14_prn07_writing_session.md` (the review that found it).
+
+---
+
+### C-114: The release-readiness falsification stubs can neither fail for a stated reason nor ever flip — and a behaviour-preserving rename turns one into a hard red on a required check
+
+| Field | Value |
+|-------|-------|
+| ID | C-114 |
+| Tier | 3 — no delivery correctness depends on them, but they are the mechanism by which an unaddressed falsification stays visible, and both directions of their signal are broken. Tier 3 rather than 4 because one direction closes `main`. |
+| Source | `/code-review max`, 2026-11-12 (findings 4-5), mutation-measured |
+| Trigger | When views-pipeline-core's file-selection sort lands and the pin moves, or when anyone refactors `delivery/findability.py` — including a pure rename. Check that the stub reports the refactor rather than absorbing it. |
+| Owner | This repository. |
+| Location | `tests/test_falsification_release_readiness.py:193`, `:198` |
+
+Under `xfail(strict=True)` any exception counts as the expected failure. The S7 stub locates its anchor with `source.index("for category, expected in legs.items():")` and reads the module with `read_text()`, so three unrelated accidents all report XFAIL with the reason "S7: unaddressed falsification": renaming the loop variables (ValueError), renaming `assert_all_findable` (ValueError), and moving `findability.py` away entirely (FileNotFoundError). All three measured, each mutation restored. The suite therefore claims a finding is open at the moment the module it audits ceases to exist.
+
+The other direction is worse. The assertion matches the injected callable's **name**, not the order-dependence it describes. Renaming `resolve_latest` to `latest_file_id` — the port's real method name, per `delivery/findability.py:206-207` — makes the assertion pass, so XPASS, so `strict=True`, so FAILED. With `protect_main` making `test` a required check with zero bypass actors, a pure rename closes `main`, and the message tells the renamer that selection "still resolves through pipeline-core's unsorted `files_list[0]`" — the opposite of what they did. Conversely the upstream fix the docstring names leaves `findability.py` byte-identical, so the stub stays XFAIL forever and never says "delete me".
+
+Compounding it, `legs_loop.split("assert_all_findable")[0]` has no separator-absent signal: rename the delimiter and the scanned region silently widens to EOF, where `resolve_latest` also appears in a signature and a docstring, so a mere mention satisfies the guard.
+
+Minimum fix: assert the anchor is present as its own step, outside the xfail'd slice, so a missing anchor fails for a stated reason instead of becoming the result.
+
+Cross-refs: **C-108** (the same shape in a different file, where the false signal was green rather than red), **C-102** (a guard that has never run is unproven), **C-86** (why a false red is expensive here), ADR-014 §1.
+
+---
+
+### C-115: The credential tripwire's operator-facing message asserts which key the deliveries authenticate with, derived from `min()` over timestamps the same file calls invented
+
+| Field | Value |
+|-------|-------|
+| ID | C-115 |
+| Tier | 3 — it misdirects a rotation rather than corrupting data, but the window in which it misleads is exactly the 30 days an operator is acting on it. |
+| Source | `/code-review max`, 2026-11-12 (findings 7-8), measured |
+| Trigger | When the real expiry values are read from the console — which the file's own docstring anticipates — or when a third key is added to `KEY_EXPIRY`. |
+| Owner | This repository. |
+| Location | `tests/test_credential_expiry.py:106`, `:118` |
+
+`expiry_warning` renders *"Both of this repository's delivery paths — un_fao and crafd — authenticate with `{name!r}`, the earlier one"*, where `name = min(KEY_EXPIRY, key=...)` over times the file's own comment calls *"approximate — creation order, an hour apart — and **not** a console reading"*. `KEY_EXPIRY` now also holds `faoapi-server`, which lines 48-49 describe as views-faoapi's server-side key, which this repository does not use.
+
+Measured by swapping the two timestamps — the exact scenario the docstring says it guards against — the message names `faoapi-server` as the key both deliveries authenticate with, and all six tests still pass.
+
+Same hunk, same shape: `gap` comes from `divmod(seconds, 3600)` with no day rollover, so it renders `4392h00m apart` at six months and `8784h00m` at a year — while the message itself instructs the operator to rotate the keys separately, making a multi-month gap the normal path. The replacement assertion `re.search(r"\d+h\d{2}m apart", message)` matched every value measured, including `0h00m` from identical timestamps and from a single-key dict: it constrains the f-string template, not any fact.
+
+Both halves share one cause. Removing `assert name == "VIEWS Pipeline Core"` did not remove the invention — it moved it out of an assertion, where a test could catch it, into the prose an operator acts on, where nothing can.
+
+Cross-refs: **C-84** (RESOLVED — why the datetime literal pin was removed: *"a guard that refuses its own documented fix is worse than no guard"*), **C-116** (the same file's other escape), **C-86**.
+
+---
+
+### C-116: `ACKNOWLEDGED_UNTIL`'s only bound is "before the earliest expiry", so moving the keys to 2027 silently widened the escape from three months to a year
+
+| Field | Value |
+|-------|-------|
+| ID | C-116 |
+| Tier | 2 — one reviewed line can now silence a seam-outage tripwire until the day before the outage, with every test green. |
+| Source | `/code-review max`, 2026-11-12 (finding 9), measured |
+| Trigger | When `KEY_EXPIRY` moves again, or when anyone sets `ACKNOWLEDGED_UNTIL` — check the postponement against `LEAD_DAYS`, not only against the expiry. |
+| Owner | This repository. |
+| Location | `tests/test_credential_expiry.py:167` |
+
+Measured: setting `ACKNOWLEDGED_UNTIL = date(2027, 10, 28)` gives **6 passed**, with `test_the_lead_window_is_not_quietly_shrunk` still green (tree restored, `git status` verified). That silences the tripwire until one day before a total seam outage, in one reviewed line.
+
+The escape's stated purpose is that it *"postpones attention but never replaces it"*. That no longer holds when the postponement can swallow 29 of the 30 lead days. Bounding it to `earliest - LEAD_DAYS <= ACKNOWLEDGED_UNTIL < earliest` restores the intent in one line.
+
+Cross-refs: **C-110** (RESOLVED — *"the obvious shortcut is closed, and closed deliberately"*; this path reaches the same place with nothing red), **C-115**, **C-86**.
+
+---
+
+### C-117: The seam-pin drift detector projects three fields, so a rotation the registry has not recorded is invisible — and the pinned registry still declares two retired keys dying 2026-11-17 *(that date passed on 2026-11-17; checked 2026-11-18)*
+
+| Field | Value |
+|-------|-------|
+| ID | C-117 |
+| Tier | 3 — it misinforms an operator who follows this package's own instruction to read the pinned registry. No delivery depends on the two fields. |
+| Source | `/code-review max`, 2026-11-12 (finding 6), measured against the sibling checkout |
+| Trigger | At the next key rotation, or when `SEAM_CONTRACT_VERSION`/`SEAM_CONTRACT_COMMIT` is next bumped — check `console_key_name` and `expiry` as well as the coordinate values. |
+| Owner | This repository for the projection; views-appwrite for the registry content. |
+| Location | `tests/seam_registry.py:189` (the projection); `views_postprocessing/unfao/appwrite_env.py:47-48` and `views_postprocessing/crafd/appwrite_env.py` (the pin) |
+
+`seam_registry` projects only `(section, body["class"], body["value"])`, so the registry's `console_key_name` and `expiry` fields sit outside the comparison. Measured in the sibling checkout: the registry is at `version = "1.8.0"`, `amended = "2026-11-12"`, still declares `"VIEWS Pipeline Core"` and `"UN FAO"` with `expiry = "EXACT: 2026-11-17 12:35 … ⚠ BOTH PLATFORM KEYS EXPIRE ON THE SAME AFTERNOON"`, and contains no mention of `pipeline-core-writer` or `faoapi-server` — the two keys `KEY_EXPIRY` now names. This repository pins 1.5.2 / `c7b597e`.
+
+So an operator who follows `appwrite_env.py`'s instruction to read the pinned registry is told the platform keys die in five days with no stagger and no fallback, and may plan or re-raise a rotation that already happened on 2026-10-29. Amending the registry is views-appwrite's and a two-repository change; the in-repo half is to project the two fields so the drift reddens.
+
+Cross-refs: **C-57** (RESOLVED — the pin-staleness detector this extends), **C-96** (another registry table this package declines to read), **C-115**.
+
+---
+
+### C-118: The widened views-frames cap rests on an unguarded import invariant, and the re-check recipe it points at is scoped to the one directory the MAJOR did not change
+
+| Field | Value |
+|-------|-------|
+| ID | C-118 |
+| Tier | 2 — the justification for admitting views-frames 3.x minors is prose, and the verification it prescribes returns empty for the wrong reason. The delivered wire bytes are what is at stake. |
+| Source | `/code-review max`, 2026-11-12 (findings 2-3), measured against the views-frames checkout |
+| Trigger | When views-frames 3.x or 4.0 is released, or when anyone imports `views_frames_reconcile`. Run the re-check at the package root, not at `io/`. |
+| Owner | This repository. |
+| Location | `pyproject.toml:26-35`; `tests/fixtures/wire_contract/README.md:71` |
+
+Two halves of one claim, each unsound in its own way.
+
+First, `<4.0.0` is justified by *"the 3.0.0 MAJOR's behavioural change is confined to `views_frames_reconcile`, which this repo does not import"*. True today — grep returns nothing — and guarded by nothing: there is no import-linter config and no test naming it. The repository already owns the mechanism, at `tests/test_doc_accuracy.py:465`, which holds the same kind of invariant for `views_pipeline_core` with an exact-list source scan.
+
+Second, the fixture README designates `git diff v2.0.0..v3.0.0 -- src/views_frames/io/` as the re-check, and `pyproject.toml:28` instructs the reader to **read that file before raising the pin again**. Measured: that pathspec is empty, and the only file the MAJOR changed under `src/views_frames/` is `conformance/__init__.py` — the module `tests/test_views_frames_conformance.py:18` imports from. So the next reader follows the instruction, gets an empty diff, and concludes the imported surface is unchanged while it has changed. The control line beside it would surface this but is labelled only as proof that the command can still speak, not as a thing to read. This is the identical silent-pass shape the same file's own paragraph warns about, one directory up. Widen the pathspec to `-- src/views_frames/`.
+
+Also unstated: the lock's pipeline-core 3.4.0 declares `views-frames >=3.0.0,<4.0.0` — a floor, not a widened cap — so the comment's claim that frames 2.x plus pipeline-core 3.3.x "is still a coherent resolution" silently requires holding pipeline-core below 3.4.0.
+
+Cross-refs: **C-72** (the pyarrow pin and the wire bytes), **C-107** (prose that rots unwatched), ADR-013 §10.
+
+---
+
+### C-120: ADR-013 is now the stale copy of §6, and a docstring settled one of its open maintainer items by deleting the term
+
+| Field | Value |
+|-------|-------|
+| ID | C-120 |
+| Tier | 3 — no delivery depends on the ADR's text, but it is the document an auditor reads to decide whether the CRAF'd delivery is guarded, and it currently says it is not. |
+| Source | `/code-review max` Phase 3 sweep, 2026-11-12 (finding c), measured |
+| Trigger | When anyone audits §6 coverage, runs `tests/test_falsify_adr013_s6.py`, or proposes restoring the "region-pinned" wording to `delivery/draws.py`. |
+| Owner | The maintainer for item (2); this repository for the two stale statements. |
+| Location | `docs/ADRs/013_sampled_forecast_wire_contract.md:730`, `:1126`, `:1201` |
+
+Three statements, one open decision.
+
+`:1126`, in the ADR's own post-adoption record, carries an **open** maintainer item: *"(2) §6 \"region-pinned\" production S_min: the term was never defined"*. `delivery/draws.py` quoted that undefined term as fact — *"the consumer-facing floor (2 for the walking skeleton; region-pinned for production)"* — and commit `5d6262e` removed it, because measurement showed nothing region-pins a sample width: neither product module mentions `region`, and `delivery/coverage.py` pins cell counts. **Removing an undefined term is not the same as defining it.** The open item stands, and it should be closed by a maintainer decision rather than by the absence of a docstring phrase.
+
+`:730` still scopes the gate to *"in this contract's scope: the FAO delivery"* and promises the wiring *"lands with the #91 sink leg (not yet built as of 2026-07-19)"*. It is built, at `contract/wire/sink.py:150`, reached from both `crafd.py` and `unfao.py`. So an auditor reading the ADR can conclude the CRAF'd delivery ships unguarded, which is false.
+
+`:1201` still asserts *"The four rules … all match `delivery/draws.py` exactly"*. Two refusals now sit outside those four (C-121's neighbours, added on `docs/draws-docstring-stale-sample-width`), documented there as explicitly outside §6 for that reason — the four-rule numbering was left intact so as not to widen this drift further.
+
+Cross-refs: **C-107** (prose that rots outside the scanned corpus), **C-95** (a prohibition cited to the wrong verdict, same document family), ADR-014 §1.
+
+---
+
+### C-121: `test_an_acknowledgement_cannot_outlive_the_expiry` executes no assertion, and is credited in the register as mutation-verified
+
+| Field | Value |
+|-------|-------|
+| ID | C-121 |
+| Tier | 3 — it is one of the four companion tests the credential tripwire's integrity rests on, and it is the one that cannot fire. Tier 3 rather than 2 because C-116 already registers the loose bound it was meant to hold. |
+| Source | `/code-review max` Phase 3 sweep, 2026-11-12 (finding d), measured |
+| Trigger | When `ACKNOWLEDGED_UNTIL` is next set to a date, or when the four companion tests are next cited as evidence the escape is bounded. |
+| Owner | This repository. |
+| Location | `tests/test_credential_expiry.py:158`, and the escape it guards at `:88`, `:164-165` |
+
+`ACKNOWLEDGED_UNTIL` is `None` at line 88, and the test returns early at lines 164-165 on exactly that condition, so its assertion has never run. Measured: relaxing `<` to `<=`, dropping the comparison, or comparing against `max()` instead of the earliest expiry each break nothing in CI.
+
+What makes it registrable rather than cosmetic is the asymmetry. Its sibling was given a derived probe — the firing branch was extracted into `days_until_earliest_expiry` **precisely so C-102 could not apply** — and this one never received that treatment, while the register credits both among *"four companion tests [that] keep it honest … All verified by mutation"*. The claim is true of the sibling and false here.
+
+Cross-refs: **C-116** (the loose bound this test was supposed to hold), **C-102** (a guard that has never run is unproven), **C-108** (the same shape, measured the same way), **C-115**.
+
+---
+
+### C-122: The launch-axis guard the region stub models itself on covers one partner of two — the ninth entry in the #211 family
+
+| Field | Value |
+|-------|-------|
+| ID | C-122 |
+| Tier | 3 — the managers are near-clones, so the uncovered path is the one a reader would assume is covered. No current defect follows; the guard simply does not watch half of what it claims to. |
+| Source | `/code-review max` Phase 3 sweep, 2026-11-12 (finding e), measured |
+| Trigger | When any launch-axis assertion is added, moved or relied on — including the move the region stub proposes, which would place a two-partner scan beside this one-partner one. |
+| Owner | This repository. |
+| Location | `tests/test_launch_config.py:106`, hardcoding `views_postprocessing/unfao/managers/unfao.py` at `:115`; the uncovered twin is `views_postprocessing/crafd/managers/crafd.py` |
+
+`test_the_manager_asserts_both_axes` reads one manager by hardcoded path and never reads the other. The two managers are 437-line near-clones calling the same three asserts at identical line numbers, so the crafd path is unwatched — including the negative half at `:120`, `assert 'configs.get("wire_contract")' not in source`, which refuses C-63's inference by omission for `unfao` only.
+
+The repository already owns the fix and documents this exact failure mode: `tests/conftest.py:55-74` declares `PARTNER_PACKAGES` with the comment recording #211 — *"Eight separate guards named `unfao`, and when `crafd/` landed all eight went on passing over a package they did not cover"* — and `tests/test_env_declaration.py:59` provides `_manager_source(partner)`. This is the ninth.
+
+Cross-refs: **C-63** (the inference-by-omission rule the negative half enforces), **C-113** (the region axis, whose proposed guard would land beside this one), #211.
+
+---
+
+### C-123: `delivery/draws.py` declares an interface and enforces half of it — a non-int floor escapes as `TypeError`, and a DataFrame passes all four checks
+
+| Field | Value |
+|-------|-------|
+| ID | C-123 |
+| Tier | 3 — unreachable on today's path, measured, so not Tier 2. Registered at 3 rather than 4 because the floor is the one argument scheduled to stop being a literal: the per-audience `S_MIN` decision and the connection split both move it toward configuration, and that is the change that makes this reachable. |
+| Source | `/falsify` claim mode (2026-11-12), two soft falsifications; both re-measured 2026-11-12 before registration. |
+| Trigger | When `s_min` stops arriving from a module-level product constant — the pending per-audience `S_MIN` values (FAO 128 / CRAF'd 1,024) or the connection split in views-postprocessing#327, either of which would have the floor come from config — or when a third caller of `assert_draws_uncollapsed` appears outside the two managers' sink path. |
+| Owner | This repository. |
+| Location | `views_postprocessing/delivery/draws.py:35-41` (the declared ints in the signature), `:83-84` (the `np.asarray` coercion), `:106` (check 3, the comparison that raises); callers at `views_postprocessing/contract/wire/sink.py:151` fed from `views_postprocessing/unfao/managers/unfao.py:350` and `views_postprocessing/crafd/managers/crafd.py:350` |
+
+The module opens *"Representation-free — primitives only (a 2-D numpy array + declared ints) ... Declare-don't-guess: nothing is inferred from the payload — the caller states what the payload claims to be, and this invariant fails loud if it is not."* Measured, neither half of that interface is checked:
+
+- `s_min=None` and `s_min="2"` both escape as `TypeError: '<' not supported between instances of 'int' and 'NoneType'` / `'str'` from check 3. `DrawsCollapseError` subclasses `ValueError`; a `TypeError` is neither, so a caller catching either type misses it entirely.
+- A 2-D `pandas.DataFrame` passes **every one of the four checks**, because `np.asarray` coerces it. "No pandas" is a statement about this module's imports, not a precondition on its argument — and silently accepting a representation is the inference the same paragraph forbids.
+
+**Why this is not Tier 2.** Neither is reachable from production today. Both products declare `S_MIN: int = 2` (`views_postprocessing/unfao/product.py:36`, `views_postprocessing/crafd/product.py:42`), and that constant is what both managers pass; the payload is `frame.values`, already an array.
+
+**Why it is registered rather than fixed on sight.** The docstring was narrowed in `b80bd3d` to state the gap instead of overclaiming past it — *"The declared ints are a separate matter and are still unenforced"* — so the prose is honest and the shortfall is declared, which is the condition under which this register tracks rather than blocks. What makes it standing risk is the direction of travel: the floor becomes a per-audience value the moment that decision lands, and a declaration that arrives missing or as a string would then surface on the partner-facing path as an exception type no caller is written to catch.
+
+The failing stubs were kept **outside `tests/`**, in this session's scratchpad directory — *checked 2026-11-18: that directory has since been cleared, so the stubs are gone and the path no longer resolves. A session scratchpad is not a durable home; the entry body above is now the only record of what the stubs asserted, which is why it states both falsifications in full.* They were kept out of `tests/` deliberately: C-114 and the untracked region stub are this repository's live record of what an unmarked or self-absorbing falsification stub does to a required check, and a third one would add to that hazard rather than to the evidence.
+
+Cross-refs: **C-107** (the same docstring, the opposite shape — there the prose had drifted from the code; here the prose is accurate and the code is what falls short), **C-120** (ADR-013 §6's four-rule count, which the two new refusals already sit outside), **C-114** (why these stubs are not in `tests/`), **C-124** (the same function's other failure of discrimination — there a declared type is unchecked, here an unrelated failure is given a confident wrong diagnosis).
+
+---
+
+### C-124: The §6 draws gate catches `Exception` and reports every failure as malformed input — including the `MemoryError` this exact path has a measured history of
+
+| Field | Value |
+|-------|-------|
+| ID | C-124 |
+| Tier | 3 — it misdiagnoses, it does not mis-deliver. The gate still refuses and nothing ships, so there is no partner-facing correctness consequence; what is lost is the operator's time and the traceback that would have named the real fault. |
+| Source | `/code-review`, 2026-11-18 |
+| Trigger | When the first global forecast delivery is cut, or when either product's `S_MIN` rises — both enlarge the array this line materializes. Also when anyone diagnoses a failed delivery from this gate's message rather than from the run log. |
+| Owner | This repository. |
+| Tracked | views-postprocessing#336 |
+| Location | `views_postprocessing/delivery/draws.py:83-94` (the `try`/`except Exception` around `np.asarray`) |
+
+The gate wraps `np.asarray(values)` in `except Exception` and raises `DrawsCollapseError` saying *"the payload could not be read as an array at all … this is malformed input, not a collapsed forecast. Nothing about the draws has been checked."* That sentence is a diagnosis, and it is only correct for the failure it was written for: ragged input, which `np.asarray` reports as a `ValueError`.
+
+`MemoryError` is a subclass of `Exception`. An out-of-memory failure while materializing a large draws payload is therefore reported as a producer having published a malformed artifact, and the reader is sent upstream. This repository has measured that exact failure twice on this path — **C-32** (run 0 OOM-killed at 23.8 GB during the historical enrichment join) and **C-101** (the streaming fix, where downloading every shard of a target before decoding the first made peak 3.06× the delivered frame). The streaming fix is what keeps this cheap today; a larger sample width is what makes it dear again.
+
+Narrowing to `except (ValueError, TypeError)` restores the diagnosis to the failures it describes and lets `MemoryError` propagate with its own traceback. This is one line and one test.
+
+**Registered rather than fixed on sight**, because the branch that found it exists to fix C-113 in `delivery/coverage.py` and the two managers. Mixing an unrelated narrowing into `delivery/draws.py` — a module with two other open entries about its own docstring, last touched by a separate pull request for exactly that reason — would make each change harder to review than it is on its own.
+
+Cross-refs: **C-123** (same function, the declared-type half), **C-105** / the `source_metadata` entry recording `except Exception: lv = None` (the same disease: two faults leaving through one branch with one outcome), **C-32** and **C-101** (the measured OOMs this message would mislabel), **ADR-008** (log persistently and raise).
+
+---
+
+### C-125: The suite was run on an interpreter below this project's own floor, and the same unmet requirement both skipped guards quietly and aborted collection
+
+| Field | Value |
+|-------|-------|
+| ID | C-125 |
+| Tier | 2 — structural, with a measured instance. Not Tier 1: nothing is corrupted and CI on the declared interpreter catches it before merge. Not Tier 3: the value involved is a cross-repo pin a developer edits locally and then reads a green suite about, and the skip message is indistinguishable from an ordinary missing-fixture skip. |
+| Source | `manual` — found 2026-11-27 while completing the registry pin for #327, by reading the registry at the commit being named rather than by any failing test. |
+| Trigger | The next edit to `SEAM_CONTRACT_VERSION` / `SEAM_CONTRACT_COMMIT` in either partner package, or the next test added that parses a TOML file, made from a shell whose `python` is below 3.11. |
+| Owner | This repository. |
+| Location | `pyproject.toml:12` (the declared floor), `tests/seam_registry.py:61` (the guarded skip), `tests/test_locked_environment.py:47` (the unguarded module-scope `import tomllib`), and the guards that disappear: `tests/test_env_declaration.py:705` and `:895` |
+
+`pyproject.toml:12` declares `python = ">=3.11,<3.15"`, and CI runs 3.11
+(`.github/workflows/run_pytest.yml:104`). Nothing in the suite asserts that the running
+interpreter satisfies that floor, and **the same unmet requirement produces two different
+outcomes depending on which file reaches it first.** Measured 2026-11-27 on this machine,
+whose shell `python` is 3.10.14:
+
+- `python -m pytest -q` → `1 error in 0.40s`, **Interrupted during collection, zero tests
+  run**, because `tests/test_locked_environment.py:47` imports `tomllib` at module scope
+  with no guard.
+- `python -m pytest tests/test_env_declaration.py -q` → **`40 passed, 9 skipped`**. The nine
+  skip on `tests/seam_registry.py:61: stdlib from 3.11; pyproject requires it`, and they
+  include both pin guards. That module reads green *with its guards removed*, and the skip
+  reason reads like the ordinary absent-fixture skips elsewhere in this suite.
+- The same suite under `views-models/envs/views-postprocessing` (Python 3.11.15, the prefix
+  the launcher installs into) → **`587 passed, 1 failed, 3 skipped, 41 xfailed`**, the one
+  failure being the environment-drift guard reporting that this prefix has not been
+  reinstalled since the dependency floor moved. *(Re-measured 2026-11-27 at the commit
+  that registers this entry. The first version of this bullet said `573 passed, 2 failed`,
+  which was the figure from an earlier commit on the same branch — a recalled number in
+  the control measurement of an entry about trusting a run you did not watch. The three
+  numbers above are from the command run in that turn.)*
+
+**The guards themselves are sound, and that is the point.** Under 3.11, restoring the pin
+this session nearly shipped — `SEAM_CONTRACT_COMMIT = "34261d1"` beside
+`SEAM_CONTRACT_VERSION = "1.9.1"` — turns
+`test_the_pinned_commit_declares_the_pinned_version[crafd]` and
+`test_the_docstring_url_points_at_the_commit_the_constant_declares[crafd]` red; both pass
+at `a251cb8`. Nothing was wrong with the checks. They were being run where they could not
+run, and the run said `passed`.
+
+**What this cost, once, already.** The pin was set to edition v1.9.1 against `34261d1` by
+reading the edition table in a views-appwrite working tree instead of the file at the
+commit being named. That commit declares v1.9.0 and mints no publisher slot, so the pair
+contradicted itself — the same class of error **#196** was written to prevent, and the
+reason it was caught was a sibling session's report plus a re-read, not a guard.
+
+**Fix, and it is two small changes rather than one.** First, a test that **fails** when
+`sys.version_info` is below the floor `pyproject.toml` declares, so an unsupported
+interpreter is a red build with something to do rather than a quiet subtraction. Second,
+route `test_locked_environment.py`'s `tomllib` through the same guarded helper
+`tests/seam_registry.py` already uses, so one unmet requirement has one outcome. Neither
+is a new declaration to go stale: both read the floor from `pyproject.toml`, which is
+**C-102**'s method — derive the probe from the declaration.
+
+**Cluster O membership is the whole claim.** The cluster's thesis is that *nothing in the
+suite can report a guard that cannot fail, because a guard that cannot fail is green*.
+Every earlier member was a guard that could not fire for a reason inside the code. This one
+fires correctly and was removed by the environment, which is the same thesis reached from
+outside and the first member found while using the suite rather than auditing it.
+
+Cross-refs: **Cluster O** (member), **C-57** (the drift check that could not see a stale pin
+because it was scoped to one package by name — the same pin, the previous way it escaped),
+**C-102** (resolved precedent: derive the probe from the declaration), **C-114** (a stub
+that can neither fail for a stated reason nor flip — the nearest shape among the existing
+members), **#196** (the pinning rule this protects).
+
+---
+
+### C-126: The audience connection cannot be proven without arming a real delivery, and the launcher does not yet export its coordinates
+
+| Field | Value |
+|-------|-------|
+| ID | C-126 |
+| Tier | 2 — the first execution of a connection this repository cannot rehearse will be a live partner delivery, and the environment it needs is not assembled anywhere yet. No corruption, so not Tier 1; a named near-term trigger, so not Tier 3. |
+| Source | `/code-review max` on PR #356 (2026-11-27), finding 2 and its cross-file angle. |
+| Trigger | The first run with `wire_upload_enabled` true — the CRAF'd delivery's first armed attempt. |
+| Owner | This repository for the ordering; **views-models** for exporting the two coordinates. Cross-repo, so the operator decides sequencing. |
+| Location | `views_postprocessing/crafd/product.py` (`UPLOAD_ENABLED = False`), `views_postprocessing/crafd/managers/crafd.py` (`_partner_appwrite_config`, reached only from the two call sites inside `if upload_enabled`), `views_postprocessing/crafd/managers/crafd.py` `_read_forecast_data` (where the launch declarations are asserted) |
+
+Measured 2026-11-27: `product.UPLOAD_ENABLED` is `False`, and every caller of
+`_partner_appwrite_config` is inside an `if upload_enabled` branch. So none of #327's code
+has executed in any run in this repository's history, and there is **no mode that validates
+the audience coordinates without arming a real delivery**. The unit and manager tests
+assert the refusals and the built configuration with a synthetic environment, which is what
+makes them possible to run at all — they cannot establish that the real coordinates exist
+or that the real key carries its write scopes.
+
+**The launcher half is the part that is not ours, and it is ONE coordinate, not two.**
+Read in views-models 2026-11-27: `tools/credentials/platform_env.sh` has two separate
+mechanisms. `platform_env_export_coordinates` exports whatever the registry read yields, so
+`APPWRITE_CRAFD_PROJECT_ID` resolves with no change at all. `platform_env_export_secret`
+carries exactly ONE secret, named at `:68` by `PLATFORM_ENV_SECRET_NAME="APPWRITE_DATASTORE
+_API_KEY"`, and there is one `.env` lookup, one export and one presence check behind it. So
+the publisher key has nowhere to live, and `APPWRITE_CRAFD_PUBLISHER_API_KEY` appears in no
+script there. *(An earlier version of this entry said "the two coordinates", which
+overstated the change views-models has to make — the loader was already shaped for a
+secret whose NAME varies, just not for two at once.)*
+
+That gap is tracked at **views-models#755**, filed 2026-11-25, which states the same
+mechanism and leaves the direction open because it touches that repository's single-writer
+rule: a list of secret names, or a per-audience loader invocation, have different
+consequences for "one writer" and that is a decision rather than an implementation.
+
+Until it is closed, the first armed run resolves the contract run, downloads every
+manifest, loads the 888 KB GAUL lookup, and only then raises `EnvironmentError` naming the
+missing key — all of that work discarded for a configuration fault knowable at entry.
+
+**Two separable remedies, and only one is ours.** The ordering one is to assert the audience
+environment beside `launch_config.assert_contract_mode` and `assert_region_declared` in
+`_read_forecast_data`, keyed off the declared `wire_upload_enabled`, so an armed run proves
+its environment before doing any work — and so a staging run can be made to prove it
+without uploading. The other is the launcher exporting the two names, which is
+views-models' change and the operator's to sequence. Doing the first alone moves the
+failure earlier without removing it.
+
+**What the registry does and does not settle.** The containers are not a gap: edition
+v1.9.1 at views-appwrite `a251cb8` records the operator measuring, read-only on 2026-11-25,
+that the project named by `APPWRITE_CRAFD_PROJECT_ID` holds `file_metadata` with the table
+`crafd`, all thirteen declared columns, three indexes, zero rows, and that its bucket
+exists. So nothing needs provisioning and the preflight will pass on the first armed run,
+which makes it a regression guard rather than a gate. What is **not** settled is the key's
+write scopes: the same edition records `rows.write`, `files.write` and `files.read` as
+console readings only, and names this first delivery as their proof.
+
+Cross-refs: **vpp_018** (the decision), **C-125** (the other half of this pull request's
+guard lesson), **C-33** (why the two managers are clones), **views-faoapi C-161**
+(the interlock the first enablement is gated on, namespaced per this register's own
+convention).
+
+---
+
+### C-127: Six container coordinates are addressed against two projects, and their registry rows carry no project scope
+
+| Field | Value |
+|-------|-------|
+| ID | C-127 |
+| Tier | 3 — one value must be valid in two projects and today it is, measured upstream. The risk is that nothing in either repository records the dependency, so a future edit to one project's containers has no reason to consider the other. |
+| Source | `/code-review max` on PR #356 (2026-11-27), finding 9. |
+| Trigger | A change to the containers in either Appwrite project — a renamed metadata database, a bucket recreated with a new id — or a third audience project whose containers were created independently. |
+| Owner | This repository for the reuse; **views-appwrite** for whether a coordinate row states which project it belongs to (their #201). |
+| Location | `views_postprocessing/crafd/appwrite_env.py` (`PROD_FORECASTS_ENV` and `CRAFD_ENV` both list `APPWRITE_METADATA_DATABASE_ID` / `_NAME`), `views_postprocessing/crafd/managers/crafd.py` (`_build_prod_forecasts_store` reads them for the shared project, `_partner_appwrite_config` for the audience project) |
+
+#327 moved the project and left the container coordinates alone, which is the right shape —
+the artifacts and their containers are partner-neutral and only the project differs. The
+consequence is that six names, including the metadata database, are now addressed against
+**two** Appwrite projects, so each value must be valid in both.
+
+Today it is. Registry edition v1.9.1 records the audience project holding `file_metadata`
+with the table `crafd`, measured read-only by the operator 2026-11-25. **What is missing is
+not the fact but its home:** `[target.APPWRITE_METADATA_DATABASE_ID]` in the registry
+carries a value and no project qualification, so the row reads identically whether it means
+the shared project's database or the audience project's — the same structural gap
+views-appwrite#201 records for the CRAF'd coordinates generally, and the cause of the ten
+days this platform spent confused about which project CRAF'd's bucket was in.
+
+The claim in `crafd/managers/crafd.py` that container ids are *"unchanged, only the project
+moves"* is true and is also the sentence that hides this: it reads as *"nothing to check"*
+when what it means is *"one value, two projects, verified elsewhere"*. **vpp_018**'s
+consequences section now states that explicitly as the one claim in that decision which
+nothing in this repository enforces.
+
+Cross-refs: **vpp_018** (states the dependency), **C-126** (the same first armed run is what
+would surface a container fault), **views-appwrite#201** (the registry's missing project
+containment, namespaced per this register's own convention).
+
+---
+
 
 ## Disagreements
 
@@ -1348,36 +1770,6 @@ Three maintainer-raised intents, assessed and **deliberately deferred** — all 
 
 ---
 
-### D-11: Pandas→frames seam — concrete siblings + delete vs a polymorphic abstraction
-
-| Field | Value |
-|-------|-------|
-| ID | D-11 |
-| Source | `expert-code-review` (2026-06-28) — review of pandas-migration epic #85 |
-| Location | epic #85 / stories #86 (`unfao/frames.py`), #87 (`unfao/extraction.py` + new frame module), #88/#91 (`unfao/managers/unfao.py` source/sink seams) |
-
-The pandas→views-frames migration (epic #85) deliberately swaps each seam by adding a **concrete** frame-native sibling next to the pandas one and later **deleting** the pandas path — rather than introducing a polymorphic abstraction (an `Extractor` Protocol / a representation port) that both implementations satisfy.
-
-- **Position A — concrete siblings + delete (the plan's choice; Martin/Beck-pragmatic, WET-before-DRY).** pandas and frames do **not** coexist at runtime — it is a migration, not a permanent dual representation — so a polymorphic interface would be speculative (YAGNI/ISP: don't force an interface nobody dispatches on). The seam stays readable, each representation is one-concept-per-file, and retirement is a clean file-delete. The invariants already depend on **primitives** (the real abstraction, DIP-satisfied at that boundary), so no port is needed above them.
-- **Position B — abstraction/port (Hickey/strict-OCP).** Depending on a representation port would make the swap "extend, not modify," and would let the two paths coexist cleanly during cutover.
-
-**Decision: A**, consistent with the maintainer's WET-before-DRY rule and the "migration not coexistence" reality. **Re-open trigger (the one acute case):** S6 (#91) introduces a temporary **dual-write** (legacy parquet + arrow sample-frame) for parity during the faoapi cutover — *if that coexistence proves long-lived* (rather than a brief cutover window), a small abstraction may then earn its place; revisit only then. Until then, concrete-and-delete stands.
-
-**RE-INSTANTIATED 2026-07-31 (`expert-code-review`) — same tension, new subject; merged here rather than registered as its own disagreement entry.** The review surfaced the identical disagreement one level down, about the **keyed gather** rather than the representation seam. "Given gids, fetch their lookup rows" now exists **three times, all simultaneously live**: a pandas left-merge (`unfao/enrichment.py:117`), an argsort/searchsorted gather (`unfao/historical.py:57-68`), and an isin/filter/sort (`unfao/wire/sidecar.py:47-57`).
-
-- **Position A (GoF, Hickey) — unify now.** Three implementations of one join is a correctness surface, not a migration artifact. They differ in failure semantics: two raise in place naming the absent gids; the pandas one yields NaN and defers to a downstream gate. That divergence is invisible at the call sites.
-- **Position B (Feathers, Beck) — defer to #89.** The differing failure semantics are *deliberate*, each implementation is separately tested, and unification means changing three call sites while the legacy branch is still live. The duplication is scheduled to die with that branch.
-
-**✅ CONDITION MET 2026-08-01 (epic #148).** The legacy forecast branch **was** deleted (#149) — before #89 landed, so the re-open trigger below never fired. Position A is vindicated by events rather than by argument: concrete siblings were built, the migration completed, and the second implementation was deleted rather than abstracted over. A Protocol introduced at decision time would have outlived the thing it existed to unify. Recorded in `tests/test_input_integrity_design_contract.py` ② so the next seam decision has the precedent.
-
-**Adjudication: B — but conditionally, and the condition is now named.** B is only correct *if the legacy forecast branch is actually deleted*. It had no scheduled deletion PR when this was adjudicated — #149 deleted it on 2026-07-31, which is what made B correct rather than merely preferable — only a "named post-run-0 follow-up" (C-40). If it lingers, three-way duplication becomes the permanent shape and Position A wins retroactively. **Re-open trigger: if the legacy forecast branch still exists when #89 (numpy/pyarrow keyed gather) lands, unify all three consumers onto one fail-loud gather primitive as part of that story rather than deferring again.** Cross-refs C-59 (the duplicate-key hazard that lands differently in each of the three), C-40, #89.
-
-**SETTLED 2026-07-31 (review-rr — the original re-open trigger resolved without firing).** The sole re-open condition was a long-lived S6/#91 dual-write. **#91 is CLOSED**, and the contract path shipped frame-native end-to-end (PRs #115–#129, wire delivered in run-0) without a durable dual-representation window. Position A is vindicated by events: concrete siblings + delete is what actually happened, the pandas path is confined to the legacy branch pending its named post-run-0 deletion, and no polymorphic representation port was ever needed. No live tension remains — this entry is kept as decision provenance for the remaining seam work (#89, #90) rather than as an open question.
-
-See also C-40 (the inheritance/representation coupling this migration unwinds), #85 (the migration epic), #45 (the faoapi wire / S6 dual-write).
-
----
-
 ### D-09: Multi-store support — parameterize the manager now vs after the FAO global delivery
 
 | Field | Value |
@@ -1385,7 +1777,7 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 | ID | D-09 |
 | Source | `expert-code-review` (2026-06-12) |
 | Perspectives | GoF: the manager is being touched anyway — extract the `DeliveryProfile` now while context is loaded. Beck/Hickey/Ousterhout: the smallest change that delivers wins; a profile refactor adds review surface to the highest-stakes week, and frameworks built under deadline pressure rot. |
-| Location | `views_postprocessing/unfao/managers/unfao.py:109-122, 234-247, 272` |
+| Location | `views_postprocessing/unfao/managers/unfao.py` — the store construction and delivery seams a `DeliveryProfile` would carry; and `views_postprocessing/unfao/appwrite_env.py`, where the names were centralized. **Symbols rather than lines (2026-11-12):** the row cited `:109-122, 234-247, 272`, and the body below already records that one of those ranges stopped existing. |
 | Status | Open. Review adjudication: **after delivery** — with two exceptions to do now: delete the dead config blocks (`unfao.py:80-107`, a mis-uncomment hazard) and ensure nothing added this week hardcodes additional store identity. The `DeliveryProfile` itself is a calm 1-day job the following week (C-33). |
 
 **DEFERRAL EXPIRED 2026-07-31 (review-rr).** The adjudication was "after the FAO global delivery"; **that delivery shipped 2026-07-27** (run-0). Both named exceptions are discharged: the dead config blocks at `unfao.py:80-107` **no longer exist** (verified — that range is now the class definition and `__init__`), and store env **names** were subsequently centralized into `unfao/appwrite_env.py` by þing-01 #134, so nothing added since hardcodes new name literals. What the disagreement actually deferred — the `DeliveryProfile` value object (one manager class, N store configs) — is now unblocked and is the "calm 1-day job." **Not resolved, because the decision it defers is still undecided:** build the profile now, or wait for issue #97's second-store scoping to define what a profile must carry. Recommend deciding that alongside #97; on decision this closes into C-33.
@@ -1394,6 +1786,100 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 
 ## Resolved Concerns
 
+### C-113: An undeclared `region` skips both coverage gates, and the skip is indistinguishable from the one the code deliberately supports — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-113 |
+| Tier | 2 — structural fragility with a clear trigger and a partner-facing consequence: a launch config that omits `region` ships a delivery whose cell curation and completeness gate both silently did nothing. Not Tier 1 because the count-gate logs a warning before skipping, so the evidence does reach the run log. |
+| Source | `/code-review max`, 2026-11-12 (findings 10-12), measured |
+| Trigger | When a new launch config, partner or region is added — or when anyone proposes a test asserting that unpinned regions are refused. Check that "no region declared" and "a named region that is not pinned" are distinguishable before writing that assertion. |
+| Owner | This repository. |
+| Location | `views_postprocessing/delivery/coverage.py:62` (`return EXPECTED_CELLS.get(region) if region else None`), `:99` (`return EXCLUDED_GIDS_BY_REGION.get(region, frozenset()) if region else frozenset()`); call sites `views_postprocessing/crafd/managers/crafd.py:228-229`, `:300-301`, `:419` — and the *same* lines in `views_postprocessing/unfao/managers/unfao.py`, verified identical. *(This row cited `:223,299,415` until 2026-11-12. Those numbers were wrong on the day the entry was written — the managers' last change predates it — which makes C-109's point sharper than C-109 makes it: the decay is not only over time.)* |
+
+Both accessors collapse two different conditions into one return value. `expected_for(None)` and `expected_for("not_a_pinned_region")` both return `None`; `excluded_for(None)` and `excluded_for(<unknown>)` both return `frozenset()`.
+
+One of those is a supported configuration. `coverage.py:52-54` records that `africa_me_legacy` is **intentionally** not pinned — the register cites 5 pure-ocean cells for which "complete" is ambiguous — and both managers implement the matching documented skip. The other is ADR-003 inference by omission, which must refuse.
+
+Measured consequence: a config that omits `region` reaches `assert_no_excluded_cells` with an empty exclusion set, so the GAUL-uncovered cell check is a no-op, and `assert_complete_coverage` with `None`, so the count-gate is skipped. `region` is the only one of the product-defining launch axes read through a bare `.get()`; `wire_contract` and the historical `data_format` each have a declared assertion (`launch_config.assert_contract_mode`, `assert_frame_native_historical`).
+
+**The fix is one branch, not a fourth launch axis.** Splitting `if region else` at both lines — raise on undeclared, keep the documented skip for named-but-unpinned — repairs all six call sites at once. A guard written the other way round, refusing any region absent from `EXPECTED_CELLS`, would make `africa_me_legacy` unlaunchable.
+
+**RESOLVED 2026-11-12 — and the entry's own prescription held, including the part that said what NOT to build.**
+
+The refusal landed where the repository already keeps launch declarations rather than as a fourth guard invented next to the gates: **`contract/launch_config.assert_region_declared`**, a sibling of `assert_contract_mode` and `assert_frame_native_historical`, called from `_read_forecast_data` in both managers before any store call. `delivery/coverage.py` holds the same rule at the invariant for every other caller — `expected_for` and `excluded_for` now raise **`RegionNotDeclaredError`** on an undeclared region and still return `None`/empty for one that is declared but unpinned.
+
+`RegionNotDeclaredError` is deliberately **not** a `CoverageError` subclass. Nothing was delivered wrongly; the question could not be asked. A caller catching `CoverageError` to report a coverage failure must not catch this and mislabel it.
+
+**The entry's warning was the load-bearing part.** It said: *"A guard written the other way round, refusing any region absent from `EXPECTED_CELLS`, would make `africa_me_legacy` unlaunchable."* A falsification stub written the same day prescribed exactly that — `test_a_region_that_is_not_pinned_is_refused_rather_than_skipped`, asserting a refusal naming `land_gaul` for any unpinned region. It was never committed, and `tests/test_launch_config.py::test_a_declared_region_passes_whether_or_not_it_is_pinned` now pins the opposite. The stub's other two failures were a name it had guessed (`assert_coverage_region`); its finding was right and its remedy was wrong on one of two points.
+
+**A second, silent half of the same defect, fixed with it.** The count gate logged its skip; the exclusion gate did not. So a delivery curated by nothing left only half the evidence in the run log — which is why this entry's Tier rationale (*"the count-gate logs a warning before skipping, so the evidence does reach the run log"*) was true of one gate and not the pair. Both gates now report their own skip, **inside the invariant** rather than at the call site: `assert_complete_coverage` accepts `expected_count=None` and `assert_no_excluded_cells` an empty manifest, each logging a WARNING naming the leg. That removed the orchestration from both managers — the `if expected is not None: ... else: log` block in each — which is what let this land at all: the first attempt put the reporting in the shell and tripped `test_doc_accuracy`'s 300-line manager ratchet at 319. The ratchet was right, and C-40(a) is the reason: *logic that can be called with declared arguments belongs where it can be tested without a manager, an Appwrite environment or a views-models path manager.* Both skips are now proven by `caplog` in `tests/test_delivery_coverage.py`, with no framework at all.
+
+**Sixteen new tests, suite 529 → 545 passed.** The type half is covered too — a `region` that is not a non-empty string is refused rather than reaching the gates as though it had been declared, which is the local instance of the gap **C-123** registers generally.
+
+**AMENDED 2026-11-18 — the resolution above was true of the smaller leg and wrong about the larger one.** `/code-review` on the resolving branch found that the sentence *"Both gates now report their own skip"* did not hold where most of the coverage checking happens. Forecast coverage is not asserted in the managers at all: it is asserted inside `contract/wire/source_selection.py`'s `TargetLease.load()`, and that method guarded both calls with `if self.excluded_gids:` and `if self.expected_cells is not None:`. For a region that pins neither — the supported unpinned case — both conditions were false, so **every forecast target loaded with both gates skipped and nothing at all in the run log**. The managers' `_check_coverage`, which the first fix corrected, covers the historical leg. Both `if`s are now gone and the lease calls each gate unconditionally, which is the only form that lets the invariant own its own skip report.
+
+**And the same defect one level in: an unrecognised region name was still silently the unpinned case.** `assert_region_declared` accepted any non-empty string, so `region: "lnd_gaul"` passed the launch assertion, missed both dictionary lookups, and skipped both gates — reporting itself as the configuration someone deliberately chose. Measured: `expected_for("lnd_gaul")` returned `None` and `excluded_for("lnd_gaul")` returned `frozenset()`, and a two-cell delivery was accepted. The register entry above anticipated the wrong guard (*"refusing any region absent from `EXPECTED_CELLS`"*, which would ground `africa_me_legacy`) and this is the right one: a declared set of **known** regions, `delivery.coverage.KNOWN_REGIONS`, separate from the question of whether a known region's cell count has been pinned. `africa_me_legacy` is known and still deliberately unpinned, so it still launches and still logs a skipped count-gate. An unknown name now raises `UnknownRegionError` at the invariant and `LaunchConfigError` at launch, each naming the known set and both repair paths.
+
+Two tests in the resolving commit **pinned the old behaviour** — `expected_for("does_not_exist") is None` and `assert_region_declared({"region": "not_pinned_anywhere"}) is None` — the second written on purpose, to record that an unpinned region must stay launchable. It was right about `africa_me_legacy` and wrong to generalise from it to any string. Both are rewritten.
+
+**The guard audit then found that the fix's own guards were asymmetric.** `/falsify guard`, run independently, applied 38 mutations to production code and ran each one: 31 were caught, **7 survived**, 0 unrun. Every mutation against `delivery/coverage.py` itself was caught — the invariant layer is strongly guarded. All seven survivors sat at the **call sites** the change had created an obligation for, or in the declaration the invariant is told to trust:
+
+- **Restoring `if excluded:` / `if expected is not None:` in BOTH managers left the whole suite green.** That mutation reopens this entry's own silence on the historical leg, and nothing noticed. The forecast leg's equivalents were both caught, because the forecast leg got a new test and the managers got rewritten production code and none. Closed by an `ast` scan over both managers' `_check_coverage`: each gate is called exactly once, and neither call is enclosed by an `If`.
+- **Adding `"atlantis"` to `KNOWN_REGIONS` left the suite green** — the new declaration was checked in one direction only (pinned ⊆ known) and not against what views-datafactory actually serves, which is C-113's shape re-entering through the declaration rather than through an omission. Closed by a cross-check against the sibling checkout's `src/datafactory_query/regions.py`, read with `ast` (the package is not a dependency here), skipped when no checkout is present, the same pattern as the excluded-gid cross-check above it.
+- **Deleting both `logger.error` calls from `assert_region_declared` left the suite green**, breaking ADR-008 unnoticed — although this repository already owns the mechanism that catches it, `tests/test_env_declaration.py::_REFUSALS`, whose own comment says *"adding a third validator is one line here, not a new test."* The validator had not been added. It now is, for both refusals.
+- **Deleting the manager call site of `assert_region_declared` left the suite green**: the source scan that checks for the other two assertions read `unfao.py` only and listed two of three. It is now parametrised over both partners and covers all three.
+- **Swapping the two gate calls left the suite green** on all three legs, although both managers and the lease carry a comment saying the order is load-bearing (exclusion first, so a leaked island names itself). Now executable: a call-order assertion on the forecast leg and a line-order assertion in both managers.
+- **One of the new tests asserted something untrue of itself.** Its comment said *"the exclusion gate still fires when a dropped cell comes back"*; it does not, because `drop_units` removes the excluded cell on the line directly above the gates, so the `CoverageError` it caught came from the count gate. Making the exclusion gate blind kept it green. The comment is corrected, the assertion now names the count gate, and a separate test states what the exclusion gate is actually for on that leg — a post-condition on the curation it follows.
+
+All seven are closed. The pattern is worth keeping: the design decision to move skip-reporting out of the two shells and into the invariant was sound and is well guarded; what went unguarded was the shells' remaining obligation to *call* it, which the change itself created.
+
+Measured 2026-11-18 in the `poetry.lock` environment: **565 passed, 3 skipped, 41 xfailed** (twenty tests more than the resolving commit's 545), `ruff check` clean.
+
+Cross-refs added on resolution: **C-122** (the launch-axis guard this one's fix lands beside — still one partner of two), **C-123** (declared types unenforced, the general form), **C-40** (the manager line ratchet that shaped the fix), **C-107** (whose `delivery/coverage.py:5` stale pointer was corrected in the same change). Added on amendment: **C-109** (an entry's own `Location` decays — here the *resolution prose* was the thing that was wrong, which no `Location` check would have caught).
+
+Cross-refs: **C-30** (absorbs C-34 — the coverage contract these gates enforce), ADR-003 (inference by omission), **views-models ADR-021** (`docs/ADRs/021_coverage_is_declared_once.md` — the upstream half).
+
+---
+
+---
+
+### C-119: Resolving C-84 and C-110 left three live records asserting a red build that is green — RESOLVED
+
+| Field | Value |
+|-------|-------|
+| ID | C-119 |
+| Tier | 3 — the register is the artifact a releaser diagnoses from, and it now misreports the state of the thing it exists to track. |
+| Source | `/code-review max`, 2026-11-12 (finding 15), measured |
+| Trigger | The next `/review-rr` pass, or the next release attempt that consults C-86. |
+| Owner | This repository. |
+| Location | `reports/technical_risk_register.md` — **Cluster N**'s entry line, **C-86**'s second-source-of-redness paragraph, and the Trigger rows and retained bodies of resolved **C-84** and **C-110**. **Cited by name, not by line:** the row read `:170,173,649,1404,1436-1452,1481`, and three of those six had already stopped resolving by the time this entry was first reviewed, because the same batch inserted entries above the lines it cited. C-109's subject, inside the entry that reported it. |
+
+Measured false claims. The **open** Tier-2 entry C-86 says *"From 2026-10-18 `tests/test_credential_expiry.py` fails by design"* — it passes 6/6, and the first red day is now 2027-09-29. Cluster N still lists C-110 inline with live members and calls it closable by reading, while five of that cluster's eight lines do mark their closed members. Resolved C-84 and C-110 retain their entire pre-resolution bodies below the resolution, in the present tense, including *"no release can be tagged"* and a Trigger row still reading *"goes red from 2026-10-18"*; C-84 also claims the failure message names *"the 3h35m gap"* and `views-faoapi#338`, and the rendered message contains neither.
+
+This is this register's own **Expired triggers** convention unapplied: *"a trigger whose event has already occurred is worse than a vague one — it reads identically to a pending trigger and silently misreports state. On firing, rewrite the trigger and re-tier in the same pass."* Nothing mechanical will catch it — `test_register_integrity.py`'s content guards are scoped to Open Concerns by design.
+
+**RESOLVED 2026-11-12 (`/review-rr strategic`) — the entry's own trigger was *"the next `/review-rr` pass"*, and this was it.**
+
+All four records this entry named are corrected, and the pass found a fifth it had missed:
+
+| record | was | now |
+|---|---|---|
+| **C-86** body | *"From 2026-10-18 `tests/test_credential_expiry.py` fails by design"* | past tense, discharged 2026-10-29, with the measured state: **6/6 passing**, `KEY_EXPIRY` 2027-10-29, `LEAD_DAYS` 30, next red day **2027-09-29** |
+| **Cluster N** entries | C-110 and C-111 listed as live members | both marked RESOLVED |
+| **C-84** Trigger row | *"Act when the un_fao delivery is next scheduled within a month of it"* | FIRED AND DISCHARGED, with what actually happened |
+| **C-84** retained body | the whole pre-resolution argument in the present tense, *below* the resolution | fenced and opened in the past tense; the reasoning is kept, the reporting is not |
+| **C-110** Trigger row | *"A release is cut on or after 2026-10-18"* | FIRED AND DISCHARGED; the standing advice extracted and kept |
+| **C-111** — *the one this entry missed* | listed live in Cluster N alongside C-110 | marked RESOLVED |
+
+**Three more stale cluster claims were found in the same read, none of them in this entry's scope:** Cluster G advertised *"Highest tier: 1 (C-26)"* three months after C-26 re-tiered itself to 2 — so the register showed a Tier 1 it does not have; Cluster H listed C-30 as fully resolved while C-30 is open at Tier 2 with a declared residual; Cluster M named *"Highest tier: 2 (C-73)"* five lines below the paragraph explaining that C-73 closed and C-72 did not. **Five cluster drifts in one section, all of them findable only by reading** — which is precisely the residual Cluster I recorded in August: *"The guard covers entries. It does not cover the Causal Clusters section."*
+
+**What this does not fix, and the reason is ADR-014 §2.** No guard is proposed. `test_register_integrity.py` cannot check a cluster's scope line against its members' status without a second declaration of that status, which can go stale exactly as the first did. The mechanism here is the scheduled reading — C-109's rewritten trigger now carries it for `Location` fields, and this entry's discharge is the precedent for the cluster headers. Cluster I's honest position stands: *the mechanical half is done and the prose half is checked by reading, which is what triage is for.*
+
+Cross-refs: **C-109** (Location line numbers decay, the same class of rot — its trigger was rewritten in the same pass), **C-86** / **C-84** / **C-110** / **C-111** (the records themselves), **C-82** (a cluster scope line contradicting its own correction, the precedent for the three found here), ADR-010, ADR-014 §2.
+
+---
+
 ### C-84: Every identity this repo delivers under dies on 2026-11-17, within 3h35m of the other — RESOLVED
 
 | Field | Value |
@@ -1401,7 +1887,7 @@ See also C-40 (the inheritance/representation coupling this migration unwinds), 
 | ID | C-84 |
 | Tier | 2 — not silent. The delivery fails loudly and completely, which is the correct behaviour and also the whole problem: there is no degraded mode, no fallback identity, and the date is known in advance. A foreseeable total outage that nobody has scheduled work against is a structural risk, not an operational surprise. |
 | Source | views-appwrite coordinate registry v1.4.3/v1.4.4 — operator console read, 2026-08-05 (þing-02 A3(i)) |
-| Trigger | **A date, unusually — 2026-11-17.** The registry records `VIEWS Pipeline Core` expiring 12:35 and `UN FAO` 16:10 that afternoon. Act when the un_fao delivery is next scheduled within a month of it, or when anyone plans a rotation, whichever is first. **Since 2026-08-19 the first arm fires by itself**: `tests/test_credential_expiry.py` goes red from 2026-10-18, so the date no longer depends on anyone remembering it. |
+| Trigger | **FIRED AND DISCHARGED.** It was a date — 2026-11-17, when the registry had `VIEWS Pipeline Core` expiring 12:35 and `UN FAO` 16:10. `tests/test_credential_expiry.py` reddened on 2026-10-18 as designed, both keys were rotated on 2026-10-29, and the date passed without an outage. The successors expire 2027-10-29 and the tripwire now carries that; the live trigger belongs to whichever entry is open when it next fires, not to this resolved one. *(This row read "Act when the un_fao delivery is next scheduled within a month of it" until 2026-11-12 — an expired trigger reads identically to a pending one, which is the convention this register states and had not applied to its own resolved bodies.)* |
 | Owner | Simon, and only Simon — issuing and installing keys is a console action. This entry exists so the date is visible from *this* repo's planning surface rather than only from the platform's. |
 | Location | `views_postprocessing/{unfao,crafd}/appwrite_env.py` — the declared coordinates; the values live in the environment and the registry, never here. |
 
@@ -1433,7 +1919,9 @@ ADRs requested at **views-pipeline-core#572** and **views-faoapi#543**, because 
 
 Cross-refs: **C-110** (the self-inflicted release block this resolves), **C-86** (no way past a red build), views-pipeline-core#572, views-faoapi#543, views-faoapi C-282.
 
-The FAO delivery authenticates with the `UN FAO` key. That key expires **2026-11-17 16:10**, and the platform's other key three and a half hours earlier. Read from the console rather than inferred, and recorded in the registry this repo pins.
+**Everything from here to the cross-refs is this entry as it stood before 2026-10-29, kept because the reasoning is worth having and the rejected mechanism is worth not re-proposing. Read it in the past tense: both keys named below were rotated, and every date it treats as future has passed.**
+
+The FAO delivery authenticated with the `UN FAO` key. That key expired **2026-11-17 16:10**, and the platform's other key three and a half hours earlier. Read from the console rather than inferred, and recorded in the registry this repo pins.
 
 **Why the gap is the finding and not the dates.** Three and a half hours is not a stagger — it is close enough that the two keys cannot cover for one another under any realistic response, and both are on the same seam. After 16:10 that afternoon every identity on it is dead at once: model and ensemble writes, the un_fao delivery, the CRAF'd delivery, all preflights, and FAO's own read access. A rotation that assumes one key can carry traffic while the other is replaced has no such window.
 
@@ -1460,7 +1948,7 @@ Cross-refs: **C-81** (the same operator session's other half — branch protecti
 | ID | C-110 |
 | Tier | 3 — the ability to ship is interrupted on a known date, but the escape is in-repo and reachable. That is what separates it from **C-86**'s Tier 2, where the only responses are console actions by one person. If the acknowledgement were ever removed, or the tripwire made unconditional, this becomes C-86's tier. |
 | Source | `/falsify` release-readiness audit, 2026-08-21 (probe P5) |
-| Trigger | A release is cut on or after **2026-10-18**, or anyone reports a red `test` check on `main` they cannot explain — read `tests/test_credential_expiry.py` before diagnosing anything else. |
+| Trigger | **FIRED AND DISCHARGED 2026-10-29.** It was: a release is cut on or after 2026-10-18, or anyone reports a red `test` check on `main` they cannot explain. It fired on 2026-10-18, `main` was closed for eleven days, and the rotation cleared it. *(Rewritten 2026-11-12 — the row still read as pending.)* The standing advice survives it: **read `tests/test_credential_expiry.py` before diagnosing an unexplained red `test` on `main`.** |
 | Owner | This repository for the documentation; the operator for the rotation that removes the cause. |
 | Location | `tests/test_credential_expiry.py::test_the_platform_keys_are_not_about_to_expire`; the `protect_main` ruleset; `docs/operations/` (where the runbook that would say this does not exist). |
 
@@ -3524,6 +4012,40 @@ repository whether views-models read it.
 ---
 
 ## Resolved Disagreements
+
+### D-11: Pandas→frames seam — concrete siblings + delete vs a polymorphic abstraction — SETTLED
+
+*(Moved here from `## Disagreements` at review-rr 2026-11-25. The body had carried `**SETTLED 2026-07-31**` and `**✅ CONDITION MET 2026-08-01**` and stated outright that "no live tension remains — this entry is kept as decision provenance rather than as an open question", while the entry itself stayed filed under open. `test_no_closed_entry_sits_under_open_concerns` could not see it: that check reads only the `Open Concerns` section and inspects headings, not bodies. Both gaps are now covered by `tests/test_register_integrity.py` — see `test_no_settled_entry_sits_under_an_open_section`.)*
+
+| Field | Value |
+|-------|-------|
+| ID | D-11 |
+| Source | `expert-code-review` (2026-06-28) — review of pandas-migration epic #85 |
+| Location | epic #85 / stories #86 (`unfao/frames.py`), #87 (`unfao/extraction.py` + new frame module), #88/#91 (`unfao/managers/unfao.py` source/sink seams) |
+
+The pandas→views-frames migration (epic #85) deliberately swaps each seam by adding a **concrete** frame-native sibling next to the pandas one and later **deleting** the pandas path — rather than introducing a polymorphic abstraction (an `Extractor` Protocol / a representation port) that both implementations satisfy.
+
+- **Position A — concrete siblings + delete (the plan's choice; Martin/Beck-pragmatic, WET-before-DRY).** pandas and frames do **not** coexist at runtime — it is a migration, not a permanent dual representation — so a polymorphic interface would be speculative (YAGNI/ISP: don't force an interface nobody dispatches on). The seam stays readable, each representation is one-concept-per-file, and retirement is a clean file-delete. The invariants already depend on **primitives** (the real abstraction, DIP-satisfied at that boundary), so no port is needed above them.
+- **Position B — abstraction/port (Hickey/strict-OCP).** Depending on a representation port would make the swap "extend, not modify," and would let the two paths coexist cleanly during cutover.
+
+**Decision: A**, consistent with the maintainer's WET-before-DRY rule and the "migration not coexistence" reality. **Re-open trigger (the one acute case):** S6 (#91) introduces a temporary **dual-write** (legacy parquet + arrow sample-frame) for parity during the faoapi cutover — *if that coexistence proves long-lived* (rather than a brief cutover window), a small abstraction may then earn its place; revisit only then. Until then, concrete-and-delete stands.
+
+**RE-INSTANTIATED 2026-07-31 (`expert-code-review`) — same tension, new subject; merged here rather than registered as its own disagreement entry.** The review surfaced the identical disagreement one level down, about the **keyed gather** rather than the representation seam. "Given gids, fetch their lookup rows" now exists **three times, all simultaneously live**: a pandas left-merge (`unfao/enrichment.py:117`), an argsort/searchsorted gather (`unfao/historical.py:57-68`), and an isin/filter/sort (`unfao/wire/sidecar.py:47-57`).
+
+- **Position A (GoF, Hickey) — unify now.** Three implementations of one join is a correctness surface, not a migration artifact. They differ in failure semantics: two raise in place naming the absent gids; the pandas one yields NaN and defers to a downstream gate. That divergence is invisible at the call sites.
+- **Position B (Feathers, Beck) — defer to #89.** The differing failure semantics are *deliberate*, each implementation is separately tested, and unification means changing three call sites while the legacy branch is still live. The duplication is scheduled to die with that branch.
+
+**✅ CONDITION MET 2026-08-01 (epic #148).** The legacy forecast branch **was** deleted (#149) — before #89 landed, so the re-open trigger below never fired. Position A is vindicated by events rather than by argument: concrete siblings were built, the migration completed, and the second implementation was deleted rather than abstracted over. A Protocol introduced at decision time would have outlived the thing it existed to unify. Recorded in `tests/test_input_integrity_design_contract.py` ② so the next seam decision has the precedent.
+
+**Adjudication: B — but conditionally, and the condition is now named.** B is only correct *if the legacy forecast branch is actually deleted*. It had no scheduled deletion PR when this was adjudicated — #149 deleted it on 2026-07-31, which is what made B correct rather than merely preferable — only a "named post-run-0 follow-up" (C-40). If it lingers, three-way duplication becomes the permanent shape and Position A wins retroactively. **Re-open trigger: if the legacy forecast branch still exists when #89 (numpy/pyarrow keyed gather) lands, unify all three consumers onto one fail-loud gather primitive as part of that story rather than deferring again.** Cross-refs C-59 (the duplicate-key hazard that lands differently in each of the three), C-40, #89.
+
+**SETTLED 2026-07-31 (review-rr — the original re-open trigger resolved without firing).** The sole re-open condition was a long-lived S6/#91 dual-write. **#91 is CLOSED**, and the contract path shipped frame-native end-to-end (PRs #115–#129, wire delivered in run-0) without a durable dual-representation window. Position A is vindicated by events: concrete siblings + delete is what actually happened, the pandas path is confined to the legacy branch pending its named post-run-0 deletion, and no polymorphic representation port was ever needed. No live tension remains — this entry is kept as decision provenance for the remaining seam work (#89, #90) rather than as an open question.
+
+See also C-40 (the inheritance/representation coupling this migration unwinds), #85 (the migration epic), #45 (the faoapi wire / S6 dual-write).
+
+---
+
+---
 
 ### D-07: Historical data route — keep pipeline-core dispatcher vs call datafactory directly — RESOLVED
 

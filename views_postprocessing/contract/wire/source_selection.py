@@ -105,10 +105,16 @@ class TargetLease:
         # grid; the product excludes the declared GAUL-uncovered cells.
         frame = drop_units(frame, self.excluded_gids)
         cells = cells_of(frame)
-        if self.excluded_gids:
-            coverage.assert_no_excluded_cells(cells, self.excluded_gids, label=f"forecast[{self.target}]")
-        if self.expected_cells is not None:
-            coverage.assert_complete_coverage(cells, self.expected_cells, label=f"forecast[{self.target}]")
+        # Both gates are called UNCONDITIONALLY, and each reports its own skip for a
+        # region that pins no manifest or no count. The two `if`s that stood here were
+        # the same silence C-113 is about, on the larger leg: forecast coverage is
+        # asserted here, not in the managers, so an unpinned region loaded every target
+        # with both gates skipped and nothing in the run log. A caller-side `if` would
+        # restore it. Exclusion before count, so a leaked island names itself rather
+        # than reading as "over-coverage by 1" (S4/C-30).
+        label = f"forecast[{self.target}]"
+        coverage.assert_no_excluded_cells(cells, self.excluded_gids, label=label)
+        coverage.assert_complete_coverage(cells, self.expected_cells, label=label)
         return frame, headers
 
 

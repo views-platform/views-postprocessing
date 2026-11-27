@@ -74,12 +74,38 @@ diff views_postprocessing/unfao/managers/unfao.py \
      views_postprocessing/crafd/managers/crafd.py
 ```
 
-The differing lines **change no behaviour**, and the count is deliberately not
-repeated here — it was sixteen when this paragraph was written and is not now. What
-differs is: the import,
-the class name, the two partner-named methods and their two call sites, the four
-env-var literals, one line that both selects which env tuple is validated and labels
-the store, one runtime refusal message, and four lines of prose.
+**Since #327 the differing lines DO change behaviour**, and that sentence used to say the
+opposite. The count is deliberately not repeated here — it was sixteen when this paragraph
+was written and is not now. What differs is: the import, the class name, the two
+partner-named methods and their two call sites, the four env-var literals, one line that
+both selects which env tuple is validated and labels the store, one runtime refusal
+message, several lines of prose — **and the CRAF'd delivery's second Appwrite connection**.
+
+### The second connection — read this before cloning either manager
+
+A delivery reads the finished forecast run out of the store the whole platform shares, and
+writes the partner's copy into a store belonging to that partner. Those are **two separate
+Appwrite projects** for CRAF'd and, for now, one project for FAO (#337 is the FAO half).
+A partner with a project of its own needs:
+
+1. a second connection triple in `<partner>/appwrite_env.py` — endpoint, project id,
+   credential — with names minted by the coordinate registry, never invented locally;
+2. both tuples asserted in `_partner_appwrite_config`, because that function reads the
+   audience's coordinates to build its client **and** the shared project's id to prove it
+   is not addressing it;
+3. the isolation rule called there, keyword-only, with its returned value used — it is
+   partner-neutral and already in `contract/audience.py`, so there is nothing to copy;
+4. a test asserting the **built `AppwriteConfig`**, not just the rule. Nine unit tests of
+   the rule alone stayed green with the rule deleted from the manager, which is how this
+   nearly shipped;
+5. the partner's write key added to `tests/test_credential_expiry.py`'s `KEY_EXPIRY` and
+   `KEY_ROLE`, or its expiry is invisible behind the earliest other key.
+
+**There is no fallback and must not be one.** If the audience connection cannot be proven
+distinct from the shared one, the delivery refuses before any byte moves. Writing to the
+shared store is the outcome being prevented, so falling back to it converts the refusal
+into the failure. The decision and its reasoning are
+**[vpp_018](ADRs/018_one_audience_one_connection.md)**.
 
 **That is deliberate** — WET before DRY, and the second copy is what finally showed the
 seam is a config object rather than a behavioural one. Register **C-33** carries the
