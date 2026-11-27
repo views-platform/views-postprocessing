@@ -9,6 +9,55 @@ This file exists because the version number was the only signal a consumer got
 (register C-111). Releases before 1.2.0 are summarised from their tags rather than
 reconstructed in detail.
 
+## 1.5.0 — 2026-11-27
+
+**The CRAF'd delivery writes into CRAF'd's own Appwrite project.** If you pin this package
+and launch the CRAF'd postprocessor, this release **requires two environment values the
+previous one did not**, and it raises rather than falling back when they are missing.
+
+### What changed for a consumer
+
+**Two connections, not one.** The delivery reads the finished forecast run from the store
+the whole platform shares, and writes CRAF'd's copy into the Appwrite project that belongs
+to CRAF'd. Those have been two separate projects since 2026-11-11; this package addressed
+only the shared one, so a CRAF'd delivery made before this release would have written where
+the consuming API does not look — with the upload succeeding and nothing reporting it.
+
+**New required values, for the CRAF'd path only:**
+
+| name | what it is |
+|---|---|
+| `APPWRITE_CRAFD_PROJECT_ID` | CRAF'd's own Appwrite project. Already exported by views-models' launcher, which reads coordinates from the registry generically. |
+| `APPWRITE_CRAFD_PUBLISHER_API_KEY` | a key for that project, issued separately from the platform key. **Not yet carried by any launcher** — views-models#755. |
+
+Both names are minted by the Appwrite Seam Contract's coordinate registry, edition
+**v1.9.1**. The UN-FAO path is unchanged and still uses one connection.
+
+**It refuses instead of falling back.** If the CRAF'd project value is missing, blank, or
+equal to the shared project's — or if the two keys are the same value — the run stops
+before any byte moves and names the coordinates to compare. No value is printed. Falling
+back to the shared project would be the exact failure the change prevents, so there is no
+override and no degraded mode. The decision is `docs/ADRs/018_one_audience_one_connection.md`.
+
+### What changed in what gets installed
+
+**`views-pipeline-core` now requires `>=3.6.0`, which pulls `views-frames >=3.0.0`.** Two
+major dependency versions move, not one. This affects the UN-FAO path as well, which does
+not need either change — one floor serves both products, and this package has no mechanism
+for a per-product floor.
+
+The floor is a requirement rather than hygiene: Appwrite 1.8 renamed the API this package's
+metadata writes use, and a key issued after that rename is refused by the old one. Below
+3.6.0 the CRAF'd delivery cannot complete at all. It fails early and non-zero, before
+anything is uploaded — nothing is left half-written.
+
+Delivered bytes are unaffected: `pyarrow`, `numpy` and `pandas` are untouched.
+
+### Notes
+
+The forecast artifacts themselves are unchanged — same wire contract, same shards, same
+manifest, same sidecar. Only the project they are written into is different.
+
 ## 1.4.0 — 2026-09-29
 
 **Fixes an unservable delivery.** The first live UN-FAO run, earlier today, uploaded
