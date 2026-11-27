@@ -1667,12 +1667,25 @@ assert the refusals and the built configuration with a synthetic environment, wh
 makes them possible to run at all — they cannot establish that the real coordinates exist
 or that the real key carries its write scopes.
 
-**The launcher half is the part that is not ours.** Searched 2026-11-27: no script in
-views-models mentions `APPWRITE_CRAFD_PUBLISHER_API_KEY`, so the environment this delivery
-now requires is not assembled by the thing that launches it. The first armed run therefore
-resolves the contract run, downloads every manifest, loads the 888 KB GAUL lookup, and only
-then raises `EnvironmentError` naming the two missing coordinates — all of that work
-discarded for a configuration fault knowable at entry.
+**The launcher half is the part that is not ours, and it is ONE coordinate, not two.**
+Read in views-models 2026-11-27: `tools/credentials/platform_env.sh` has two separate
+mechanisms. `platform_env_export_coordinates` exports whatever the registry read yields, so
+`APPWRITE_CRAFD_PROJECT_ID` resolves with no change at all. `platform_env_export_secret`
+carries exactly ONE secret, named at `:68` by `PLATFORM_ENV_SECRET_NAME="APPWRITE_DATASTORE
+_API_KEY"`, and there is one `.env` lookup, one export and one presence check behind it. So
+the publisher key has nowhere to live, and `APPWRITE_CRAFD_PUBLISHER_API_KEY` appears in no
+script there. *(An earlier version of this entry said "the two coordinates", which
+overstated the change views-models has to make — the loader was already shaped for a
+secret whose NAME varies, just not for two at once.)*
+
+That gap is tracked at **views-models#755**, filed 2026-11-25, which states the same
+mechanism and leaves the direction open because it touches that repository's single-writer
+rule: a list of secret names, or a per-audience loader invocation, have different
+consequences for "one writer" and that is a decision rather than an implementation.
+
+Until it is closed, the first armed run resolves the contract run, downloads every
+manifest, loads the 888 KB GAUL lookup, and only then raises `EnvironmentError` naming the
+missing key — all of that work discarded for a configuration fault knowable at entry.
 
 **Two separable remedies, and only one is ours.** The ordering one is to assert the audience
 environment beside `launch_config.assert_contract_mode` and `assert_region_declared` in
