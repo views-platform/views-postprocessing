@@ -80,14 +80,13 @@ def _build_prod_forecasts_store(ensemble_name: str | None) -> DatastoreModule:
     return datastore
 
 
-def _build_partner_store(model_path) -> DatastoreModule:
-    """The partner-facing store (`crafd_bucket`) — a function for the same reason as above.
+def _build_partner_store(*, config: AppwriteConfig) -> DatastoreModule:
+    """The partner-facing store (`crafd_bucket`), built from an ALREADY-CHECKED config.
 
-    ``model_path`` is the framework's own path manager, so it is passed in rather than
-    reached for. That is the whole difference between this and a method, and it is what
-    lets the environment contract be checked without standing up a manager.
+    Takes the config, not the path manager, so one delivery resolves the audience
+    connection once and the C-94 read-back verifies what the write used (vpp_018 §3).
     """
-    return DatastoreModule(appwrite_file_manager_config=_partner_appwrite_config(model_path))
+    return DatastoreModule(appwrite_file_manager_config=config)
 
 
 def _partner_appwrite_config(model_path) -> AppwriteConfig:
@@ -97,17 +96,24 @@ def _partner_appwrite_config(model_path) -> AppwriteConfig:
     repository's source.
 
     **#327: the second of two connections, and a different PROJECT** — container ids
-    unchanged, only the project moves. Rationale: #327, ``contract/audience.py``.
+    unchanged, only the project moves. Why a fallback is forbidden: **vpp_018**.
     """
+    # BOTH tuples: the audience's three coordinates build the client, the shelf's two
+    # prove it is not the shelf. The audience tuple alone left the shelf project id an
+    # UNDECLARED read here (vpp_018 §6).
     appwrite_env.assert_env_declared(
-        appwrite_env.AUDIENCE_CONNECTION_ENV + appwrite_env.CRAFD_ENV,
+        appwrite_env.SHELF_CONNECTION_ENV
+        + appwrite_env.AUDIENCE_CONNECTION_ENV
+        + appwrite_env.CRAFD_ENV,
         store="crafd_bucket datastore (audience project)",
     )
-    # Refuse a non-isolated connection BEFORE building a client; the checked value is
-    # used, so the coordinate is read exactly once (see contract/audience.py).
+    # Refuse before building a client. Keyword-only: four same-typed strings transpose,
+    # and a symmetric check passes when they do. The return value is the CHECKED one.
     audience_project_id = audience.assert_audience_is_not_the_shelf(
-        os.getenv("APPWRITE_CRAFD_PROJECT_ID"),
-        os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
+        audience_project_id=os.getenv("APPWRITE_CRAFD_PROJECT_ID"),
+        shelf_project_id=os.getenv("APPWRITE_DATASTORE_PROJECT_ID"),
+        audience_credential=os.getenv("APPWRITE_CRAFD_PUBLISHER_API_KEY"),
+        shelf_credential=os.getenv("APPWRITE_DATASTORE_API_KEY"),
         consumer=product.CONSUMER_DOCUMENT_NAME,
     )
     return AppwriteConfig(
@@ -126,23 +132,24 @@ def _partner_appwrite_config(model_path) -> AppwriteConfig:
     )
 
 
-def _build_partner_read_store(model_path) -> DatastoreModule:
+def _build_partner_read_store(*, config: AppwriteConfig) -> DatastoreModule:
     """The partner store for the C-94 read-back, with pipeline-core's automatic
     ``name == model_name`` filter suppressed — otherwise the preflight would verify the
     views-models directory name, which equals the declared consumer name only by
     coincidence (**C-77**). C-94 records why it reuses the write key.
     """
-    store = DatastoreModule(appwrite_file_manager_config=_partner_appwrite_config(model_path))
+    store = DatastoreModule(appwrite_file_manager_config=config)
     store.model_path = None
     return store
 
 
 def _assert_delivery_is_findable(
-    model_path, consumer_name: str, legs: dict, objects: list
+    config: AppwriteConfig, consumer_name: str, legs: dict, objects: list
 ) -> None:
     """C-94/#312: ask the store the questions the consumer asks. The rule and its
-    refusals live in `delivery/findability.verify`; this owns only the port."""
-    port = _ContractStorePort(_build_partner_read_store(model_path))
+    refusals live in `delivery/findability.verify`; this owns only the port. Takes the
+    SAME config the upload used (vpp_018 §3)."""
+    port = _ContractStorePort(_build_partner_read_store(config=config))
     findability.verify(
         consumer_name=consumer_name, legs=legs, objects=objects,
         resolve_latest=port.latest_file_id, list_documents=port.documents,
@@ -350,7 +357,9 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
         # file itself.
         lookup = gaul_lookup.load()
         upload_enabled = bool(self.configs.get("wire_upload_enabled", product.UPLOAD_ENABLED))
-        store = _ContractStorePort(_build_partner_store(self._model_path)) if upload_enabled else None
+        # ONE resolution per delivery, shared by the upload and its read-back (vpp_018).
+        audience_config = _partner_appwrite_config(self._model_path) if upload_enabled else None
+        store = _ContractStorePort(_build_partner_store(config=audience_config)) if upload_enabled else None
         # The wire is partner-neutral (#153): the manager supplies CRAF'd's product
         # facts explicitly rather than the mechanism reaching for them.
         summary = wire_sink.deliver_run(
@@ -395,7 +404,7 @@ class CRAFDPostProcessorManager(PostprocessorManager, ForecastingModelManager):
             # C-94: nothing above observes the OUTCOME of an upload. Every call
             # reported success in run-0 too, and the historical leg still stranded.
             _assert_delivery_is_findable(
-                self._model_path,
+                audience_config,
                 product.CONSUMER_DOCUMENT_NAME,
                 {"forecast": summary["manifest_file_id"], "historical": hist_file_id},
                 [*summary["uploaded_objects"], {"name": hist_path.name,

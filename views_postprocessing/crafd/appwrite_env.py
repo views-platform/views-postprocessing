@@ -13,12 +13,10 @@ That pin is registry **v1.9.1** — declared below as ``SEAM_CONTRACT_VERSION`` 
 buried in prose. A pinned URL does not rot, but it does go stale, and nothing in this
 repository could previously tell you it had (register C-57).
 
-**The first pin taken here predated its own coordinates having values**, so it was stale
-by commit and not only by version, and no test could see it — the drift check was scoped
-to the FAO package by name. Register **C-57** holds the commits and dates; the check is
-now scoped to both packages.
-
-**Pin from the tip of `main`, never from a sibling checkout's `HEAD`** (#196).
+**Pin from the tip of views-appwrite's `main`, never from a sibling checkout's working
+tree** (#196). Register **C-57** holds why, with the commits and dates: the first pin here
+named an edition whose coordinates had no values yet, and the drift check could not see it
+because it was scoped to the FAO package by name.
 
 The LAUNCHER assembles the environment
 (views-models M3: run.sh reads the owned registry; the secret stays the operator
@@ -53,8 +51,10 @@ CONNECTION_ENV = (
     "APPWRITE_DATASTORE_API_KEY",  # secret slot — the value must never be logged
 )
 
-#: Alias: "CONNECTION_ENV" stopped being unambiguous once a second connection existed.
-#: The old name stays — the launcher and tests reference it (#327).
+#: Alias: "CONNECTION_ENV" stopped being unambiguous once a second connection existed, so
+#: the manager names the SHELF explicitly where it asserts both connections. The old name
+#: stays because the launcher and the other guards still use it, and because the two are
+#: the same tuple object — editing one "name" would silently edit both (vpp_018 §3).
 SHELF_CONNECTION_ENV = CONNECTION_ENV
 
 #: The AUDIENCE connection: CRAF'd's OWN Appwrite project, which this delivery WRITES to
@@ -67,10 +67,9 @@ SHELF_CONNECTION_ENV = CONNECTION_ENV
 #: project, so the shelf key cannot reach the audience project, and one env-var name cannot
 #: carry two live values in one process — **#327**, views-appwrite#208.
 #:
-#: The pin below names v1.9.1 at views-appwrite ``main``'s tip (PR #213, tag
-#: ``appwrite-seam-v1.9.1``), as #196 requires. Read the registry with
-#: ``git show <commit>:<path>``, never a working tree: a pin set that way named an edition
-#: its commit did not carry, unseen because both guards ran below the floor — **C-125**.
+#: The pin below names v1.9.1, reachable from views-appwrite's ``main`` (#196) and tagged
+#: ``appwrite-seam-v1.9.1``. Read the registry with ``git show <commit>:<path>``, never a
+#: working tree — **C-125** records what that cost and why no guard caught it.
 AUDIENCE_CONNECTION_ENV = (
     "APPWRITE_ENDPOINT",
     "APPWRITE_CRAFD_PROJECT_ID",

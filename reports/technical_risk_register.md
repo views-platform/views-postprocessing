@@ -5,8 +5,8 @@
 | Project           | views-postprocessing                 |
 | Owner             | Dylan Pinheiro / PRIO MD&D Team      |
 | Last Updated      | 2026-11-27                           |
-| Total Concerns          | 126                                   |
-| Open Concerns           | 41                                    |
+| Total Concerns          | 128                                   |
+| Open Concerns           | 43                                    |
 | Resolved Concerns       | 85                                   |
 
 ---
@@ -1604,7 +1604,13 @@ whose shell `python` is 3.10.14:
   include both pin guards. That module reads green *with its guards removed*, and the skip
   reason reads like the ordinary absent-fixture skips elsewhere in this suite.
 - The same suite under `views-models/envs/views-postprocessing` (Python 3.11.15, the prefix
-  the launcher installs into) → **`573 passed, 2 failed, 3 skipped, 41 xfailed`**.
+  the launcher installs into) → **`587 passed, 1 failed, 3 skipped, 41 xfailed`**, the one
+  failure being the environment-drift guard reporting that this prefix has not been
+  reinstalled since the dependency floor moved. *(Re-measured 2026-11-27 at the commit
+  that registers this entry. The first version of this bullet said `573 passed, 2 failed`,
+  which was the figure from an earlier commit on the same branch — a recalled number in
+  the control measurement of an entry about trusting a run you did not watch. The three
+  numbers above are from the command run in that turn.)*
 
 **The guards themselves are sound, and that is the point.** Under 3.11, restoring the pin
 this session nearly shipped — `SEAM_CONTRACT_COMMIT = "34261d1"` beside
@@ -1639,6 +1645,92 @@ because it was scoped to one package by name — the same pin, the previous way 
 **C-102** (resolved precedent: derive the probe from the declaration), **C-114** (a stub
 that can neither fail for a stated reason nor flip — the nearest shape among the existing
 members), **#196** (the pinning rule this protects).
+
+---
+
+### C-126: The audience connection cannot be proven without arming a real delivery, and the launcher does not yet export its coordinates
+
+| Field | Value |
+|-------|-------|
+| ID | C-126 |
+| Tier | 2 — the first execution of a connection this repository cannot rehearse will be a live partner delivery, and the environment it needs is not assembled anywhere yet. No corruption, so not Tier 1; a named near-term trigger, so not Tier 3. |
+| Source | `/code-review max` on PR #356 (2026-11-27), finding 2 and its cross-file angle. |
+| Trigger | The first run with `wire_upload_enabled` true — the CRAF'd delivery's first armed attempt. |
+| Owner | This repository for the ordering; **views-models** for exporting the two coordinates. Cross-repo, so the operator decides sequencing. |
+| Location | `views_postprocessing/crafd/product.py` (`UPLOAD_ENABLED = False`), `views_postprocessing/crafd/managers/crafd.py` (`_partner_appwrite_config`, reached only from the two call sites inside `if upload_enabled`), `views_postprocessing/crafd/managers/crafd.py` `_read_forecast_data` (where the launch declarations are asserted) |
+
+Measured 2026-11-27: `product.UPLOAD_ENABLED` is `False`, and every caller of
+`_partner_appwrite_config` is inside an `if upload_enabled` branch. So none of #327's code
+has executed in any run in this repository's history, and there is **no mode that validates
+the audience coordinates without arming a real delivery**. The unit and manager tests
+assert the refusals and the built configuration with a synthetic environment, which is what
+makes them possible to run at all — they cannot establish that the real coordinates exist
+or that the real key carries its write scopes.
+
+**The launcher half is the part that is not ours.** Searched 2026-11-27: no script in
+views-models mentions `APPWRITE_CRAFD_PUBLISHER_API_KEY`, so the environment this delivery
+now requires is not assembled by the thing that launches it. The first armed run therefore
+resolves the contract run, downloads every manifest, loads the 888 KB GAUL lookup, and only
+then raises `EnvironmentError` naming the two missing coordinates — all of that work
+discarded for a configuration fault knowable at entry.
+
+**Two separable remedies, and only one is ours.** The ordering one is to assert the audience
+environment beside `launch_config.assert_contract_mode` and `assert_region_declared` in
+`_read_forecast_data`, keyed off the declared `wire_upload_enabled`, so an armed run proves
+its environment before doing any work — and so a staging run can be made to prove it
+without uploading. The other is the launcher exporting the two names, which is
+views-models' change and the operator's to sequence. Doing the first alone moves the
+failure earlier without removing it.
+
+**What the registry does and does not settle.** The containers are not a gap: edition
+v1.9.1 at views-appwrite `a251cb8` records the operator measuring, read-only on 2026-11-25,
+that the project named by `APPWRITE_CRAFD_PROJECT_ID` holds `file_metadata` with the table
+`crafd`, all thirteen declared columns, three indexes, zero rows, and that its bucket
+exists. So nothing needs provisioning and the preflight will pass on the first armed run,
+which makes it a regression guard rather than a gate. What is **not** settled is the key's
+write scopes: the same edition records `rows.write`, `files.write` and `files.read` as
+console readings only, and names this first delivery as their proof.
+
+Cross-refs: **vpp_018** (the decision), **C-125** (the other half of this pull request's
+guard lesson), **C-33** (why the two managers are clones), **views-faoapi C-161**
+(the interlock the first enablement is gated on, namespaced per this register's own
+convention).
+
+---
+
+### C-127: Six container coordinates are addressed against two projects, and their registry rows carry no project scope
+
+| Field | Value |
+|-------|-------|
+| ID | C-127 |
+| Tier | 3 — one value must be valid in two projects and today it is, measured upstream. The risk is that nothing in either repository records the dependency, so a future edit to one project's containers has no reason to consider the other. |
+| Source | `/code-review max` on PR #356 (2026-11-27), finding 9. |
+| Trigger | A change to the containers in either Appwrite project — a renamed metadata database, a bucket recreated with a new id — or a third audience project whose containers were created independently. |
+| Owner | This repository for the reuse; **views-appwrite** for whether a coordinate row states which project it belongs to (their #201). |
+| Location | `views_postprocessing/crafd/appwrite_env.py` (`PROD_FORECASTS_ENV` and `CRAFD_ENV` both list `APPWRITE_METADATA_DATABASE_ID` / `_NAME`), `views_postprocessing/crafd/managers/crafd.py` (`_build_prod_forecasts_store` reads them for the shared project, `_partner_appwrite_config` for the audience project) |
+
+#327 moved the project and left the container coordinates alone, which is the right shape —
+the artifacts and their containers are partner-neutral and only the project differs. The
+consequence is that six names, including the metadata database, are now addressed against
+**two** Appwrite projects, so each value must be valid in both.
+
+Today it is. Registry edition v1.9.1 records the audience project holding `file_metadata`
+with the table `crafd`, measured read-only by the operator 2026-11-25. **What is missing is
+not the fact but its home:** `[target.APPWRITE_METADATA_DATABASE_ID]` in the registry
+carries a value and no project qualification, so the row reads identically whether it means
+the shared project's database or the audience project's — the same structural gap
+views-appwrite#201 records for the CRAF'd coordinates generally, and the cause of the ten
+days this platform spent confused about which project CRAF'd's bucket was in.
+
+The claim in `crafd/managers/crafd.py` that container ids are *"unchanged, only the project
+moves"* is true and is also the sentence that hides this: it reads as *"nothing to check"*
+when what it means is *"one value, two projects, verified elsewhere"*. **vpp_018**'s
+consequences section now states that explicitly as the one claim in that decision which
+nothing in this repository enforces.
+
+Cross-refs: **vpp_018** (states the dependency), **C-126** (the same first armed run is what
+would surface a container fault), **views-appwrite#201** (the registry's missing project
+containment, namespaced per this register's own convention).
 
 ---
 

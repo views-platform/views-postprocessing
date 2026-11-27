@@ -29,20 +29,40 @@ python = ">=3.11,<3.15"
 # `data={"documents": ..., "total": ...}` is unchanged, so this repo's five read sites are
 # untouched.
 #
-# Why a floor rather than a comment: below 3.6.0 the audience delivery would upload the
-# forecast FILES successfully — storage scopes did not change in the rename — and then 401
-# on every metadata row. Orphans in `crafd_bucket`, and under ADR-047 a run that logs the
-# failure and exits 0. A floor is the only thing that makes that unreachable rather than
-# merely documented.
+# Why a floor rather than a comment: below 3.6.0 the audience delivery CANNOT DELIVER AT
+# ALL. Verified by reading pipeline-core at tag 3.4.0: `upload_file_with_metadata` calls
+# `metadata_manager.check_file_exists_by_hash` — a `databases.*` call — BEFORE touching
+# storage, and returns a failure result on any code but NOT_FOUND, so a post-rename key
+# 401s there and nothing is uploaded. `_require_containers` fails earlier still, on
+# `databases.list_collections`.
+#
+# An earlier version of this comment claimed the opposite — files uploaded, metadata
+# 401ing, orphans left in `crafd_bucket`, the run exiting 0 — and all three parts were
+# wrong: the order of calls prevents the orphan, and `crafd/store_port.py` raises
+# `RuntimeError` unless `success is True`, which `contract/wire/sink.py` re-raises, so the
+# run exits NON-ZERO. The cited "ADR-047" was also unnamespaced and resolves to no
+# document in this repository; `reports/technical_risk_register.md` already cites a
+# DIFFERENT ADR-047, views-datafactory's. The decision was right and its stated reason was
+# not, which is worse than a missing reason: the next reader inherits a mechanism that
+# does not exist. Corrected 2026-11-27 (#356 review).
+#
+# So the floor buys a loud, early refusal instead of a 401 surfacing from inside the
+# delivery — and it is a REQUIREMENT, not hygiene, because no version below it can
+# complete the CRAF'd delivery with the key that project has.
 #
 # ⚠ THIS CHANGES WHAT THE NEXT FAO RUN INSTALLS. views-models' launcher reuses a conda
 # prefix that currently holds 3.3.5, and a bare `pip install` leaves an already-satisfied
 # specifier alone. 3.3.5 does not satisfy `>=3.6.0`, so the next run WILL upgrade it — and
 # FAO's next delivery would be the first to use the TablesDB path. FAO does not need it
 # (its key predates the rename and carries both vocabularies), so this is a cost of
-# keeping one floor for both products rather than a benefit to FAO. Flagged to the
-# operator 2026-11-25; the alternative is a per-product floor, which this repo has no
-# mechanism for.
+# keeping one floor for both products rather than a benefit to FAO.
+#
+# **TWO majors move, not one.** The same prefix holds views-frames 2.0.0, and 3.6.0
+# requires `views-frames >=3.0.0`, so pip resolves both: pipeline-core 3.3.5 -> 3.6.0 AND
+# views-frames 2.0.0 -> 3.0.0. Measured in the prefix at
+# `views-models/envs/views-postprocessing` and in `poetry.lock` on 2026-11-27, not
+# inferred. Accepted by the operator 2026-11-27 after being told it was two rather than
+# one; the alternative is a per-product floor, which this repo has no mechanism for.
 #
 # 3.6.0 does NOT move provisioning (their #605 is open; 17 `self.databases.*` calls remain
 # in `modules/appwrite/provisioning.py` at that tag). #327 needs no provisioning run —
@@ -61,12 +81,20 @@ views-pipeline-core = {version = ">=3.6.0,<4.0.0", extras = ["appwrite"]}
 # the control that tells you the check is working — the first draft of this change offered
 # a pathspec that silently matched nothing.
 #
-# **views-frames 3.x is not reachable alone:** pipeline-core 3.3.0 caps
-# `views-frames <3.0.0`, so the lock moves pipeline-core 3.3.0 -> 3.4.0 with it. Both are
-# inside the ranges already declared here. The floor stays at 2.0.0 and pipeline-core's at
-# 3.0.0 deliberately — (frames 2.x + pipeline-core 3.3.x) is still a coherent resolution.
-# The lock moves rather than staying at 2.0.0 so CI asserts this ceiling instead of
-# leaving it a claim.
+# **Since #327, views-frames 3.x is the ONLY resolution, and the floor above is now the
+# reason.** Measured in `poetry.lock`: the `views-pipeline-core` 3.6.0 entry requires
+# `views-frames >=3.0.0,<4.0.0`. So the `>=2.0.0` floor on the next line is a floor the
+# solver can no longer pick, and the paragraph this replaces — which said pipeline-core
+# capped frames below 3.0.0, that the lock moved pipeline-core to 3.4.0, and that
+# (frames 2.x + pipeline-core 3.3.x) stayed coherent — was false in all three parts the
+# moment the pipeline-core floor moved to 3.6.0. It mattered because anyone judging the
+# blast radius of the forced FAO upgrade read here that ONE major version moves, when the
+# answer is two. Corrected 2026-11-27 (#356 review).
+#
+# The `>=2.0.0` floor is left as written rather than raised to 3.0.0: this repository's own
+# compatibility evidence covers 2.x as well as 3.x, and narrowing the declared range to
+# match today's single resolution would delete that, so the floor records what this code
+# supports and the lock records what it resolves to.
 views-frames = ">=2.0.0,<4.0.0"
 pyarrow = ">=16.1.0,<17.0.0"
 

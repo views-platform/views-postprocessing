@@ -115,6 +115,14 @@ _PARTNER_ENV = {
             "APPWRITE_CRAFD_BUCKET_NAME": "target",
             "APPWRITE_CRAFD_COLLECTION_ID": "target",
             "APPWRITE_CRAFD_COLLECTION_NAME": "target",
+            # #327's second connection. Classified here, from the registry at the pinned
+            # commit, because EVERY check in this file reads these classes: the
+            # registry-existence check, the rotation drift projection, and the secret-copy
+            # scan over tracked documents. Left out, the publisher key — the only secret
+            # #327 adds, in a PUBLIC repository — was outside the scan that exists to
+            # catch a value pasted into a markdown file.
+            "APPWRITE_CRAFD_PROJECT_ID": "connection",
+            "APPWRITE_CRAFD_PUBLISHER_API_KEY": "secret",
         },
     ),
 }
@@ -523,7 +531,16 @@ def test_every_declared_name_is_classified_here(partner):
     That is register **C-74**'s shape: a guard quietly narrower than it claims.
     """
     module, own_store, expected = _PARTNER_ENV[partner]
-    declared = set(module.CONNECTION_ENV + module.PROD_FORECASTS_ENV + own_store)
+    # AUDIENCE_CONNECTION_ENV included, and the default is deliberate: a partner without
+    # a second connection declares none. Omitting it is what let #327's two new
+    # coordinates pass this check at 13 == 13 while never entering the class map above —
+    # C-74's shape again, in the test whose docstring names C-74.
+    declared = set(
+        module.CONNECTION_ENV
+        + module.PROD_FORECASTS_ENV
+        + own_store
+        + getattr(module, "AUDIENCE_CONNECTION_ENV", ())
+    )
     assert set(expected) == declared, (
         f"[{partner}] unclassified: {sorted(declared - set(expected))}; "
         f"stale: {sorted(set(expected) - declared)}"
